@@ -23,6 +23,8 @@ import (
 
 	"github.com/vpn-gateway/vpn-gateway/internal/server"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/api"
+	"github.com/vpn-gateway/vpn-gateway/internal/server/certs"
+	"github.com/vpn-gateway/vpn-gateway/internal/server/proxy"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/runtime"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/tunnel"
 )
@@ -55,6 +57,12 @@ func run(configPath string, check bool, logLevel string) error {
 	}
 	if check {
 		fmt.Printf("configuration is valid: %d tunnel(s)\n", len(cfg.Tunnels))
+		if cfg.Trojan.Disabled {
+			fmt.Println("  trojan listener: disabled")
+		} else {
+			fmt.Printf("  trojan listener: %s  sni=%s  tls=%s\n",
+				cfg.Trojan.Listen, cfg.Trojan.ServerName, cfg.Trojan.TLSMode)
+		}
 		for _, t := range cfg.Tunnels {
 			state := "enabled"
 			if t.Disabled {
@@ -85,6 +93,36 @@ func run(configPath string, check bool, logLevel string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	var listener *proxy.Proxy
+	if !cfg.Trojan.Disabled {
+		mat, err := resolveTLS(cfg)
+		if err != nil {
+			return err
+		}
+		if mat.SelfSigned {
+			log.Info("using a self-signed certificate; clients must pin it",
+				"fingerprint", mat.Fingerprint)
+			if due, notAfter, err := mat.NeedsRenewal(30 * 24 * time.Hour); err == nil && due {
+				log.Warn("the certificate is close to expiry; renewing it requires re-pinning every client",
+					"not_after", notAfter)
+			}
+		}
+		listener, err = proxy.New(ctx, proxy.Options{
+			Listen:     cfg.Trojan.Listen,
+			ServerName: mat.ServerName,
+			CertPath:   mat.CertPath,
+			KeyPath:    mat.KeyPath,
+			LogLevel:   cfg.Trojan.LogLevel,
+			Routes:     mgr.Routes(),
+		}, log)
+		if err != nil {
+			return err
+		}
+		defer listener.Close()
+	} else {
+		log.Warn("the trojan listener is disabled; no client can connect")
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() { defer wg.Done(); mgr.Run(ctx) }()
@@ -105,6 +143,9 @@ func run(configPath string, check bool, logLevel string) error {
 		}
 	}
 
+	if listener != nil {
+		listener.Close()
+	}
 	wg.Wait()
 	// Containers are stopped, not removed, so tunnels that authenticated
 	// interactively do not have to do it again after a server restart.
@@ -112,6 +153,16 @@ func run(configPath string, check bool, logLevel string) error {
 	defer cancel()
 	mgr.Shutdown(shutCtx)
 	return nil
+}
+
+// resolveTLS produces the certificate the listener serves.
+func resolveTLS(cfg *server.Config) (*certs.Material, error) {
+	switch cfg.Trojan.TLSMode {
+	case "files":
+		return certs.Load(cfg.Trojan.CertFile, cfg.Trojan.KeyFile, cfg.Trojan.ServerName)
+	default:
+		return certs.EnsureSelfSigned(filepath.Join(cfg.StateDir, "tls"), cfg.Trojan.ServerName)
+	}
 }
 
 // loadOrCreateToken returns the API bearer token, generating one on first

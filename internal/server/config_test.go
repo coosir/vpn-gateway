@@ -21,6 +21,7 @@ func TestLoadConfigAssignsStablePorts(t *testing.T) {
 	// the file does not silently move every container's ports.
 	path := writeConfig(t, `
 port_base: 30000
+trojan: {server_name: vpn.test}
 tunnels:
   - {name: zulu,  provider: mock, image: img}
   - {name: alpha, provider: mock, image: img}
@@ -50,6 +51,7 @@ tunnels:
 func TestLoadConfigHonoursPinnedPorts(t *testing.T) {
 	path := writeConfig(t, `
 port_base: 30000
+trojan: {server_name: vpn.test}
 tunnels:
   - {name: alpha, provider: mock, image: img, data_port: 40000, control_port: 40001}
   - {name: bravo, provider: mock, image: img}
@@ -70,6 +72,7 @@ func TestLoadConfigRejectsUnknownKeys(t *testing.T) {
 	// A typo in a key must fail loudly. Silently ignoring "provder" would
 	// leave a tunnel that never starts and no explanation why.
 	path := writeConfig(t, `
+trojan: {server_name: vpn.test}
 tunnels:
   - {name: alpha, provder: mock, image: img}
 `)
@@ -141,5 +144,99 @@ func TestResolvePasswordMissingEnvIsAnError(t *testing.T) {
 	cfg := TunnelConfig{Name: "x", PasswordEnv: "VG_DEFINITELY_UNSET"}
 	if _, err := cfg.ResolvePassword(); err == nil {
 		t.Fatal("expected an error when the environment variable is unset")
+	}
+}
+
+func TestTrojanDefaults(t *testing.T) {
+	path := writeConfig(t, `
+trojan: {server_name: vpn.test}
+tunnels:
+  - {name: alpha, provider: mock, image: img}
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	// 443 makes the listener look like ordinary HTTPS, which is the whole
+	// point of using trojan here.
+	if cfg.Trojan.Listen != ":443" {
+		t.Errorf("listen = %q, want :443", cfg.Trojan.Listen)
+	}
+	if cfg.Trojan.TLSMode != "selfsigned" {
+		t.Errorf("tls_mode = %q, want selfsigned", cfg.Trojan.TLSMode)
+	}
+}
+
+func TestTrojanValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		trojan  string
+		wantErr string
+	}{
+		{
+			// The name is baked into the generated certificate and pinned by
+			// every client, so it cannot be filled in later.
+			name:    "selfsigned without a server name",
+			trojan:  `{tls_mode: selfsigned}`,
+			wantErr: "trojan.server_name is required",
+		},
+		{
+			name:    "files without paths",
+			trojan:  `{tls_mode: files, server_name: vpn.test}`,
+			wantErr: "trojan.cert_file and trojan.key_file are required",
+		},
+		{
+			name:    "unknown tls mode",
+			trojan:  `{tls_mode: acme, server_name: vpn.test}`,
+			wantErr: "trojan.tls_mode",
+		},
+		{
+			name:    "listen without a port",
+			trojan:  `{listen: "443", server_name: vpn.test}`,
+			wantErr: "trojan.listen",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeConfig(t, "trojan: "+tc.trojan+"\ntunnels:\n  - {name: a, provider: mock, image: i}\n")
+			_, err := LoadConfig(path)
+			if err == nil {
+				t.Fatal("expected validation to fail")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error %q does not mention %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestTrojanDisabledSkipsValidation(t *testing.T) {
+	// Managing containers before any client exists is a legitimate state.
+	path := writeConfig(t, `
+trojan: {disabled: true}
+tunnels:
+  - {name: alpha, provider: mock, image: img}
+`)
+	if _, err := LoadConfig(path); err != nil {
+		t.Fatalf("a disabled listener should not require TLS settings: %v", err)
+	}
+}
+
+func TestTLSFilesModeAcceptsExternalCertificate(t *testing.T) {
+	path := writeConfig(t, `
+trojan:
+  tls_mode: files
+  server_name: vpn.test
+  cert_file: /etc/letsencrypt/live/vpn.test/fullchain.pem
+  key_file: /etc/letsencrypt/live/vpn.test/privkey.pem
+tunnels:
+  - {name: alpha, provider: mock, image: img}
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Trojan.CertFile == "" || cfg.Trojan.KeyFile == "" {
+		t.Error("certificate paths were dropped")
 	}
 }

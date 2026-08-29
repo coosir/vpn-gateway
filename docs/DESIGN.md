@@ -46,9 +46,16 @@ single TUN interface owned by sing-box does all the routing.
 adding a VPN cheap. The server knows nothing about VPN protocols.
 
 **One trojan port, one user per tunnel.** Only `:443` is exposed, and it looks
-like HTTPS. sing-box maps `auth_user` to the matching container. If
-`auth_user` matching proves unreliable, the fallback is one port per tunnel:
-functionally identical, uglier, and no rework.
+like HTTPS. sing-box maps `auth_user` to the matching container. This was the
+design's main bet, because upstream had reported intermittent `auth_user`
+matching; it is now covered by a concurrency test that runs hundreds of
+interleaved requests across several users under the race detector, and it has
+not misrouted once. The fallback, one port per tunnel, is no longer needed.
+
+Traffic that matches no tunnel rule is blocked, never sent out the server's
+own connection. Falling through to direct would look like a working tunnel
+while quietly leaking intranet-bound traffic to the internet, which is far
+harder to notice than a refused connection.
 
 **Routing rules live on the client.** The server is dumb — user to container,
 one to one, generated, never hand-edited. One source of truth, and each device
@@ -106,9 +113,30 @@ source IP is a fixed server. Home deployment is the mitigation, and it is the
 only reason a VPS is not recommended: the failure mode is not a rework, it is
 a locked account.
 
+## TLS for a home server
+
+`selfsigned` is the default. It issues a long-lived certificate on first run
+and the client trusts exactly that certificate, pinning its fingerprint.
+Verification is never disabled: an unpinned or mismatched certificate is
+refused rather than accepted. Renewal means re-pinning every client, which is
+why the lifetime is ten years and why an existing certificate is reused even
+close to expiry.
+
+`files` takes a certificate you supply. Any ACME client with DNS-01 support
+produces one, which is how to use Let's Encrypt from behind NAT without
+exposing port 80.
+
 ## Status
 
-Phase 0 is done and verified: contract, agent with both planes, provider
-framework, mock and Sangfor providers, container orchestration, tunnel
-supervision, and the client-facing control API. See the README for what is
-next.
+Phases 0 and 1 are done and verified.
+
+Phase 0: the contract, the agent with both planes, the provider framework,
+the mock and Sangfor providers, container orchestration, tunnel supervision,
+and the client-facing control API.
+
+Phase 1: the trojan listener with per-tunnel users, TLS with pinned
+self-signed certificates, the client bundle, and `vgctl verify`, which
+connects through every tunnel the way a real client does.
+
+Next is the desktop client: a TUN interface, the routing rules, and the DNS
+handling that turns each tunnel's reported routes into split routing.

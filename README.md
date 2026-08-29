@@ -14,7 +14,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for why it is built this way, and
 
 ## Status
 
-Phase 0 is complete and verified end to end. What works today:
+Phases 0 and 1 are complete and verified end to end. What works today:
 
 - image contract v1, with authentication on both the data and control planes
 - `vg-agent`: the in-container supervisor, SOCKS5 data plane with traffic
@@ -23,9 +23,13 @@ Phase 0 is complete and verified end to end. What works today:
   zju-connect)
 - `vpn-gateway-server`: container orchestration, per-tunnel supervision and
   restart backoff, the client-facing control API
+- the trojan listener: one TLS port for every tunnel, selected by which
+  password the client sends, with self-signed certificates clients pin or a
+  certificate you supply
+- `vgctl`: emits the client bundle and verifies every tunnel end to end
 
-Not built yet: the trojan listener, the desktop client, the GUI, and the
-Fortinet and iNode images.
+Not built yet: the desktop client with its TUN interface and routing rules,
+the GUI, and the Fortinet and iNode images.
 
 ## Try it without any VPN credentials
 
@@ -52,6 +56,35 @@ To send traffic through a tunnel directly, use its data port and secret:
 SECRET=$(cat /var/lib/vpn-gateway/secrets/mock.secret)
 curl --socks5-hostname "vpngw:$SECRET@127.0.0.1:21000" https://example.com/
 ```
+
+## Connecting a client
+
+The server carries every tunnel on one TLS port. A client picks a tunnel by
+which trojan password it sends, so setting up a device means copying one
+bundle:
+
+```sh
+vgctl -config config.yaml client-config > client.json   # for the desktop client
+vgctl -config config.yaml outbounds                     # for a stock sing-box
+vgctl -config config.yaml fingerprint                   # compare out of band
+```
+
+Check the whole path before configuring anything:
+
+```sh
+$ vgctl -config config.yaml verify
+server vpn.example.dyndns.org:443 (sni vpn.example.dyndns.org)
+  certificate is self-signed; clients pin 34:D8:53:...
+
+  office     ok       tunnel=up   uptime=1m35s   egress=203.0.113.7
+  lab        ok       tunnel=up   uptime=1m34s   egress=203.0.113.7
+
+all 2 tunnels carried traffic
+```
+
+With `tls_mode: selfsigned` the client trusts exactly the server's
+certificate. Verification is never disabled, so a certificate that does not
+match is refused rather than silently accepted.
 
 ## Adding a real VPN
 

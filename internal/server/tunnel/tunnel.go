@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/server"
+	"github.com/vpn-gateway/vpn-gateway/internal/server/proxy"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/runtime"
 	"github.com/vpn-gateway/vpn-gateway/pkg/contract"
 )
@@ -66,6 +67,10 @@ type Tunnel struct {
 	stateDir string
 	// secret authenticates this tunnel's container on both planes.
 	secret string
+	// trojanPassword is what a client sends to select this tunnel. It is
+	// distinct from secret: one faces the client, the other the container,
+	// and leaking either must not compromise the other.
+	trojanPassword string
 
 	mu          sync.RWMutex
 	snap        Snapshot
@@ -90,17 +95,22 @@ func NewManager(cfg *server.Config, engine runtime.Engine, log *slog.Logger) (*M
 	}
 	m := &Manager{cfg: cfg, engine: engine, log: log}
 	for _, tc := range cfg.Tunnels {
-		secret, err := loadOrCreateSecret(cfg.StateDir, tc.Name)
+		secret, err := loadOrCreateSecret(cfg.StateDir, tc.Name+".secret")
+		if err != nil {
+			return nil, err
+		}
+		trojanPassword, err := loadOrCreateSecret(cfg.StateDir, tc.Name+".trojan")
 		if err != nil {
 			return nil, err
 		}
 		m.tunnels = append(m.tunnels, &Tunnel{
-			cfg:      tc,
-			engine:   engine,
-			secret:   secret,
-			client:   contract.NewClient(fmt.Sprintf("127.0.0.1:%d", tc.ControlPort), secret),
-			log:      log.With("tunnel", tc.Name),
-			stateDir: cfg.StateDir,
+			cfg:            tc,
+			engine:         engine,
+			secret:         secret,
+			trojanPassword: trojanPassword,
+			client:         contract.NewClient(fmt.Sprintf("127.0.0.1:%d", tc.ControlPort), secret),
+			log:            log.With("tunnel", tc.Name),
+			stateDir:       cfg.StateDir,
 			snap: Snapshot{
 				Name:     tc.Name,
 				Provider: tc.Provider,
@@ -404,20 +414,46 @@ func (t *Tunnel) writeEnvFile() (string, error) {
 	return hash, nil
 }
 
-// SOCKSAuth returns the credentials the server must present to this tunnel's
-// data plane. Phase 1 hands these to the trojan listener's per-user outbound.
-func (t *Tunnel) SOCKSAuth() (username, password string) {
-	return contract.SOCKSUsername, t.secret
+// Route describes this tunnel's place in the trojan listener.
+func (t *Tunnel) Route() proxy.Route {
+	return proxy.Route{
+		Name:           t.cfg.Name,
+		TrojanPassword: t.trojanPassword,
+		DataHost:       "127.0.0.1",
+		DataPort:       t.cfg.DataPort,
+		SOCKSUser:      contract.SOCKSUsername,
+		SOCKSPassword:  t.secret,
+	}
 }
 
-// DataAddr is the loopback address of this tunnel's SOCKS5 data plane.
-func (t *Tunnel) DataAddr() string { return fmt.Sprintf("127.0.0.1:%d", t.cfg.DataPort) }
+// Name is the tunnel's configured name.
+func (t *Tunnel) Name() string { return t.cfg.Name }
 
-// loadOrCreateSecret returns a tunnel's shared secret, generating one on first
-// use. It is persisted so that restarting the server does not change the
-// container's configuration hash and force every tunnel to redial.
+// TrojanPassword is the client-facing credential for this tunnel.
+func (t *Tunnel) TrojanPassword() string { return t.trojanPassword }
+
+// Routes returns every enabled tunnel's listener entry. Disabled tunnels are
+// left out so a client cannot select a tunnel that will never answer.
+func (m *Manager) Routes() []proxy.Route {
+	var out []proxy.Route
+	for _, t := range m.tunnels {
+		if t.cfg.Disabled {
+			continue
+		}
+		out = append(out, t.Route())
+	}
+	return out
+}
+
+// Tunnels returns every managed tunnel, in configuration order.
+func (m *Manager) Tunnels() []*Tunnel { return m.tunnels }
+
+// loadOrCreateSecret returns a persisted random secret, generating one on
+// first use. Persisting matters: a fresh secret each run would change every
+// container's configuration hash and force every tunnel to redial, and would
+// invalidate every client's saved trojan password.
 func loadOrCreateSecret(stateDir, name string) (string, error) {
-	path := filepath.Join(stateDir, "secrets", name+".secret")
+	path := filepath.Join(stateDir, "secrets", name)
 	if b, err := os.ReadFile(path); err == nil {
 		if v := strings.TrimSpace(string(b)); v != "" {
 			return v, nil

@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -29,7 +30,40 @@ type Config struct {
 	// PortBase is the first loopback port allocated to containers.
 	PortBase int `yaml:"port_base"`
 
+	// Trojan configures the listener clients connect to.
+	Trojan TrojanConfig `yaml:"trojan"`
+
 	Tunnels []TunnelConfig `yaml:"tunnels"`
+}
+
+// TrojanConfig describes the single TLS port that carries every tunnel.
+type TrojanConfig struct {
+	// Listen is the address to bind, normally ":443" so the traffic looks
+	// like ordinary HTTPS.
+	Listen string `yaml:"listen"`
+	// ServerName is the name clients send as SNI and verify. For a home
+	// server this is usually a dynamic DNS name.
+	ServerName string `yaml:"server_name"`
+
+	// TLSMode is "selfsigned" or "files".
+	//
+	// "selfsigned" generates a long-lived certificate on first run and the
+	// client pins its fingerprint. This is the default because a home server
+	// behind NAT usually cannot answer an HTTP-01 challenge.
+	//
+	// "files" uses CertFile and KeyFile. Any ACME client that supports
+	// DNS-01, such as certbot or lego, produces exactly these, which is the
+	// right way to get a Let's Encrypt certificate without exposing port 80.
+	TLSMode  string `yaml:"tls_mode"`
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
+
+	// LogLevel is sing-box's own log level, separate from the server's.
+	LogLevel string `yaml:"log_level"`
+
+	// Disabled runs the server without a listener, for managing containers
+	// before any client exists.
+	Disabled bool `yaml:"disabled"`
 }
 
 // TunnelConfig describes one VPN connection. Each becomes one container and
@@ -110,6 +144,15 @@ func (c *Config) applyDefaults() {
 	if c.PortBase == 0 {
 		c.PortBase = DefaultPortBase
 	}
+	if c.Trojan.Listen == "" {
+		c.Trojan.Listen = ":443"
+	}
+	if c.Trojan.TLSMode == "" {
+		c.Trojan.TLSMode = "selfsigned"
+	}
+	if c.Trojan.LogLevel == "" {
+		c.Trojan.LogLevel = "warn"
+	}
 }
 
 // Validate reports every problem it finds rather than only the first, so a
@@ -128,6 +171,7 @@ func (c *Config) Validate() error {
 	if len(c.Tunnels) == 0 {
 		errs = append(errs, errors.New("tunnels: at least one tunnel is required"))
 	}
+	errs = append(errs, c.Trojan.validate()...)
 
 	seen := map[string]bool{}
 	for i, t := range c.Tunnels {
@@ -160,6 +204,31 @@ func (c *Config) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (t TrojanConfig) validate() []error {
+	if t.Disabled {
+		return nil
+	}
+	var errs []error
+	if _, _, err := net.SplitHostPort(t.Listen); err != nil {
+		errs = append(errs, fmt.Errorf("trojan.listen: %q is not a host:port address", t.Listen))
+	}
+	switch t.TLSMode {
+	case "selfsigned":
+		// The name is baked into the generated certificate and pinned by
+		// clients, so it cannot be inferred later.
+		if t.ServerName == "" {
+			errs = append(errs, errors.New("trojan.server_name is required with tls_mode: selfsigned"))
+		}
+	case "files":
+		if t.CertFile == "" || t.KeyFile == "" {
+			errs = append(errs, errors.New("trojan.cert_file and trojan.key_file are required with tls_mode: files"))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("trojan.tls_mode: want selfsigned or files, got %q", t.TLSMode))
+	}
+	return errs
 }
 
 // assignPorts gives every tunnel a stable pair of loopback ports. Allocation
