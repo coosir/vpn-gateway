@@ -1,0 +1,61 @@
+# vpn-gateway server configuration.
+#
+# Validate with:  vpn-gateway-server -config config.yaml -check
+
+# Where the client-facing control API listens. Keep this on loopback and let
+# the trojan listener carry client traffic; exposing it directly would put an
+# API that can reach several corporate networks on the open internet.
+api_listen: 127.0.0.1:8642
+
+state_dir: /var/lib/vpn-gateway
+
+# docker, podman, or auto to pick whichever is installed.
+runtime: auto
+
+# First loopback port handed to containers. Each tunnel takes two: one for its
+# SOCKS5 data plane and one for its control plane. These are internal to the
+# server; clients never see them.
+port_base: 21000
+
+tunnels:
+  # A credential-free tunnel that dials straight out. Useful for verifying
+  # routing, the GUI and failover without touching a real VPN.
+  - name: mock
+    provider: mock
+    image: vpn-gateway/mock:dev
+    server: mock.example.com
+    username: tester
+    extra:
+      routes: "10.99.0.0/16"
+      dns: "10.99.0.53"
+      search_domains: "mock.internal"
+
+  # Sangfor EasyConnect.
+  - name: school-ec
+    provider: easyconnect
+    image: vpn-gateway/sangfor:dev
+    server: vpn.example.edu.cn
+    username: alice
+    # Never put a password in this file. Point at an environment variable on
+    # the server, or a 0600 file.
+    password_env: SCHOOL_EC_PASSWORD
+    extra:
+      # zju-connect does not report pushed routes in a stable machine-readable
+      # form, so state the intranet ranges here. The client turns these into
+      # routing rules automatically.
+      routes: "10.0.0.0/8,192.168.0.0/16"
+      dns: "10.10.0.21"
+      search_domains: "example.edu.cn"
+    disabled: true
+
+  # Sangfor aTrust: the same image, a different protocol.
+  - name: corp-atrust
+    provider: atrust
+    image: vpn-gateway/sangfor:dev
+    server: atrust.example.com
+    username: alice
+    password_env: CORP_ATRUST_PASSWORD
+    extra:
+      routes: "172.16.0.0/12"
+      dns: "172.16.0.53"
+    disabled: true

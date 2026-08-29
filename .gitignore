@@ -1,0 +1,6 @@
+/bin/
+/dist/
+*.env
+config.yaml
+!config.example.yaml
+.DS_Store
