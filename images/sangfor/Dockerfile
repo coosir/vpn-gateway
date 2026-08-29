@@ -6,9 +6,9 @@
 # Build from the repository root:
 #   docker build -f images/sangfor/Dockerfile -t vpn-gateway/sangfor:dev .
 #
-# ZJU_CONNECT_VERSION should be pinned to a tag once it has been verified
-# against a real gateway; upstream tracks vendor server changes, so an
-# unpinned build can start failing without any change here.
+# ZJU_CONNECT_VERSION is pinned deliberately. Upstream tracks vendor server
+# changes, so an unpinned build can start failing without any change here.
+# Bump it only after verifying the new version against a real gateway.
 
 FROM golang:1.26-alpine AS agent
 WORKDIR /src
@@ -20,9 +20,14 @@ COPY cmd ./cmd
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/vg-agent ./cmd/vg-agent
 
 FROM golang:1.26-alpine AS zju
-ARG ZJU_CONNECT_VERSION=latest
+ARG ZJU_CONNECT_VERSION=v1.3.1
+# The upstream go.mod carries replace directives, so `go install pkg@version`
+# refuses it; the source has to be built as its own main module.
 RUN apk add --no-cache git \
- && CGO_ENABLED=0 GOBIN=/out go install "github.com/mythologyli/zju-connect@${ZJU_CONNECT_VERSION}"
+ && git clone --depth 1 --branch "${ZJU_CONNECT_VERSION}" \
+      https://github.com/mythologyli/zju-connect.git /src \
+ && cd /src \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/zju-connect .
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates \

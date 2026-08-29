@@ -44,6 +44,13 @@ func init() {
 //	remote_dns     resolver to use inside the tunnel
 //	binary         override the zju-connect path
 //	extra_args     additional zju-connect flags, space separated
+//
+// aTrust only:
+//
+//	login_domain   authentication domain (upstream default "Radius")
+//	auth_type      authentication type
+//	phone          phone number, with country code, for SMS login
+//	device_id      device identifier, for gateways that check device trust
 type Provider struct {
 	protocol string
 	runner   agent.Runner
@@ -69,24 +76,39 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 	}
 	p.authFailed.Store(false)
 
+	// zju-connect parses flags with pflag, where a single dash introduces
+	// short options. "-protocol atrust" is silently ignored and the tool
+	// falls back to easyconnect, so every flag must use two dashes.
 	args := []string{
-		"-protocol", p.protocol,
-		"-server", cfg.Server,
-		"-port", cfg.Str("port", "443"),
-		"-username", cfg.Username,
-		"-password", cfg.Password,
-		"-socks-bind", childSOCKS,
-		"-http-bind", childHTTP,
-		// The upstream tool ships defaults for one university's network.
-		// A general-purpose gateway must not inherit them.
-		"-disable-zju-config",
-		"-skip-domain-resource",
+		"--protocol", p.protocol,
+		"--server", cfg.Server,
+		"--port", cfg.Str("port", "443"),
+		"--username", cfg.Username,
+		"--password", cfg.Password,
+		"--socks-bind", childSOCKS,
+		"--http-bind", childHTTP,
+		// Routing is decided by the vpn-gateway client, so the tunnel must
+		// not second-guess which traffic belongs to it.
+		"--skip-domain-resource",
 	}
-	if v := cfg.Str("totp_secret", ""); v != "" {
-		args = append(args, "-totp-secret", v)
+	if p.protocol == "easyconnect" {
+		// The upstream tool ships defaults for one university's network, and
+		// a general-purpose gateway must not inherit them. The flag applies
+		// to easyconnect only; passing it under atrust is an error.
+		args = append(args, "--disable-zju-config")
 	}
-	if v := cfg.Str("remote_dns", ""); v != "" {
-		args = append(args, "-remote-dns-server", v)
+
+	for _, opt := range []struct{ key, flag string }{
+		{"totp_secret", "--totp-secret"},
+		{"remote_dns", "--remote-dns-server"},
+		{"login_domain", "--login-domain"},
+		{"auth_type", "--auth-type"},
+		{"phone", "--phone"},
+		{"device_id", "--device-id"},
+	} {
+		if v := cfg.Str(opt.key, ""); v != "" {
+			args = append(args, opt.flag, v)
+		}
 	}
 	if v := cfg.Str("extra_args", ""); v != "" {
 		args = append(args, strings.Fields(v)...)
