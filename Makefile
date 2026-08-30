@@ -2,7 +2,7 @@ GO      ?= go
 BIN     := bin
 LDFLAGS := -s -w
 
-.PHONY: all build test vet check clean images image-mock image-sangfor
+.PHONY: all build test vet check clean images image-mock image-sangfor image-inode
 
 all: build
 
@@ -22,11 +22,18 @@ check: build vet test
 
 images: image-mock image-sangfor
 
+# The iNode image needs H3C's installer, so it is not part of `make images`.
+# Build it with: make image-inode INODE_INSTALLER=iNodeClient.tar.gz
+
 image-mock:
 	docker build -f images/mock/Dockerfile -t vpn-gateway/mock:dev .
 
 image-sangfor:
 	docker build -f images/sangfor/Dockerfile -t vpn-gateway/sangfor:dev .
+
+image-inode:
+	@test -n "$(INODE_INSTALLER)" || { echo "set INODE_INSTALLER to H3C's installer"; exit 1; }
+	docker build -f images/inode/Dockerfile --build-arg INODE_INSTALLER=$(INODE_INSTALLER) -t vpn-gateway/inode:dev .
 
 clean:
 	rm -rf $(BIN)

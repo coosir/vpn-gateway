@@ -95,6 +95,9 @@ func (c *Client) Config() ([]byte, error) {
 	return BuildConfig(c.cfg, c.bundle, c.tunnels)
 }
 
+// API exposes the server's control API, for answering prompts.
+func (c *Client) API() *API { return c.api }
+
 // Tunnels returns the client's current view.
 func (c *Client) Tunnels() []TunnelState {
 	c.mu.RLock()

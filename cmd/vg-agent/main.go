@@ -26,6 +26,7 @@ import (
 	// starts here.
 	_ "github.com/vpn-gateway/vpn-gateway/internal/agent/providers/mock"
 	_ "github.com/vpn-gateway/vpn-gateway/internal/agent/providers/sangfor"
+	_ "github.com/vpn-gateway/vpn-gateway/internal/agent/providers/vendor"
 )
 
 func main() {

@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -26,6 +27,7 @@ Commands:
   status   show what the server reports for each tunnel
   config   print the generated sing-box configuration and exit
   check    validate the configuration and the bundle, then exit
+  auth     answer interactive login prompts as tunnels raise them
 
 Bringing up a TUN interface needs elevated privileges. Set proxy.enabled to
 use a local SOCKS5 and HTTP port instead, which does not.
@@ -96,6 +98,14 @@ func run(configPath, logLevel, command string) error {
 	case "status":
 		return printStatus(c)
 
+	case "auth":
+		fmt.Println("waiting for tunnels that need a verification code; press ctrl-c to stop")
+		err := client.WatchChallenges(ctx, c.API(), &client.TerminalPrompter{In: os.Stdin, Out: os.Stdout})
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
+		return err
+
 	case "run":
 		if err := c.Start(ctx); err != nil {
 			return err
@@ -103,6 +113,9 @@ func run(configPath, logLevel, command string) error {
 		defer c.Close()
 
 		go c.Watch(ctx)
+		// Answering prompts from the same process means a tunnel that needs a
+		// code after a reconnect does not require a second command.
+		go client.WatchChallenges(ctx, c.API(), &client.TerminalPrompter{In: os.Stdin, Out: os.Stdout})
 
 		<-ctx.Done()
 		log.Info("shutting down")

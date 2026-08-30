@@ -30,9 +30,36 @@ Phases 0 to 2 are complete and verified end to end. What works today:
 - `vpn-gateway`: the desktop client. One TUN interface or a local proxy port,
   rules by domain and IP, per-tunnel DNS, and failover that switches a tunnel
   out without disturbing the others
+- interactive login: a gateway asking for an SMS code, a TOTP token, a
+  captcha or a single sign-on address raises a challenge that reaches the
+  client and is answered there
 
 Not built yet: privilege separation on the client (it currently needs
-elevation itself, see below), the GUI, and the Fortinet and iNode images.
+elevation itself, see below), the GUI, and the Fortinet image. The iNode image
+is written but cannot be built or tested without H3C's installer.
+
+## Logging in to a gateway that asks questions
+
+Sangfor gateways commonly want a verification code. The container raises a
+challenge, the server relays it, and the client asks:
+
+```
+$ vpn-gateway -config client.yaml auth
+waiting for tunnels that need a verification code; press ctrl-c to stop
+
+corp needs authentication: a code sent by SMS
+  Enter the SMS verification code sent to your phone.
+  Expires in 4m32s
+  > 482915
+tunnel corp: answer accepted
+```
+
+`run` does this too, so a tunnel that needs a code after reconnecting does not
+need a second command. Answering happens on the server, so the session is
+shared: every other device using that tunnel is unaffected.
+
+Prompts are pushed over `GET /api/v1/events` rather than polled, because a
+verification code is usually only valid for a minute or two.
 
 ## Running the client
 

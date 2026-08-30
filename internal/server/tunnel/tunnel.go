@@ -13,6 +13,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -37,6 +38,10 @@ const (
 	restartMax = 5 * time.Minute
 
 	stopGraceSeconds = 10
+
+	// vncContainerPort is where an image that needs a graphical login serves
+	// it, by convention across the tier that wraps a vendor client.
+	vncContainerPort = 5901
 )
 
 // Snapshot is the server's view of one tunnel, as served to clients.
@@ -65,6 +70,7 @@ type Tunnel struct {
 	log    *slog.Logger
 
 	stateDir string
+	mgr      *Manager
 	// secret authenticates this tunnel's container on both planes.
 	secret string
 	// trojanPassword is what a client sends to select this tunnel. It is
@@ -77,12 +83,59 @@ type Tunnel struct {
 	unreachable int
 }
 
+// Event reports that a tunnel's state changed.
+type Event struct {
+	At     time.Time `json:"at"`
+	Tunnel Snapshot  `json:"tunnel"`
+}
+
 // Manager owns every tunnel.
 type Manager struct {
 	cfg     *server.Config
 	engine  runtime.Engine
 	log     *slog.Logger
 	tunnels []*Tunnel
+
+	subsMu sync.Mutex
+	subs   map[int]chan Event
+	nextID int
+}
+
+// Subscribe returns a channel of state changes and a function to release it.
+//
+// The channel is buffered and a subscriber that falls behind drops events
+// rather than stalling the poll loop. Every event carries the whole snapshot,
+// so a dropped one costs nothing: the next event is still complete.
+func (m *Manager) Subscribe() (<-chan Event, func()) {
+	ch := make(chan Event, 64)
+	m.subsMu.Lock()
+	if m.subs == nil {
+		m.subs = map[int]chan Event{}
+	}
+	id := m.nextID
+	m.nextID++
+	m.subs[id] = ch
+	m.subsMu.Unlock()
+
+	return ch, func() {
+		m.subsMu.Lock()
+		if c, ok := m.subs[id]; ok {
+			delete(m.subs, id)
+			close(c)
+		}
+		m.subsMu.Unlock()
+	}
+}
+
+func (m *Manager) publish(ev Event) {
+	m.subsMu.Lock()
+	defer m.subsMu.Unlock()
+	for _, ch := range m.subs {
+		select {
+		case ch <- ev:
+		default:
+		}
+	}
 }
 
 // NewManager builds a manager for cfg.
@@ -106,6 +159,7 @@ func NewManager(cfg *server.Config, engine runtime.Engine, log *slog.Logger) (*M
 		m.tunnels = append(m.tunnels, &Tunnel{
 			cfg:            tc,
 			engine:         engine,
+			mgr:            m,
 			secret:         secret,
 			trojanPassword: trojanPassword,
 			client:         contract.NewClient(fmt.Sprintf("127.0.0.1:%d", tc.ControlPort), secret),
@@ -249,16 +303,24 @@ func (t *Tunnel) reconcile(ctx context.Context) error {
 		st = runtime.Status{}
 	}
 
+	ports := []runtime.PortMap{
+		{HostPort: t.cfg.DataPort, ContainerPort: contract.PortData},
+		{HostPort: t.cfg.ControlPort, ContainerPort: contract.PortControl},
+	}
+	if t.cfg.VNCPort > 0 {
+		// A graphical login screen, published on loopback like everything
+		// else. It carries no authentication of its own, so it must never
+		// reach further than the server itself.
+		ports = append(ports, runtime.PortMap{HostPort: t.cfg.VNCPort, ContainerPort: vncContainerPort})
+	}
+
 	if !st.Exists {
 		spec := runtime.Spec{
 			Name:    name,
 			Image:   t.cfg.Image,
 			Network: t.cfg.NetworkName(),
 			EnvFile: t.cfg.EnvFilePath(t.stateDir),
-			Ports: []runtime.PortMap{
-				{HostPort: t.cfg.DataPort, ContainerPort: contract.PortData},
-				{HostPort: t.cfg.ControlPort, ContainerPort: contract.PortControl},
-			},
+			Ports:   ports,
 			CapAdd:  t.cfg.CapAdd,
 			Devices: t.cfg.Devices,
 			Labels: map[string]string{
@@ -338,6 +400,7 @@ func (t *Tunnel) poll(ctx context.Context) bool {
 	}
 
 	t.mu.Lock()
+	before := t.snap
 	t.snap.Reachable = true
 	t.snap.ContainerExists = true
 	t.snap.ContainerUp = true
@@ -348,17 +411,58 @@ func (t *Tunnel) poll(ctx context.Context) bool {
 	}
 	t.snap.LastError = status.Error
 	t.unreachable = 0
+	after := t.snap
 	t.mu.Unlock()
+
+	if changed(before, after) {
+		t.publish(after)
+	}
 	return true
+}
+
+// changed reports whether a snapshot differs in a way a client cares about.
+// Uptime and byte counters move on every poll, so comparing whole snapshots
+// would turn the event stream into a firehose.
+func changed(before, after Snapshot) bool {
+	if before.Reachable != after.Reachable ||
+		before.Status.State != after.Status.State ||
+		before.LastError != after.LastError ||
+		before.ContainerUp != after.ContainerUp {
+		return true
+	}
+	beforeID, afterID := "", ""
+	if before.Challenge != nil {
+		beforeID = before.Challenge.ID
+	}
+	if after.Challenge != nil {
+		afterID = after.Challenge.ID
+	}
+	if beforeID != afterID {
+		return true
+	}
+	return !slices.Equal(before.Network.Routes, after.Network.Routes) ||
+		!slices.Equal(before.Network.DNS, after.Network.DNS)
+}
+
+func (t *Tunnel) publish(snap Snapshot) {
+	if t.mgr != nil {
+		t.mgr.publish(Event{At: time.Now(), Tunnel: snap})
+	}
 }
 
 func (t *Tunnel) setError(err error) {
 	t.mu.Lock()
+	before := t.snap
 	t.snap.Reachable = false
 	t.snap.ContainerUp = false
 	t.snap.LastError = err.Error()
 	t.snap.Status.State = contract.StateError
+	after := t.snap
 	t.mu.Unlock()
+
+	if changed(before, after) {
+		t.publish(after)
+	}
 }
 
 // writeEnvFile renders the container's environment to a 0600 file and returns
@@ -401,7 +505,7 @@ func (t *Tunnel) writeEnvFile() (string, error) {
 	// the environment.
 	sum := sha256.Sum256([]byte(body + "\x00" + t.cfg.Image + "\x00" +
 		strings.Join(t.cfg.CapAdd, ",") + "\x00" + strings.Join(t.cfg.Devices, ",") + "\x00" +
-		fmt.Sprint(t.cfg.DataPort, t.cfg.ControlPort)))
+		fmt.Sprint(t.cfg.DataPort, t.cfg.ControlPort, t.cfg.VNCPort)))
 	hash := hex.EncodeToString(sum[:8])
 
 	path := t.cfg.EnvFilePath(t.stateDir)

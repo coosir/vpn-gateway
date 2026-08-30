@@ -157,6 +157,27 @@ unless the tunnel reports that its data plane carries datagrams. Routing the
 traffic without also routing the lookup is the failure that looks correctly
 configured and does not work.
 
-Next is the GUI, and the Fortinet and iNode images. Client privilege
-separation is still open: creating a TUN interface needs elevation, and
-splitting out a signed helper needs an Apple developer identity on macOS.
+Phase 4: interactive login. A gateway that wants an SMS code, a TOTP token, a
+captcha or a single sign-on address raises a contract challenge; the server
+relays it and the client asks whoever is there.
+
+The supervised clients ask on standard input and block, so the agent had to
+learn to write back to them. Two details decide whether this works at all. A
+prompt carries no trailing newline, so a line-based reader never sees it and
+the tunnel blocks forever showing nothing. And the readiness deadline has to
+be suspended while a question is pending, or the client is killed while
+someone is still looking for their phone.
+
+Answering happens once, on the server, and the session persists. A phone using
+the same tunnel never sees the prompt.
+
+Phase 4 also adds the vendor tier: a provider that runs a vendor's own Linux
+client in the container. It shares the network namespace with the agent, so
+once the client connects an ordinary dial already goes through the tunnel and
+no forwarder is needed. Where the client has no headless login at all, the
+image serves a screen and the agent raises a vnc challenge. That is ugly, and
+it is the honest price of a client never meant to run without a desktop.
+
+Next is the GUI, and the Fortinet image. Client privilege separation is still
+open: creating a TUN interface needs elevation, and splitting out a signed
+helper needs an Apple developer identity on macOS.

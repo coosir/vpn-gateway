@@ -1,8 +1,10 @@
 package client
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,6 +27,8 @@ type Snapshot struct {
 
 	Status  contract.Status  `json:"status"`
 	Network contract.Network `json:"network"`
+	// Challenge is the interactive prompt the tunnel is blocked on, if any.
+	Challenge *contract.Challenge `json:"challenge,omitempty"`
 }
 
 // Up reports whether this tunnel can carry traffic right now. Both conditions
@@ -133,4 +137,60 @@ func (a *API) do(req *http.Request, out any) error {
 		return nil
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(out)
+}
+
+// Event mirrors one entry of the server's GET /api/v1/events stream.
+type Event struct {
+	At     time.Time `json:"at"`
+	Tunnel Snapshot  `json:"tunnel"`
+}
+
+// Events streams tunnel state changes until ctx is cancelled or the
+// connection drops, calling fn for each one. The first events always describe
+// the current state, so a client that connects late does not also have to
+// poll.
+//
+// It always returns a non-nil error; a clean shutdown reports ctx.Err().
+// Callers are expected to reconnect with backoff.
+func (a *API) Events(ctx context.Context, fn func(Event)) error {
+	req, err := a.request(ctx, http.MethodGet, "/api/v1/events", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+
+	// The stream is long-lived, so it must not inherit the request timeout.
+	stream := &http.Client{Transport: a.HTTP.Transport}
+	resp, err := stream.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return errors.New("the server rejected the API token")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET /api/v1/events: unexpected status %d", resp.StatusCode)
+	}
+
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 4<<10), 1<<20)
+	for sc.Scan() {
+		data, ok := strings.CutPrefix(sc.Text(), "data:")
+		if !ok {
+			continue // a comment, an event name, or the blank record separator
+		}
+		var ev Event
+		if json.Unmarshal([]byte(strings.TrimSpace(data)), &ev) != nil {
+			continue // a malformed event must not end the stream
+		}
+		fn(ev)
+	}
+	if err := sc.Err(); err != nil {
+		return err
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return io.EOF
 }

@@ -44,7 +44,10 @@ type Provider struct {
 func (p *Provider) Capabilities() []string {
 	// No UDP: the agent's SOCKS5 front implements CONNECT only, so the mock
 	// must not claim a capability the data plane cannot honour.
-	return []string{contract.CapTCP, contract.CapRoutes, contract.CapDNS}
+	return []string{
+		contract.CapTCP, contract.CapRoutes, contract.CapDNS,
+		contract.CapSMS, contract.CapTOTP, contract.CapCaptcha,
+	}
 }
 
 func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter) error {

@@ -127,10 +127,23 @@ nothing is pending. An absent challenge is the normal case, not an error.
 }
 ```
 
-`type` is one of `password`, `sms`, `totp`, `captcha`, `vnc`. A `captcha`
-carries `image_b64`; a `vnc` carries `vnc_port` and means the vendor client
-has no headless login path, so the client embeds a viewer for the first
-login.
+`type` is one of `password`, `sms`, `totp`, `captcha`, `url`, `vnc`. A
+`captcha` carries `image_b64`; a `url` carries the sign-on address to open and
+expects whatever it redirects to; a `vnc` carries `vnc_port` and means the
+vendor client has no headless login path, so the client shows a viewer for the
+first login and the session is kept afterwards.
+
+Most supervised clients ask these questions on standard input and block until
+answered. The agent recognises the prompt, raises the challenge, and writes
+the answer back. Two details are easy to get wrong and both are handled:
+
+- A prompt usually has **no trailing newline**, because the cursor is meant to
+  stay on the line. A reader that waits for `\n` never sees it and the tunnel
+  blocks forever with nothing to show.
+- The readiness deadline must be **suspended while a challenge is pending**.
+  Someone fetching a code from their phone easily outlasts any timeout worth
+  setting for a stuck process, and killing the client mid-login makes the
+  tunnel impossible to bring up at all.
 
 ### `POST /v1/auth`
 

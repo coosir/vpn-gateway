@@ -45,6 +45,7 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	mux.HandleFunc("GET /api/v1/tunnels", s.auth(s.listTunnels))
+	mux.HandleFunc("GET /api/v1/events", s.auth(s.streamEvents))
 	mux.HandleFunc("GET /api/v1/tunnels/{name}", s.auth(s.getTunnel))
 	mux.HandleFunc("GET /api/v1/tunnels/{name}/logs", s.auth(s.getLogs))
 	mux.HandleFunc("GET /api/v1/tunnels/{name}/challenge", s.auth(s.getChallenge))
@@ -70,6 +71,68 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) listTunnels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.mgr.Snapshots())
+}
+
+// streamEvents pushes tunnel state changes to a client as server-sent
+// events. It is how an interactive authentication prompt reaches the person
+// who has to answer it without them watching for it.
+func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
+	rc := http.NewResponseController(w)
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	events, release := s.mgr.Subscribe()
+	defer release()
+
+	// Send the current state first, so a client that connects late does not
+	// also have to poll to learn where things stand -- including a challenge
+	// that was raised before it arrived.
+	now := time.Now()
+	for _, snap := range s.mgr.Snapshots() {
+		if !writeEvent(w, rc, tunnel.Event{At: now, Tunnel: snap}) {
+			return
+		}
+	}
+
+	// Comment-only keepalives stop an intermediary from reaping a stream
+	// that is idle because nothing is changing, which is the normal case.
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			if !writeEvent(w, rc, ev) {
+				return
+			}
+		case <-ticker.C:
+			if _, err := w.Write([]byte(": keepalive\n\n")); err != nil {
+				return
+			}
+			if rc.Flush() != nil {
+				return
+			}
+		}
+	}
+}
+
+func writeEvent(w http.ResponseWriter, rc *http.ResponseController, ev tunnel.Event) bool {
+	b, err := json.Marshal(ev)
+	if err != nil {
+		return false
+	}
+	if _, err := w.Write([]byte("data: " + string(b) + "\n\n")); err != nil {
+		return false
+	}
+	return rc.Flush() == nil
 }
 
 func (s *Server) getTunnel(w http.ResponseWriter, r *http.Request) {

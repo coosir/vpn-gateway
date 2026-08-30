@@ -105,6 +105,11 @@ type TunnelConfig struct {
 	// allocates them from PortBase in name order.
 	DataPort    int `yaml:"data_port"`
 	ControlPort int `yaml:"control_port"`
+
+	// VNCPort publishes the container's graphical login screen on this
+	// loopback port. Only needed by vendor clients that cannot log in
+	// headlessly; zero leaves the screen unpublished.
+	VNCPort int `yaml:"vnc_port"`
 }
 
 // nameRE matches names safe to use as a container name, a trojan user and a

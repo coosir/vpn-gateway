@@ -69,13 +69,15 @@ func (s State) Terminal() bool { return s == StateDown || s == StateError }
 
 // Capability names advertised in LabelCapabilities and Status.Capabilities.
 const (
-	CapTCP    = "tcp"    // SOCKS5 CONNECT works. Mandatory.
-	CapUDP    = "udp"    // SOCKS5 UDP ASSOCIATE works.
-	CapRoutes = "routes" // Network.Routes is populated from the server push.
-	CapDNS    = "dns"    // Network.DNS is populated from the server push.
-	CapSMS    = "sms"    // May raise a ChallengeSMS.
-	CapTOTP   = "totp"   // May raise a ChallengeTOTP.
-	CapVNC    = "vnc"    // May raise a ChallengeVNC for graphical first login.
+	CapTCP     = "tcp"     // SOCKS5 CONNECT works. Mandatory.
+	CapUDP     = "udp"     // SOCKS5 UDP ASSOCIATE works.
+	CapRoutes  = "routes"  // Network.Routes is populated from the server push.
+	CapDNS     = "dns"     // Network.DNS is populated from the server push.
+	CapSMS     = "sms"     // May raise a ChallengeSMS.
+	CapTOTP    = "totp"    // May raise a ChallengeTOTP.
+	CapCaptcha = "captcha" // May raise a ChallengeCaptcha.
+	CapURL     = "url"     // May raise a ChallengeURL.
+	CapVNC     = "vnc"     // May raise a ChallengeVNC for graphical first login.
 )
 
 // Traffic counters for a tunnel, measured at the agent's SOCKS5 front door.
@@ -147,6 +149,9 @@ const (
 	ChallengeSMS      ChallengeType = "sms"
 	ChallengeTOTP     ChallengeType = "totp"
 	ChallengeCaptcha  ChallengeType = "captcha"
+	// ChallengeURL means the person must open URL in a browser, complete a
+	// single sign-on flow there, and paste back what it produces.
+	ChallengeURL ChallengeType = "url"
 	// ChallengeVNC means the provider needs a graphical login. The agent
 	// exposes a VNC server and the client embeds a viewer. This is the escape
 	// hatch for vendor clients that have no headless login path.

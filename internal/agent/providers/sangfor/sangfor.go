@@ -51,6 +51,10 @@ func init() {
 //	auth_type      authentication type
 //	phone          phone number, with country code, for SMS login
 //	device_id      device identifier, for gateways that check device trust
+//
+// When the gateway asks for a verification code, the provider raises a
+// contract challenge instead of failing: the upstream client reads codes from
+// standard input, and the agent writes the answer back there.
 type Provider struct {
 	protocol string
 	runner   agent.Runner
@@ -62,9 +66,16 @@ type Provider struct {
 }
 
 func (p *Provider) Capabilities() []string {
-	// TOTP is supplied as a seed at startup rather than prompted for, so this
-	// provider raises no interactive challenges.
-	return []string{contract.CapTCP, contract.CapRoutes, contract.CapDNS}
+	caps := []string{
+		contract.CapTCP, contract.CapRoutes, contract.CapDNS,
+		contract.CapSMS, contract.CapTOTP, contract.CapCaptcha,
+	}
+	if p.protocol == "atrust" {
+		// Only aTrust offers the single sign-on flows that end in pasting a
+		// callback address.
+		caps = append(caps, contract.CapURL)
+	}
+	return caps
 }
 
 func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter) error {
@@ -119,6 +130,7 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 		Args:     args,
 		Upstream: childSOCKS,
 		OnLine:   func(line string, rep agent.Reporter) { p.onLine(line, rep) },
+		Prompts:  prompts(),
 	}
 
 	// zju-connect does not report the gateway's pushed routes in a stable
@@ -163,7 +175,8 @@ func (p *Provider) Dial(ctx context.Context, network, addr string) (net.Conn, er
 	return p.runner.Dial(ctx, network, addr)
 }
 
-// Answer is unused: this provider raises no interactive challenges.
-func (p *Provider) Answer(contract.AuthAnswer) error {
-	return errors.New("this provider does not use interactive authentication")
+// Answer forwards a verification code to the supervised client, which is
+// blocked reading it from standard input.
+func (p *Provider) Answer(a contract.AuthAnswer) error {
+	return p.runner.Answer(a)
 }
