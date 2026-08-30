@@ -6,7 +6,8 @@
 # installer and the image can be published as it is.
 #
 # Build from the repository root:
-#   docker build -f images/openconnect/Dockerfile -t vpn-gateway/openconnect:dev .
+#   make image-openconnect          # for this machine
+#   make push-openconnect           # for every platform, published
 #
 # The client creates a tun interface and installs routes, so the container
 # needs NET_ADMIN and /dev/net/tun. Both stay inside its own network

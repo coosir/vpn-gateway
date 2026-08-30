@@ -208,6 +208,16 @@ func (c *CLI) Logs(ctx context.Context, name string, tail int) (string, error) {
 	return out, err
 }
 
+func (c *CLI) HasImage(ctx context.Context, image string) (bool, error) {
+	if _, err := c.run(ctx, "image", "inspect", image); err != nil {
+		if isNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 func (c *CLI) Pull(ctx context.Context, image string) error {
 	// Pulling a large vendor image over a home connection can take minutes,
 	// so this one command is not subject to cliTimeout.
@@ -217,9 +227,22 @@ func (c *CLI) Pull(ctx context.Context, image string) error {
 	return err
 }
 
+// isNotFound recognises absence, which is a normal state here rather than a
+// failure: it is how the manager decides to create a container or fetch an
+// image. The engines word it differently and podman differently again, so
+// this matches on the shapes all of them use.
 func isNotFound(err error) bool {
 	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "no such container") ||
-		strings.Contains(s, "no such object") ||
-		strings.Contains(s, "not found")
+	for _, marker := range []string{
+		"no such container",
+		"no such image",
+		"no such object",
+		"not found",
+		"image not known",
+	} {
+		if strings.Contains(s, marker) {
+			return true
+		}
+	}
+	return false
 }

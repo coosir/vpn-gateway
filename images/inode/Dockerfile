@@ -7,13 +7,14 @@
 #
 # The vendor's installer is NOT redistributed. Supply your own licensed copy:
 #
-#   docker build -f images/inode/Dockerfile \
-#     --build-arg INODE_INSTALLER=iNodeClient.tar.gz \
-#     -t vpn-gateway/inode:dev .
+#   make image-inode INODE_INSTALLER=iNodeClient.tar.gz
 #
-# with the installer in the build context. The client has no headless login,
-# so the image serves a VNC screen for the first sign-in and the agent raises
-# a vnc challenge; the session persists afterwards.
+# with the installer in the build context. It is not published alongside the
+# others, so this one goes straight onto the machines that need it.
+#
+# The client has no headless login, so the image serves a VNC screen for the
+# first sign-in and the agent raises a vnc challenge; the session persists
+# afterwards.
 
 FROM golang:1.26-alpine AS agent
 WORKDIR /src

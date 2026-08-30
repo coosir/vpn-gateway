@@ -69,8 +69,9 @@ type Tunnel struct {
 	client *contract.Client
 	log    *slog.Logger
 
-	stateDir string
-	mgr      *Manager
+	stateDir   string
+	pullPolicy string
+	mgr        *Manager
 	// secret authenticates this tunnel's container on both planes.
 	secret string
 	// trojanPassword is what a client sends to select this tunnel. It is
@@ -165,6 +166,7 @@ func NewManager(cfg *server.Config, engine runtime.Engine, log *slog.Logger) (*M
 			client:         contract.NewClient(fmt.Sprintf("127.0.0.1:%d", tc.ControlPort), secret),
 			log:            log.With("tunnel", tc.Name),
 			stateDir:       cfg.StateDir,
+			pullPolicy:     cfg.PullPolicy,
 			snap: Snapshot{
 				Name:     tc.Name,
 				Provider: tc.Provider,
@@ -315,6 +317,9 @@ func (t *Tunnel) reconcile(ctx context.Context) error {
 	}
 
 	if !st.Exists {
+		if err := t.ensureImage(ctx); err != nil {
+			return err
+		}
 		spec := runtime.Spec{
 			Name:    name,
 			Image:   t.cfg.Image,
@@ -346,6 +351,43 @@ func (t *Tunnel) reconcile(ctx context.Context) error {
 	t.snap.LastError = ""
 	t.unreachable = 0
 	t.mu.Unlock()
+	return nil
+}
+
+// ensureImage fetches the tunnel's image when it is needed.
+//
+// Images are built on a workstation and pushed to a registry, so a server
+// that has never run this tunnel does not have one. Creating the container
+// would fail with the engine's own message about an unknown image, which says
+// nothing about where it was meant to come from.
+func (t *Tunnel) ensureImage(ctx context.Context) error {
+	switch t.pullPolicy {
+	case "never":
+		present, err := t.engine.HasImage(ctx, t.cfg.Image)
+		if err != nil {
+			return err
+		}
+		if !present {
+			return fmt.Errorf("%s is not on this machine and pull_policy is never; "+
+				"push it from wherever it is built, or change the policy", t.cfg.Image)
+		}
+		return nil
+	case "always":
+	default: // "missing"
+		present, err := t.engine.HasImage(ctx, t.cfg.Image)
+		if err != nil {
+			return err
+		}
+		if present {
+			return nil
+		}
+	}
+
+	t.log.Info("fetching the image", "image", t.cfg.Image)
+	if err := t.engine.Pull(ctx, t.cfg.Image); err != nil {
+		return fmt.Errorf("fetch %s: %w", t.cfg.Image, err)
+	}
+	t.log.Info("image fetched", "image", t.cfg.Image)
 	return nil
 }
 

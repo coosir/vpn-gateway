@@ -67,6 +67,8 @@ type Engine interface {
 	Remove(ctx context.Context, name string) error
 	// Logs returns the last n lines of container output.
 	Logs(ctx context.Context, name string, tail int) (string, error)
-	// Pull fetches the image.
+	// HasImage reports whether the image is already present locally.
+	HasImage(ctx context.Context, image string) (bool, error)
+	// Pull fetches the image from its registry.
 	Pull(ctx context.Context, image string) error
 }

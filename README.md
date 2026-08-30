@@ -201,7 +201,7 @@ The `mock` provider dials straight out and reports a synthetic network, so the
 whole pipeline can be exercised on any machine with Docker.
 
 ```sh
-make image-mock
+make image-mock                        # builds coosir/vg-mock for this machine
 cp config.example.yaml config.yaml     # the mock tunnel is enabled by default
 ./bin/vpn-gateway-server -config config.yaml -check
 ./bin/vpn-gateway-server -config config.yaml
@@ -285,5 +285,15 @@ cmd/               vg-agent, vpn-gateway-server
 ```sh
 make test      # unit tests
 make check     # build, vet and test
-make images    # build every image
+
+make images    # build the images for this machine, to try them out
+make push      # build for x86 and ARM and publish them
+```
+
+Images are built here and published; the server only pulls. That is what lets
+it run somewhere with no route to where these are assembled from. The prefix
+and tag are `REGISTRY` and `IMAGE_TAG`:
+
+```sh
+make push REGISTRY=registry.example.com/vpn-gateway/vg- IMAGE_TAG=2026-08-30
 ```

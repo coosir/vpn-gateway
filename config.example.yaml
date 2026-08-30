@@ -12,6 +12,13 @@ state_dir: /var/lib/vpn-gateway
 # docker, podman, or auto to pick whichever is installed.
 runtime: auto
 
+# When to fetch an image from its registry. Images are built elsewhere and
+# pushed, so this machine fetches what it does not have.
+#   missing  only what is not here (the default)
+#   always   check every time a container is created, for a tag that moves
+#   never    refuse rather than reaching out, for a machine with no registry
+pull_policy: missing
+
 # First loopback port handed to containers. Each tunnel takes two: one for its
 # SOCKS5 data plane and one for its control plane. These are internal to the
 # server; clients never see them.
@@ -44,7 +51,7 @@ tunnels:
   # routing, the GUI and failover without touching a real VPN.
   - name: mock
     provider: mock
-    image: vpn-gateway/mock:dev
+    image: coosir/vg-mock:latest
     server: mock.example.com
     username: tester
     extra:
@@ -55,7 +62,7 @@ tunnels:
   # Sangfor EasyConnect.
   - name: school-ec
     provider: easyconnect
-    image: vpn-gateway/sangfor:dev
+    image: coosir/vg-sangfor:latest
     server: vpn.example.edu.cn
     username: alice
     # Never put a password in this file. Point at an environment variable on
@@ -74,7 +81,7 @@ tunnels:
   # Pulse, F5, Juniper, Array and AnyConnect: change provider, not image.
   - name: corp-forti
     provider: fortinet
-    image: vpn-gateway/openconnect:dev
+    image: coosir/vg-openconnect:latest
     server: vpn.corp.example
     username: alice
     password_env: CORP_FORTI_PASSWORD
@@ -99,7 +106,7 @@ tunnels:
   # Sangfor aTrust: the same image, a different protocol.
   - name: corp-atrust
     provider: atrust
-    image: vpn-gateway/sangfor:dev
+    image: coosir/vg-sangfor:latest
     server: atrust.example.com
     username: alice
     password_env: CORP_ATRUST_PASSWORD

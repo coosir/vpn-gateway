@@ -3,7 +3,8 @@
 # without anyone's corporate credentials.
 #
 # Build from the repository root:
-#   docker build -f images/mock/Dockerfile -t vpn-gateway/mock:dev .
+#   make image-mock          # for this machine
+#   make push-mock           # for every platform, published
 
 FROM golang:1.26-alpine AS build
 WORKDIR /src

@@ -48,13 +48,29 @@ service works. Everything below calls it `vpn.example.dyndns.org`.
 > alerts and locked accounts. A residential connection raises none of that, and
 > it is also closer to the gateways you are dialing.
 
-## 1. Build
+## 1. Build and publish
 
-The images build themselves from the source using a Go toolchain inside the
-build, so the server needs Docker and nothing else. The three binaries are
-cross-compiled wherever you have Go.
+Everything is built on your own machine and published to a registry. The
+server only pulls: it never needs the sources, a Go toolchain, or a route to
+wherever these are assembled from.
 
-On your own machine:
+Images first. `make push` builds for both x86 and ARM and pushes one tag that
+works on either, so it does not matter which the server is:
+
+```sh
+docker login                       # once, for wherever you publish
+
+make push                          # coosir/vg-mock, -sangfor, -openconnect
+make push IMAGE_TAG=2026-08-30     # or pin a tag you can roll back to
+```
+
+Publishing somewhere other than Docker Hub is a prefix:
+
+```sh
+make push REGISTRY=registry.example.com/vpn-gateway/vg-
+```
+
+Then the binaries, cross-compiled for whatever the server runs:
 
 ```sh
 make dist                          # linux/amd64 by default
@@ -62,25 +78,32 @@ make dist DIST_ARCH=arm64          # for an ARM server
 
 scp dist/linux-amd64/vpn-gateway-server \
     dist/linux-amd64/vgctl  server:/tmp/
-rsync -a --exclude dist --exclude bin ./ server:/opt/vpn-gateway-src/
 ```
 
-On the server:
+On the server, that is the whole installation:
 
 ```sh
 sudo install -m 0755 /tmp/vpn-gateway-server /tmp/vgctl /usr/local/bin/
+```
 
-cd /opt/vpn-gateway-src
-make image-mock          # no VPN at all, for proving the plumbing
-make image-sangfor       # EasyConnect and aTrust
-make image-openconnect   # Fortinet, GlobalProtect, Pulse, F5, Juniper, …
+The server fetches each image the first time it runs the tunnel that uses it,
+so nothing has to be pulled by hand. `pull_policy: always` re-checks a tag
+that moves; `never` refuses to reach out at all, for a machine with no route
+to the registry, and then the images have to be loaded another way:
+
+```sh
+# on your machine
+docker save coosir/vg-sangfor:latest | gzip > sangfor.tgz
+# on the server
+gunzip -c sangfor.tgz | docker load
 ```
 
 ## 2. Configure
 
 ```sh
 sudo mkdir -p /etc/vpn-gateway
-sudo cp /opt/vpn-gateway-src/config.example.yaml /etc/vpn-gateway/config.yaml
+scp config.example.yaml server:/tmp/            # from your machine
+sudo cp /tmp/config.example.yaml /etc/vpn-gateway/config.yaml
 sudo chmod 0600 /etc/vpn-gateway/config.yaml
 ```
 
@@ -97,10 +120,12 @@ trojan:
   server_name: vpn.example.dyndns.org
   tls_mode: selfsigned
 
+pull_policy: missing
+
 tunnels:
   - name: mock
     provider: mock
-    image: vpn-gateway/mock:dev
+    image: coosir/vg-mock:latest
     server: mock.example
     username: tester
     extra:
@@ -124,8 +149,8 @@ account later.
 ## 3. Run it
 
 ```sh
-sudo cp /opt/vpn-gateway-src/packaging/systemd/vpn-gateway-server.service \
-        /etc/systemd/system/
+scp packaging/systemd/vpn-gateway-server.service server:/tmp/   # from your machine
+sudo cp /tmp/vpn-gateway-server.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now vpn-gateway-server
 journalctl -u vpn-gateway-server -f
@@ -167,6 +192,9 @@ If this fails, stop and fix it. Everything after this point assumes it works.
 
 - **`no container runtime found`** — the engine is not installed, or the
   service cannot reach its socket.
+- **`fetch coosir/vg-…: …`** — the server cannot reach the registry. Either
+  publish somewhere it can, or set `pull_policy: never` and load the images
+  with `docker save` and `docker load` as above.
 - **`tunnel=unreachable`** — the container is not answering. Look at it with
   `vgctl -config … tunnels` for the port, then `docker logs vpngw-mock`.
 - **the listener will not bind 443** — something else has it, or the unit lost
@@ -263,7 +291,7 @@ The unit already reads that file. Add the tunnel:
   # Sangfor EasyConnect or aTrust. Change provider to atrust for the other.
   - name: corp
     provider: easyconnect
-    image: vpn-gateway/sangfor:dev
+    image: coosir/vg-sangfor:latest
     server: vpn.corp.example
     username: alice
     password_env: CORP_PASSWORD
@@ -281,7 +309,7 @@ interface inside its container, so that container needs two extra things:
 ```yaml
   - name: corp-forti
     provider: fortinet        # or globalprotect, pulse, f5, juniper, …
-    image: vpn-gateway/openconnect:dev
+    image: coosir/vg-openconnect:latest
     server: vpn.corp.example
     username: alice
     password_env: CORP_PASSWORD

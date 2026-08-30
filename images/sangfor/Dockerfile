@@ -4,7 +4,8 @@
 # them (easyconnect or atrust).
 #
 # Build from the repository root:
-#   docker build -f images/sangfor/Dockerfile -t vpn-gateway/sangfor:dev .
+#   make image-sangfor          # for this machine
+#   make push-sangfor           # for every platform, published
 #
 # ZJU_CONNECT_VERSION is pinned deliberately. Upstream tracks vendor server
 # changes, so an unpinned build can start failing without any change here.

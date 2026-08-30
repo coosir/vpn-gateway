@@ -30,6 +30,15 @@ type Config struct {
 	// PortBase is the first loopback port allocated to containers.
 	PortBase int `yaml:"port_base"`
 
+	// PullPolicy decides when to fetch an image from its registry:
+	// "missing" (default) pulls only what is not here, "always" checks every
+	// time a container is created, "never" refuses rather than reaching out.
+	//
+	// Images are built elsewhere and pushed, so a server that has never seen
+	// one has to fetch it; without this it would fail to create the container
+	// with nothing explaining why.
+	PullPolicy string `yaml:"pull_policy"`
+
 	// Trojan configures the listener clients connect to.
 	Trojan TrojanConfig `yaml:"trojan"`
 
@@ -149,6 +158,9 @@ func (c *Config) applyDefaults() {
 	if c.PortBase == 0 {
 		c.PortBase = DefaultPortBase
 	}
+	if c.PullPolicy == "" {
+		c.PullPolicy = "missing"
+	}
 	if c.Trojan.Listen == "" {
 		c.Trojan.Listen = ":443"
 	}
@@ -172,6 +184,11 @@ func (c *Config) Validate() error {
 	}
 	if c.PortBase < 1024 || c.PortBase > 65000 {
 		errs = append(errs, fmt.Errorf("port_base: want 1024-65000, got %d", c.PortBase))
+	}
+	switch c.PullPolicy {
+	case "missing", "always", "never":
+	default:
+		errs = append(errs, fmt.Errorf("pull_policy: want missing, always or never, got %q", c.PullPolicy))
 	}
 	if len(c.Tunnels) == 0 {
 		errs = append(errs, errors.New("tunnels: at least one tunnel is required"))
