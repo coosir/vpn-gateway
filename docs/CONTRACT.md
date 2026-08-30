@@ -144,6 +144,11 @@ the answer back. Two details are easy to get wrong and both are handled:
   Someone fetching a code from their phone easily outlasts any timeout worth
   setting for a stuck process, and killing the client mid-login makes the
   tunnel impossible to bring up at all.
+- Where the wording comes from the gateway rather than the client, there is no
+  phrase to match and the shape is the only signal. A fragment must **stand
+  unchanged for a moment** before it counts as a question: output such as an
+  OpenSSL error is full of colons, and a read boundary landing after one would
+  otherwise stop the tunnel to ask about nothing.
 
 ### `POST /v1/auth`
 

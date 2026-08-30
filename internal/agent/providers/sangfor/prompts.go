@@ -20,8 +20,8 @@ var urlRE = regexp.MustCompile(`https?://[^\s,]+`)
 func prompts() []agent.Prompt {
 	return []agent.Prompt{
 		{
-			Marker: "enter the sms verification code",
-			Type:   contract.ChallengeSMS,
+			Match: agent.Marker("enter the sms verification code"),
+			Type:  contract.ChallengeSMS,
 			Describe: func(line string, recent []string) contract.Challenge {
 				return contract.Challenge{
 					Type:   contract.ChallengeSMS,
@@ -31,8 +31,8 @@ func prompts() []agent.Prompt {
 		},
 		{
 			// EasyConnect words it differently from aTrust.
-			Marker: "enter your sms code",
-			Type:   contract.ChallengeSMS,
+			Match: agent.Marker("enter your sms code"),
+			Type:  contract.ChallengeSMS,
 			Describe: func(line string, recent []string) contract.Challenge {
 				return contract.Challenge{
 					Type:   contract.ChallengeSMS,
@@ -41,8 +41,8 @@ func prompts() []agent.Prompt {
 			},
 		},
 		{
-			Marker: "enter the totp token",
-			Type:   contract.ChallengeTOTP,
+			Match: agent.Marker("enter the totp token"),
+			Type:  contract.ChallengeTOTP,
 			Describe: func(line string, recent []string) contract.Challenge {
 				return contract.Challenge{
 					Type:   contract.ChallengeTOTP,
@@ -51,8 +51,8 @@ func prompts() []agent.Prompt {
 			},
 		},
 		{
-			Marker: "enter the radius token",
-			Type:   contract.ChallengePassword,
+			Match: agent.Marker("enter the radius token"),
+			Type:  contract.ChallengePassword,
 			Describe: func(line string, recent []string) contract.Challenge {
 				return contract.Challenge{
 					Type:   contract.ChallengePassword,
@@ -61,8 +61,8 @@ func prompts() []agent.Prompt {
 			},
 		},
 		{
-			Marker: "enter rand code",
-			Type:   contract.ChallengeCaptcha,
+			Match: agent.Marker("enter rand code"),
+			Type:  contract.ChallengeCaptcha,
 			Describe: func(line string, recent []string) contract.Challenge {
 				return contract.Challenge{
 					Type:   contract.ChallengeCaptcha,
@@ -71,8 +71,8 @@ func prompts() []agent.Prompt {
 			},
 		},
 		{
-			Marker: "enter the graph check code",
-			Type:   contract.ChallengeCaptcha,
+			Match: agent.Marker("enter the graph check code"),
+			Type:  contract.ChallengeCaptcha,
 			Describe: func(line string, recent []string) contract.Challenge {
 				return contract.Challenge{
 					Type: contract.ChallengeCaptcha,
@@ -83,8 +83,8 @@ func prompts() []agent.Prompt {
 			},
 		},
 		{
-			Marker: "enter the callback url",
-			Type:   contract.ChallengeURL,
+			Match: agent.Marker("enter the callback url"),
+			Type:  contract.ChallengeURL,
 			Describe: func(line string, recent []string) contract.Challenge {
 				ch := contract.Challenge{
 					Type:   contract.ChallengeURL,

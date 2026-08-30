@@ -96,8 +96,12 @@ appear.
 - **Tier A — native reimplementation.** No vendor binary. `trojan` (built into
   sing-box), `easyconnect` and `atrust` (via zju-connect), `fortinet`
   (openfortivpn or a Go port).
-- **Tier B — wrapped upstream client.** `openconnect --script-tun` with a
-  userspace stack covers AnyConnect, GlobalProtect, Pulse and Fortinet.
+- **Tier B — a reimplementation that installs its own interface.**
+  OpenConnect covers Fortinet, GlobalProtect, Pulse, F5, Juniper, Array and
+  AnyConnect from one image. It creates a tun interface inside the container,
+  and because the agent shares that namespace an ordinary dial already goes
+  through it. The userspace-stack approach this originally planned turned out
+  to be unnecessary: the container is already the isolation.
 - **Tier C — vendor client in a sandbox.** The vendor's own Linux client, with
   a VNC challenge for graphical first login. The honest fallback for anything
   not yet reimplemented, and the reason `vnc` exists in the contract.
@@ -178,6 +182,22 @@ no forwarder is needed. Where the client has no headless login at all, the
 image serves a screen and the agent raises a vnc challenge. That is ugly, and
 it is the honest price of a client never meant to run without a desktop.
 
-Next is the GUI, and the Fortinet image. Client privilege separation is still
-open: creating a TUN interface needs elevation, and splitting out a signed
-helper needs an Apple developer identity on macOS.
+Phase 3: the OpenConnect image, covering seven protocols. Two things came out
+of running it rather than reasoning about it.
+
+Readiness is the tun interface existing and holding an address, not a phrase
+in the client's output. Seven protocols word their success differently and the
+wording changes between versions; an interface either has an address or it
+does not.
+
+And the questions these gateways ask are worded by the gateway, so there is no
+phrase to match. What is reliable is the shape: a log line is terminated,
+while a question leaves the cursor after its colon. That alone is not enough,
+because output such as an OpenSSL error is full of colons and a read boundary
+can land after one, so a fragment must also stand unchanged for a moment
+before it is treated as a question. A real prompt is followed by silence; half
+a log line is not.
+
+Next is the GUI. Client privilege separation is still open: creating a TUN
+interface needs elevation, and splitting out a signed helper needs an Apple
+developer identity on macOS.

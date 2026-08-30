@@ -59,6 +59,12 @@ type Runner struct {
 	// back to the child's standard input.
 	Prompts []Prompt
 
+	// StdinPrelude is written to the child as soon as it starts, one line
+	// each. It carries answers that are known in advance, such as a password
+	// a client insists on reading from standard input rather than taking as
+	// an argument, which is where it would be visible in the process list.
+	StdinPrelude []string
+
 	// ReadyTimeout bounds how long the child may take to start serving its
 	// SOCKS5 port before the attempt is abandoned.
 	ReadyTimeout time.Duration
@@ -75,12 +81,38 @@ type Runner struct {
 
 // Prompt recognises one interactive question a supervised client can ask.
 type Prompt struct {
-	// Marker is matched case-insensitively against the child's output.
-	Marker string
-	Type   contract.ChallengeType
-	// Describe builds the text shown to the person answering. recent holds
-	// the preceding output lines, newest last.
+	// Match reports whether this output is the question. complete says
+	// whether the output was newline-terminated, which is what separates a
+	// log line from a prompt left waiting on the same line.
+	Match func(line string, complete bool) bool
+	Type  contract.ChallengeType
+	// Describe builds the challenge shown to the person answering. recent
+	// holds the preceding output lines, newest last.
 	Describe func(line string, recent []string) contract.Challenge
+}
+
+// Marker matches output containing s, case-insensitively. It suits a client
+// whose questions are worded by the client itself.
+func Marker(s string) func(line string, complete bool) bool {
+	lower := strings.ToLower(s)
+	return func(line string, _ bool) bool {
+		return strings.Contains(strings.ToLower(line), lower)
+	}
+}
+
+// GatewayQuestion matches an unterminated fragment that ends in a colon.
+//
+// Some clients relay a question worded by the gateway, so there is no phrase
+// to look for. What can be relied on is the shape: a log line is always
+// terminated, while a question leaves the cursor after its colon waiting for
+// an answer.
+func GatewayQuestion() func(line string, complete bool) bool {
+	return func(line string, complete bool) bool {
+		if complete {
+			return false
+		}
+		return strings.HasSuffix(strings.TrimRight(line, " \t"), ":")
+	}
 }
 
 // recentLines is how much context is kept for Describe.
@@ -93,8 +125,14 @@ const DefaultReadyTimeout = 90 * time.Second
 // Run starts the child, waits for its proxy to accept connections, reports
 // StateUp, and blocks until the child exits or ctx is cancelled.
 func (r *Runner) Run(ctx context.Context, rep Reporter) error {
-	if r.Upstream == "" {
-		return Permanent(errors.New("runner: Upstream is required"))
+	// Upstream is only needed when readiness is a port to connect to. A
+	// client that installs its own interface reports readiness through
+	// ReadyWhen and has no proxy to point at.
+	if r.Upstream == "" && r.ReadyWhen == nil {
+		return Permanent(errors.New("runner: set Upstream, or ReadyWhen for a client that has no proxy"))
+	}
+	if r.Upstream == "" && !r.DirectDial {
+		return Permanent(errors.New("runner: without Upstream, DirectDial must be set: there is no proxy to dial through"))
 	}
 	rep.SetState(contract.StateConnecting, nil)
 
@@ -126,6 +164,7 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 	r.mu.Unlock()
 
 	if err := cmd.Start(); err != nil {
+		stdin.Close()
 		// A missing binary is a broken image, not a transient fault.
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 			return Permanent(fmt.Errorf("start %s: %w", r.Path, err))
@@ -133,24 +172,36 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 		return fmt.Errorf("start %s: %w", r.Path, err)
 	}
 
+	for _, line := range r.StdinPrelude {
+		if _, err := io.WriteString(stdin, line+"\n"); err != nil {
+			cmd.Cancel()
+			return fmt.Errorf("send the opening input to %s: %w", r.Path, err)
+		}
+	}
+
 	var scanWG sync.WaitGroup
 	scanWG.Add(2)
 	go func() { defer scanWG.Done(); r.scan(stdout, rep) }()
 	go func() { defer scanWG.Done(); r.scan(stderr, rep) }()
 
-	exited := make(chan error, 1)
+	// The exit is delivered by closing a channel rather than sending on one,
+	// so it can be observed more than once. A single-value channel deadlocks
+	// the moment two places both need to know the child is gone, and the
+	// symptom is a tunnel wedged in "connecting" that never retries.
+	exit := &childExit{done: make(chan struct{})}
 	go func() {
 		scanWG.Wait()
-		exited <- cmd.Wait()
+		exit.err = cmd.Wait()
+		close(exit.done)
 	}()
 
 	ready := r.ReadyTimeout
 	if ready == 0 {
 		ready = DefaultReadyTimeout
 	}
-	if err := r.waitReady(ctx, ready, exited); err != nil {
+	if err := r.waitReady(ctx, ready, exit); err != nil {
 		cmd.Cancel()
-		<-exited
+		<-exit.done
 		return err
 	}
 
@@ -169,13 +220,13 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 	rep.SetState(contract.StateUp, nil)
 
 	select {
-	case err := <-exited:
+	case <-exit.done:
 		r.mu.Lock()
 		r.dialer = nil
 		r.mu.Unlock()
-		return childExitError(err)
+		return childExitError(exit.err)
 	case <-ctx.Done():
-		<-exited
+		<-exit.done
 		return nil
 	}
 }
@@ -187,7 +238,7 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 // fetching a code from their phone can easily take longer than any timeout
 // worth setting for a stuck process, and killing the client mid-login would
 // make the tunnel impossible to bring up at all.
-func (r *Runner) waitReady(ctx context.Context, timeout time.Duration, exited <-chan error) error {
+func (r *Runner) waitReady(ctx context.Context, timeout time.Duration, exit *childExit) error {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -196,8 +247,8 @@ func (r *Runner) waitReady(ctx context.Context, timeout time.Duration, exited <-
 
 	for {
 		select {
-		case err := <-exited:
-			return childExitError(err)
+		case <-exit.done:
+			return childExitError(exit.err)
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
@@ -250,22 +301,53 @@ func (r *Runner) Dial(ctx context.Context, network, addr string) (net.Conn, erro
 	return d.Dial(network, addr)
 }
 
+// promptSettle is how long an unterminated fragment must stand unchanged
+// before it is treated as a question.
+//
+// A real prompt is followed by silence, because the child is blocked reading
+// the answer. A read that happens to split a log line mid-way is followed
+// immediately by the rest of it. Without this wait, output such as
+// "...rec_layer_s3.c:698:" split at the wrong byte would stop the tunnel to
+// ask a person about nothing.
+const promptSettle = 400 * time.Millisecond
+
 func (r *Runner) scan(rc io.Reader, rep Reporter) {
+	var (
+		mu      sync.Mutex
+		pending *time.Timer
+	)
+	cancelPending := func() {
+		mu.Lock()
+		if pending != nil {
+			pending.Stop()
+			pending = nil
+		}
+		mu.Unlock()
+	}
+	defer cancelPending()
+
 	scanLines(rc, func(line string, complete bool) {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			return
 		}
 		if complete {
+			// More output arrived, so whatever fragment was waiting was part
+			// of a line rather than a question.
+			cancelPending()
 			rep.Log("%s", trimmed)
 			r.remember(trimmed)
 			if r.OnLine != nil {
 				r.OnLine(trimmed, rep)
 			}
+			r.checkPrompt(line, true, rep)
+			return
 		}
-		// A prompt is usually an unterminated fragment, so both kinds are
-		// checked.
-		r.checkPrompt(line, rep)
+
+		cancelPending()
+		mu.Lock()
+		pending = time.AfterFunc(promptSettle, func() { r.checkPrompt(line, false, rep) })
+		mu.Unlock()
 	})
 }
 
@@ -279,13 +361,12 @@ func (r *Runner) remember(line string) {
 }
 
 // checkPrompt raises a challenge when the child asks an interactive question.
-func (r *Runner) checkPrompt(line string, rep Reporter) {
+func (r *Runner) checkPrompt(line string, complete bool, rep Reporter) {
 	if len(r.Prompts) == 0 {
 		return
 	}
-	lower := strings.ToLower(line)
 	for _, p := range r.Prompts {
-		if !strings.Contains(lower, strings.ToLower(p.Marker)) {
+		if p.Match == nil || !p.Match(line, complete) {
 			continue
 		}
 
@@ -356,6 +437,12 @@ func (r *Runner) Pending() *contract.Challenge {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.pending
+}
+
+// childExit carries the child's exit status to everything watching for it.
+type childExit struct {
+	done chan struct{}
+	err  error
 }
 
 func childExitError(err error) error {

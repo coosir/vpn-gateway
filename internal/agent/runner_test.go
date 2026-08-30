@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -82,12 +85,12 @@ func (p *promptProvider) Run(ctx context.Context, cfg Config, rep Reporter) erro
 		Upstream:     p.addr,
 		ReadyTimeout: 20 * time.Second,
 		Prompts: []Prompt{
-			{Marker: "enter the sms verification code", Type: contract.ChallengeSMS},
-			{Marker: "enter your sms code", Type: contract.ChallengeSMS},
-			{Marker: "enter the totp token", Type: contract.ChallengeTOTP},
+			{Match: Marker("enter the sms verification code"), Type: contract.ChallengeSMS},
+			{Match: Marker("enter your sms code"), Type: contract.ChallengeSMS},
+			{Match: Marker("enter the totp token"), Type: contract.ChallengeTOTP},
 			{
-				Marker: "enter the callback url",
-				Type:   contract.ChallengeURL,
+				Match: Marker("enter the callback url"),
+				Type:  contract.ChallengeURL,
 				Describe: func(line string, recent []string) contract.Challenge {
 					ch := contract.Challenge{Type: contract.ChallengeURL, Prompt: line}
 					for i := len(recent) - 1; i >= 0; i-- {
@@ -367,3 +370,181 @@ func TestAuthDoesNotTimeOutWhileWaiting(t *testing.T) {
 	}
 	waitForState(t, a, contract.StateUp, 25*time.Second)
 }
+
+// splitReader delivers a log line in two pieces with the split landing right
+// after a colon, and then keeps the stream open. It reproduces a read
+// boundary falling mid-line.
+type splitReader struct {
+	chunks []string
+	i      int
+	block  chan struct{}
+}
+
+func (r *splitReader) Read(p []byte) (int, error) {
+	if r.i < len(r.chunks) {
+		n := copy(p, r.chunks[r.i])
+		r.i++
+		return n, nil
+	}
+	<-r.block
+	return 0, io.EOF
+}
+
+// TestMidLineSplitIsNotMistakenForAQuestion covers output such as
+// openconnect's SSL errors, which are full of colons. A read boundary landing
+// after one would otherwise stop the tunnel to ask a person about nothing.
+func TestMidLineSplitIsNotMistakenForAQuestion(t *testing.T) {
+	r := &Runner{
+		Prompts: []Prompt{{Match: GatewayQuestion(), Type: contract.ChallengePassword}},
+	}
+	rep := &countingReporter{}
+	src := &splitReader{
+		chunks: []string{
+			"error:0A000126:SSL routines:",
+			":unexpected eof while reading:ssl/record/rec_layer_s3.c:698:\n",
+		},
+		block: make(chan struct{}),
+	}
+	go func() {
+		time.Sleep(2 * time.Second)
+		close(src.block)
+	}()
+
+	r.scan(src, rep)
+
+	if ch := r.Pending(); ch != nil {
+		t.Errorf("a split log line was treated as a question: %q", ch.Prompt)
+	}
+}
+
+// TestARealQuestionStillBecomesAChallenge checks the debounce did not break
+// the case it protects.
+func TestARealQuestionStillBecomesAChallenge(t *testing.T) {
+	r := &Runner{
+		Prompts: []Prompt{{Match: GatewayQuestion(), Type: contract.ChallengePassword}},
+	}
+	rep := &countingReporter{}
+	src := &splitReader{
+		chunks: []string{"Connected to 203.0.113.7:443\n", "Please enter your token: "},
+		block:  make(chan struct{}),
+	}
+	go func() {
+		time.Sleep(2 * time.Second)
+		close(src.block)
+	}()
+
+	r.scan(src, rep)
+
+	ch := r.Pending()
+	if ch == nil {
+		t.Fatal("a genuine question did not become a challenge")
+	}
+	if !strings.Contains(ch.Prompt, "Please enter your token") {
+		t.Errorf("challenge prompt = %q", ch.Prompt)
+	}
+}
+
+type countingReporter struct {
+	mu         sync.Mutex
+	challenges int
+}
+
+func (c *countingReporter) SetState(contract.State, error) {}
+func (c *countingReporter) SetNetwork(contract.Network)    {}
+func (c *countingReporter) SetChallenge(ch *contract.Challenge) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if ch != nil {
+		c.challenges++
+	}
+}
+func (c *countingReporter) Log(string, ...any) {}
+
+// TestRunReturnsWhenTheChildFailsToStartServing is the regression test for a
+// deadlock that wedged a tunnel in "connecting" forever.
+//
+// The exit was delivered on a single-value channel, and both the readiness
+// wait and the caller needed to observe it. Whichever read first consumed the
+// only value, and the other blocked for good: the supervisor never learned
+// the child was gone, so it never backed off and never redialled.
+func TestRunReturnsWhenTheChildFailsToStartServing(t *testing.T) {
+	r := &Runner{
+		// A command that exits immediately without ever serving anything,
+		// which is what a VPN client does against an unreachable gateway.
+		Path:         "/bin/sh",
+		Args:         []string{"-c", "echo cannot reach the gateway >&2; exit 1"},
+		Upstream:     freeAddr(t),
+		ReadyTimeout: 30 * time.Second,
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- r.Run(context.Background(), &countingReporter{}) }()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a child that exited with status 1 was reported as success")
+		}
+		if !strings.Contains(err.Error(), "status 1") {
+			t.Errorf("error = %v, want the exit status", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return after the child exited; the tunnel would be wedged forever")
+	}
+}
+
+// TestSupervisorRetriesAFailingChild checks the whole loop, not just Run:
+// a client that keeps failing must keep being retried with backoff.
+func TestSupervisorRetriesAFailingChild(t *testing.T) {
+	p := &failingRunnerProvider{addr: freeAddr(t)}
+	a := &Agent{
+		cfg:      Config{Provider: "failing"},
+		provider: p,
+		log:      slog.New(slog.DiscardHandler),
+		state:    contract.StateConnecting,
+		since:    time.Now(),
+		subs:     map[int]chan contract.Event{},
+		redial:   make(chan struct{}, 1),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	go a.Supervise(ctx)
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if p.runs.Load() >= 2 && a.Status().State == contract.StateError {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("the child ran %d times and the state is %q; want repeated retries reported as errors",
+		p.runs.Load(), a.Status().State)
+}
+
+type failingRunnerProvider struct {
+	addr   string
+	runs   atomic.Int32
+	runner Runner
+}
+
+func (p *failingRunnerProvider) Capabilities() []string { return []string{contract.CapTCP} }
+func (p *failingRunnerProvider) Run(ctx context.Context, cfg Config, rep Reporter) error {
+	p.runs.Add(1)
+	p.runner = Runner{
+		Path:         "/bin/sh",
+		Args:         []string{"-c", "exit 1"},
+		Upstream:     p.addr,
+		ReadyTimeout: 30 * time.Second,
+	}
+	return p.runner.Run(ctx, rep)
+}
+func (p *failingRunnerProvider) Dial(context.Context, string, string) (net.Conn, error) {
+	return nil, errNotDialable
+}
+func (p *failingRunnerProvider) Answer(contract.AuthAnswer) error { return nil }
+
+var errNotDialable = errorString("not dialable")
+
+type errorString string
+
+func (e errorString) Error() string { return string(e) }

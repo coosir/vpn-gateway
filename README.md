@@ -19,8 +19,10 @@ Phases 0 to 2 are complete and verified end to end. What works today:
 - image contract v1, with authentication on both the data and control planes
 - `vg-agent`: the in-container supervisor, SOCKS5 data plane with traffic
   accounting, HTTP control plane with an event stream
-- providers: `mock` (no VPN, for testing), `easyconnect` and `atrust` (via
-  zju-connect)
+- providers: `mock` (no VPN, for testing); `easyconnect` and `atrust` via
+  zju-connect; `fortinet`, `globalprotect`, `pulse`, `f5`, `juniper`, `array`
+  and `anyconnect` via OpenConnect; `inode` and a generic `vendor` tier for
+  clients with no reimplementation
 - `vpn-gateway-server`: container orchestration, per-tunnel supervision and
   restart backoff, the client-facing control API
 - the trojan listener: one TLS port for every tunnel, selected by which
@@ -35,8 +37,26 @@ Phases 0 to 2 are complete and verified end to end. What works today:
   client and is answered there
 
 Not built yet: privilege separation on the client (it currently needs
-elevation itself, see below), the GUI, and the Fortinet image. The iNode image
-is written but cannot be built or tested without H3C's installer.
+elevation itself, see below) and the GUI. The iNode image is written but
+cannot be built or tested without H3C's installer.
+
+## Which image for which VPN
+
+| VPN | provider | image | needs |
+|-----|----------|-------|-------|
+| Sangfor EasyConnect | `easyconnect` | `sangfor` | nothing |
+| Sangfor aTrust | `atrust` | `sangfor` | nothing |
+| Fortinet | `fortinet` | `openconnect` | `NET_ADMIN`, `/dev/net/tun` |
+| GlobalProtect | `globalprotect` | `openconnect` | same |
+| Pulse / F5 / Juniper / Array / AnyConnect | `pulse` `f5` `juniper` `array` `anyconnect` | `openconnect` | same |
+| H3C iNode | `inode` | `inode` | H3C's installer, `NET_ADMIN`, `/dev/net/tun` |
+
+The `openconnect` image covers seven protocols because OpenConnect does. They
+are all reimplementations, so none of them needs a vendor's own client.
+
+The capability and device are for the tun interface the client creates. Both
+stay inside that container's own network namespace, which is exactly what
+lets several of these run at once.
 
 ## Logging in to a gateway that asks questions
 

@@ -69,15 +69,16 @@ func (s State) Terminal() bool { return s == StateDown || s == StateError }
 
 // Capability names advertised in LabelCapabilities and Status.Capabilities.
 const (
-	CapTCP     = "tcp"     // SOCKS5 CONNECT works. Mandatory.
-	CapUDP     = "udp"     // SOCKS5 UDP ASSOCIATE works.
-	CapRoutes  = "routes"  // Network.Routes is populated from the server push.
-	CapDNS     = "dns"     // Network.DNS is populated from the server push.
-	CapSMS     = "sms"     // May raise a ChallengeSMS.
-	CapTOTP    = "totp"    // May raise a ChallengeTOTP.
-	CapCaptcha = "captcha" // May raise a ChallengeCaptcha.
-	CapURL     = "url"     // May raise a ChallengeURL.
-	CapVNC     = "vnc"     // May raise a ChallengeVNC for graphical first login.
+	CapTCP      = "tcp"      // SOCKS5 CONNECT works. Mandatory.
+	CapUDP      = "udp"      // SOCKS5 UDP ASSOCIATE works.
+	CapRoutes   = "routes"   // Network.Routes is populated from the server push.
+	CapDNS      = "dns"      // Network.DNS is populated from the server push.
+	CapPassword = "password" // May raise a ChallengePassword.
+	CapSMS      = "sms"      // May raise a ChallengeSMS.
+	CapTOTP     = "totp"     // May raise a ChallengeTOTP.
+	CapCaptcha  = "captcha"  // May raise a ChallengeCaptcha.
+	CapURL      = "url"      // May raise a ChallengeURL.
+	CapVNC      = "vnc"      // May raise a ChallengeVNC for graphical first login.
 )
 
 // Traffic counters for a tunnel, measured at the agent's SOCKS5 front door.

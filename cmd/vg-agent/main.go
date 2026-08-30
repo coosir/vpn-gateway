@@ -25,6 +25,7 @@ import (
 	// Providers register themselves on import. Adding a VPN to vpn-gateway
 	// starts here.
 	_ "github.com/vpn-gateway/vpn-gateway/internal/agent/providers/mock"
+	_ "github.com/vpn-gateway/vpn-gateway/internal/agent/providers/openconnect"
 	_ "github.com/vpn-gateway/vpn-gateway/internal/agent/providers/sangfor"
 	_ "github.com/vpn-gateway/vpn-gateway/internal/agent/providers/vendor"
 )
@@ -34,12 +35,25 @@ func main() {
 		dataAddr = flag.String("data", fmt.Sprintf(":%d", contract.PortData), "SOCKS5 data plane listen address")
 		ctrlAddr = flag.String("control", fmt.Sprintf(":%d", contract.PortControl), "HTTP control plane listen address")
 		list     = flag.Bool("providers", false, "list built-in providers and exit")
+		tunnelUp = flag.Bool("tunnel-status", false, "report the VPN interface this container can see, and exit")
 		logLevel = flag.String("log-level", "info", "debug, info, warn or error")
 	)
 	flag.Parse()
 
 	if *list {
 		fmt.Println(strings.Join(agent.Providers(), "\n"))
+		return
+	}
+
+	// A container that never reports up is usually one whose client failed to
+	// bring an interface up. Asking directly is faster than reading logs.
+	if *tunnelUp {
+		name, addr := agent.TunnelInterface()
+		if name == "" {
+			fmt.Println("no VPN interface is up in this container")
+			os.Exit(1)
+		}
+		fmt.Printf("%s %s\n", name, addr)
 		return
 	}
 

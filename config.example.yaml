@@ -70,6 +70,32 @@ tunnels:
       search_domains: "example.edu.cn"
     disabled: true
 
+  # Fortinet, through OpenConnect. The same image also serves GlobalProtect,
+  # Pulse, F5, Juniper, Array and AnyConnect: change provider, not image.
+  - name: corp-forti
+    provider: fortinet
+    image: vpn-gateway/openconnect:dev
+    server: vpn.corp.example
+    username: alice
+    password_env: CORP_FORTI_PASSWORD
+    # The client creates a tun interface and installs routes. Both stay inside
+    # this container's own network namespace, which is what lets several of
+    # these run at once.
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+    extra:
+      routes: "10.30.0.0/16"
+      dns: "10.30.0.53"
+      # The realm or group from the gateway's login form, when it has one.
+      authgroup: "corp"
+      # Answer a token prompt from a seed instead of asking a person on every
+      # reconnect.
+      # totp_secret: "BASE32SEED"
+      # Pin the gateway's certificate. openconnect prints the value to use the
+      # first time it refuses to trust one.
+      # servercert: "pin-sha256:..."
+    disabled: true
+
   # Sangfor aTrust: the same image, a different protocol.
   - name: corp-atrust
     provider: atrust
