@@ -240,3 +240,20 @@ tunnels:
 		t.Error("certificate paths were dropped")
 	}
 }
+
+func TestResolvePasswordIsPartOfChecking(t *testing.T) {
+	// A password_env that is not set must surface before the tunnel tries to
+	// log in: for some gateways a failed attempt counts against the account.
+	path := writeConfig(t, `
+trojan: {server_name: vpn.test}
+tunnels:
+  - {name: corp, provider: mock, image: img, password_env: VG_NOT_SET_ANYWHERE}
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("the configuration itself should be valid: %v", err)
+	}
+	if _, err := cfg.Tunnels[0].ResolvePassword(); err == nil {
+		t.Fatal("an unset password_env resolved without an error")
+	}
+}

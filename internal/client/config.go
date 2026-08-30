@@ -89,9 +89,12 @@ type ProxyConfig struct {
 // DNSConfig controls name resolution for everything no tunnel claims.
 // Per-tunnel resolvers are derived from what each tunnel reports.
 type DNSConfig struct {
-	// Default is the resolver for unclaimed names, as a URL:
-	// "https://1.1.1.1/dns-query", "tls://1.1.1.1", "udp://192.168.1.1", or
-	// "local" to use the system resolver.
+	// Default is the resolver for unclaimed names. "local" uses the system
+	// resolver and is the default. Otherwise a URL:
+	// "https://1.1.1.1/dns-query", "tls://1.1.1.1", "udp://192.168.1.1".
+	//
+	// A public resolver keeps names outside every tunnel off the local
+	// network, which is worth having where it is reachable.
 	Default string `yaml:"default"`
 	// Strategy is "prefer_ipv4", "prefer_ipv6", "ipv4_only" or "ipv6_only".
 	Strategy string `yaml:"strategy"`
@@ -167,9 +170,12 @@ func (c *Config) applyDefaults() {
 		c.LogLevel = "warn"
 	}
 	if c.DNS.Default == "" {
-		// A public resolver over HTTPS, so that names outside every tunnel
-		// are not leaked to whatever network the machine is on.
-		c.DNS.Default = "https://1.1.1.1/dns-query"
+		// The system's own resolver. A public one over HTTPS would keep names
+		// outside every tunnel off the local network, but several are
+		// unreachable from some countries, and a default that times out is
+		// worse than one that is merely less private: it looks like the whole
+		// client is broken. Set dns.default to a DoH URL to change it.
+		c.DNS.Default = "local"
 	}
 	if c.DNS.Strategy == "" {
 		c.DNS.Strategy = "prefer_ipv4"

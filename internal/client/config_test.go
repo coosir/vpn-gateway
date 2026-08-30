@@ -123,3 +123,33 @@ rules:
 		t.Fatal("a rule matching nothing was accepted")
 	}
 }
+
+func TestDefaultResolverIsReachableEverywhere(t *testing.T) {
+	// The default has to work on any network. A public resolver over HTTPS is
+	// more private, but several are blocked in some countries, and one that
+	// times out looks like the whole client is broken rather than like a DNS
+	// problem.
+	path := writeClientConfig(t, "bundle: /dev/null\nproxy: {enabled: true}\n")
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DNS.Default != "local" {
+		t.Errorf("dns.default = %q, want local", cfg.DNS.Default)
+	}
+}
+
+func TestExplicitResolverIsKept(t *testing.T) {
+	path := writeClientConfig(t, `
+bundle: /dev/null
+proxy: {enabled: true}
+dns: {default: "https://1.1.1.1/dns-query"}
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DNS.Default != "https://1.1.1.1/dns-query" {
+		t.Errorf("dns.default = %q", cfg.DNS.Default)
+	}
+}

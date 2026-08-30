@@ -38,5 +38,16 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictNamespaces=true
 LockPersonality=true
 
+# ProtectSystem=strict mounts everything read-only, so the container engine's
+# socket has to be named explicitly. The leading dash keeps the unit starting
+# when only one of the two engines is installed.
+ReadWritePaths=-/run/docker.sock
+ReadWritePaths=-/run/podman/podman.sock
+ReadWritePaths=-/var/run/docker.sock
+
+# If the service will not start on your distribution, comment out this whole
+# hardening block first and add it back a line at a time. None of it is
+# required for the server to work.
+
 [Install]
 WantedBy=multi-user.target

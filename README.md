@@ -9,6 +9,9 @@ namespace and exposes only a SOCKS5 proxy and a status API. The client is a
 single binary with one TUN interface and a routing engine, so nothing on your
 laptop or phone fights over the default route.
 
+**Setting it up: [docs/DEPLOY.md](docs/DEPLOY.md)** walks the whole path, from
+nothing installed to a laptop splitting its traffic.
+
 See [docs/DESIGN.md](docs/DESIGN.md) for why it is built this way, and
 [docs/CONTRACT.md](docs/CONTRACT.md) for the interface a VPN image implements.
 

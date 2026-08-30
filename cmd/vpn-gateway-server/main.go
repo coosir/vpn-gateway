@@ -56,6 +56,23 @@ func run(configPath string, check bool, logLevel string) error {
 		return err
 	}
 	if check {
+		// Resolving the credentials is part of checking: a password_env that
+		// is not set would otherwise only surface when the tunnel tried to
+		// log in, which for some gateways means a failed attempt against a
+		// real account.
+		var credErrs []error
+		for _, t := range cfg.Tunnels {
+			if t.Disabled {
+				continue
+			}
+			if _, err := t.ResolvePassword(); err != nil {
+				credErrs = append(credErrs, err)
+			}
+		}
+		if len(credErrs) > 0 {
+			return errors.Join(credErrs...)
+		}
+
 		fmt.Printf("configuration is valid: %d tunnel(s)\n", len(cfg.Tunnels))
 		if cfg.Trojan.Disabled {
 			fmt.Println("  trojan listener: disabled")

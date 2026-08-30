@@ -2,7 +2,13 @@ GO      ?= go
 BIN     := bin
 LDFLAGS := -s -w
 
-.PHONY: all build test vet check clean images image-mock image-sangfor image-openconnect image-inode
+# Cross-compilation target for `make dist`. A NAS is usually linux/amd64;
+# set GOARCH=arm64 for an ARM one.
+DIST_OS   ?= linux
+DIST_ARCH ?= amd64
+DIST      := dist/$(DIST_OS)-$(DIST_ARCH)
+
+.PHONY: all build test vet check clean dist images image-mock image-sangfor image-openconnect image-inode
 
 all: build
 
@@ -38,5 +44,18 @@ image-inode:
 	@test -n "$(INODE_INSTALLER)" || { echo "set INODE_INSTALLER to H3C's installer"; exit 1; }
 	docker build -f images/inode/Dockerfile --build-arg INODE_INSTALLER=$(INODE_INSTALLER) -t vpn-gateway/inode:dev .
 
+# Binaries for the server, built for whatever the server runs. The images are
+# built on the server itself, where the engine supplies the Go toolchain, so
+# nothing but Docker has to be installed there.
+dist:
+	@mkdir -p $(DIST)
+	GOOS=$(DIST_OS) GOARCH=$(DIST_ARCH) CGO_ENABLED=0 \
+		$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(DIST)/vpn-gateway-server ./cmd/vpn-gateway-server
+	GOOS=$(DIST_OS) GOARCH=$(DIST_ARCH) CGO_ENABLED=0 \
+		$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(DIST)/vgctl ./cmd/vgctl
+	GOOS=$(DIST_OS) GOARCH=$(DIST_ARCH) CGO_ENABLED=0 \
+		$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(DIST)/vpn-gateway ./cmd/vpn-gateway
+	@echo "built for $(DIST_OS)/$(DIST_ARCH) in $(DIST)"
+
 clean:
-	rm -rf $(BIN)
+	rm -rf $(BIN) dist

@@ -43,8 +43,13 @@ ui:
 dns:
   # Resolver for names no tunnel claims. Each tunnel's own resolver is
   # derived from what it reports, so it does not appear here.
-  # Use "local" to defer to the operating system instead.
-  default: https://1.1.1.1/dns-query
+  #
+  # "local" defers to the operating system and always works. A public
+  # resolver keeps these names off the local network, which is worth having
+  # where it is reachable -- but several are blocked in some countries, and a
+  # resolver that times out looks like the whole client is broken.
+  default: local
+  # default: https://1.1.1.1/dns-query
   strategy: prefer_ipv4
 
 # What happens to traffic for a tunnel that is not up.

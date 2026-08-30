@@ -23,7 +23,15 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+
+# The interface saves rule changes back to the configuration file, and the
+# client keeps its interface token in the state directory.
 ReadWritePaths=/etc/vpn-gateway
+StateDirectory=vpn-gateway
+StateDirectoryMode=0700
+
+# If the service will not start on your distribution, comment out this whole
+# hardening block first and add it back a line at a time.
 
 # Stopping must tear down the interface and its routes; leaving them behind
 # would take the machine offline.
