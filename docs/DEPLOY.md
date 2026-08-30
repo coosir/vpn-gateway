@@ -223,6 +223,18 @@ vpn-gateway -config /etc/vpn-gateway/client.yaml run
 ```
 
 It prints a link with a token. Open it: the tunnel should be listed and up.
+The interface is in Chinese by default; the top bar switches to English.
+
+For a tray icon and a native window instead of a browser tab, build the
+desktop shell on the client machine and point it at that link:
+
+```sh
+make desktop
+bin/vpn-gateway-desktop -url 'http://127.0.0.1:8645/?token=…'
+```
+
+It attaches to the running client, so start the client first. On Linux it
+needs `libgtk-3-dev` and `libwebkit2gtk-4.1-dev` to build.
 
 Then switch `tun.enabled` to true and run it with `sudo` (or install the
 client unit from `packaging/systemd/`, which grants `CAP_NET_ADMIN` instead of

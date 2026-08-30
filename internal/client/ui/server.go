@@ -361,6 +361,21 @@ func Serve(ctx context.Context, addr string, h http.Handler, log *slog.Logger) (
 	return ln.Addr().String(), nil
 }
 
+// ReadToken returns the interface token without creating one. It is for
+// anything attaching to a client that is already running, which must not
+// invent a token the client is not using.
+func ReadToken(stateDir string) (string, error) {
+	b, err := os.ReadFile(filepath.Join(stateDir, "ui-token"))
+	if err != nil {
+		return "", err
+	}
+	token := strings.TrimSpace(string(b))
+	if token == "" {
+		return "", fmt.Errorf("%s is empty", filepath.Join(stateDir, "ui-token"))
+	}
+	return token, nil
+}
+
 // LoadOrCreateToken returns the interface token, generating one on first run.
 // It is persisted so the link stays the same between restarts.
 func LoadOrCreateToken(stateDir string) (string, error) {

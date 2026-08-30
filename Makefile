@@ -8,7 +8,7 @@ DIST_OS   ?= linux
 DIST_ARCH ?= amd64
 DIST      := dist/$(DIST_OS)-$(DIST_ARCH)
 
-.PHONY: all build test vet check clean dist images image-mock image-sangfor image-openconnect image-inode
+.PHONY: all build test vet check check-desktop clean dist desktop images image-mock image-sangfor image-openconnect image-inode
 
 all: build
 
@@ -25,6 +25,12 @@ vet:
 	$(GO) vet ./...
 
 check: build vet test
+
+# The desktop shell is excluded from the default build, so check it too where
+# its libraries are present.
+check-desktop:
+	$(GO) vet -tags desktop ./cmd/vpn-gateway-desktop
+	$(GO) test -tags desktop ./cmd/vpn-gateway-desktop
 
 images: image-mock image-sangfor image-openconnect
 
@@ -43,6 +49,15 @@ image-openconnect:
 image-inode:
 	@test -n "$(INODE_INSTALLER)" || { echo "set INODE_INSTALLER to H3C's installer"; exit 1; }
 	docker build -f images/inode/Dockerfile --build-arg INODE_INSTALLER=$(INODE_INSTALLER) -t vpn-gateway/inode:dev .
+
+# The tray and window. It needs CGO and the platform's webview libraries, so
+# it cannot be cross-compiled: build it on the machine that will run it. It is
+# behind a build tag so a headless server still builds everything else.
+#
+#   Linux also needs: libgtk-3-dev libwebkit2gtk-4.1-dev
+desktop:
+	$(GO) build -tags desktop -trimpath -ldflags="$(LDFLAGS)" \
+		-o $(BIN)/vpn-gateway-desktop ./cmd/vpn-gateway-desktop
 
 # Binaries for the server, built for whatever the server runs. The images are
 # built on the server itself, where the engine supplies the Go toolchain, so

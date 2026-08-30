@@ -302,60 +302,61 @@ button.act:disabled { opacity: .45; cursor: default; }
   <header class="bar">
     <div class="mark"><span class="bug" id="bug"></span>vpn-gateway</div>
     <div class="readout">
-      <span><b id="r-up">0</b>/<span id="r-total">0</span> tunnels up</span>
-      <span>ingress <b id="r-ingress">—</b></span>
-      <span>on failure <b id="r-fail">—</b></span>
+      <span><b id="r-up">0</b>/<span id="r-total">0</span> <span data-i18n="bar.up"></span></span>
+      <span><span data-i18n="bar.ingress"></span> <b id="r-ingress">—</b></span>
+      <span><span data-i18n="bar.onfail"></span> <b id="r-fail">—</b></span>
     </div>
     <div class="gap"></div>
-    <button class="act" id="theme" title="Switch theme">theme</button>
+    <button class="act" id="lang" data-i18n-title="bar.langTitle">中文</button>
+    <button class="act" id="theme" data-i18n-title="bar.themeTitle">theme</button>
   </header>
 
   <div class="body">
     <nav class="rail">
-      <button data-pane="tunnels" aria-current="true">tunnels<span class="count" id="c-tunnels"></span></button>
-      <button data-pane="rules">rules<span class="count" id="c-rules"></span></button>
-      <button data-pane="logs">logs</button>
-      <button data-pane="config">config</button>
+      <button data-pane="tunnels" aria-current="true"><span data-i18n="nav.tunnels"></span><span class="count" id="c-tunnels"></span></button>
+      <button data-pane="rules"><span data-i18n="nav.rules"></span><span class="count" id="c-rules"></span></button>
+      <button data-pane="logs" data-i18n="nav.logs"></button>
+      <button data-pane="config" data-i18n="nav.config"></button>
       <div class="sep"></div>
       <div class="meta" id="railmeta"></div>
     </nav>
 
     <main>
       <section class="pane" id="pane-tunnels">
-        <div class="offline" id="offline" hidden>Not receiving updates from the client.</div>
-        <h2>Tunnels</h2>
-        <p class="sub">What the server reports. Routes and resolvers come from the VPN itself and become routing rules automatically.</p>
+        <div class="offline" id="offline" hidden data-i18n="offline"></div>
+        <h2 data-i18n="tunnels.title"></h2>
+        <p class="sub" data-i18n="tunnels.sub"></p>
         <div class="tunnels" id="tunnels"></div>
       </section>
 
       <section class="pane" id="pane-rules" hidden>
-        <h2>Routing rules</h2>
-        <p class="sub">Matched in order, before anything derived from what a tunnel reports, so an explicit choice always wins. Applying rebuilds the routing engine and briefly interrupts open connections.</p>
+        <h2 data-i18n="rules.title"></h2>
+        <p class="sub" data-i18n="rules.sub"></p>
         <div id="rules"></div>
         <div class="toolbar">
-          <button class="act" id="add-rule">add rule</button>
-          <button class="act primary" id="apply-rules">apply &amp; save</button>
-          <button class="act quiet" id="revert-rules">revert</button>
+          <button class="act" id="add-rule" data-i18n="rules.add"></button>
+          <button class="act primary" id="apply-rules" data-i18n="rules.apply"></button>
+          <button class="act quiet" id="revert-rules" data-i18n="rules.revert"></button>
           <span class="note" id="rules-note"></span>
         </div>
       </section>
 
       <section class="pane" id="pane-logs" hidden>
-        <h2>Container logs</h2>
-        <p class="sub">Read from the tunnel's container on the server.</p>
+        <h2 data-i18n="logs.title"></h2>
+        <p class="sub" data-i18n="logs.sub"></p>
         <div class="toolbar" style="margin:0 0 14px">
           <select id="log-tunnel"></select>
-          <button class="act" id="log-refresh">refresh</button>
-          <button class="act" id="log-reconnect">reconnect tunnel</button>
+          <button class="act" id="log-refresh" data-i18n="logs.refresh"></button>
+          <button class="act" id="log-reconnect" data-i18n="logs.reconnect"></button>
           <span class="note" id="log-note"></span>
         </div>
-        <pre class="logs" id="logs">Pick a tunnel.</pre>
+        <pre class="logs" id="logs" data-i18n="logs.pick"></pre>
       </section>
 
       <section class="pane" id="pane-config" hidden>
-        <h2>Generated configuration</h2>
-        <p class="sub">What the routing engine is actually running, rules and all. Useful when a request goes somewhere unexpected.</p>
-        <pre class="logs" id="genconfig">Loading…</pre>
+        <h2 data-i18n="config.title"></h2>
+        <p class="sub" data-i18n="config.sub"></p>
+        <pre class="logs" id="genconfig" data-i18n="loading"></pre>
       </section>
     </main>
   </div>
@@ -371,8 +372,8 @@ button.act:disabled { opacity: .45; cursor: default; }
            autocorrect="off" spellcheck="false" inputmode="text">
     <div class="foot">
       <span class="expiry" id="p-expiry"></span>
-      <button class="act" id="p-skip">not now</button>
-      <button class="act primary" id="p-send">send</button>
+      <button class="act" id="p-skip" data-i18n="prompt.later"></button>
+      <button class="act primary" id="p-send" data-i18n="prompt.send"></button>
     </div>
   </div>
 </div>
@@ -414,6 +415,157 @@ async function api(path, opts = {}) {
   return res;
 }
 
+/* --- language ------------------------------------------------------------
+   Chinese is the default because that is who this was built for. The
+   translations are written to read naturally in each language rather than
+   word for word: a tool someone uses every day should not sound translated.
+
+   Text that comes from a VPN gateway or from the client's own errors is
+   passed through untouched. Restating a gateway's message in another
+   language would be guessing at what it said. */
+const STRINGS = {
+  zh: {
+    "bar.up": "条隧道在线", "bar.ingress": "入口", "bar.onfail": "故障时",
+    "bar.langTitle": "切换语言", "bar.themeTitle": "切换主题",
+    "bar.tun": "TUN", "bar.proxy": "代理端口", "bar.none": "无",
+    "meta.proxy": "代理", "meta.dns": "DNS", "meta.dnsLocal": "系统解析器",
+    "meta.autoroutes": "自动路由", "meta.autodomains": "自动域名",
+    "on": "开", "off": "关",
+    "nav.tunnels": "隧道", "nav.rules": "分流规则", "nav.logs": "日志", "nav.config": "配置",
+    "offline": "已断开与客户端的连接。",
+    "loading": "加载中…",
+
+    "tunnels.title": "隧道",
+    "tunnels.sub": "服务端上报的状态。路由和 DNS 由 VPN 自己下发，会自动变成分流规则。",
+    "tunnels.empty": "没有隧道。bundle 里的隧道服务端都没有。",
+    "tunnels.up": "在线", "tunnels.down": "离线",
+    "tunnels.routes": "路由", "tunnels.dns": "DNS", "tunnels.search": "搜索域",
+    "tunnels.tcpdns": "DNS 走 TCP", "tunnels.nothing": "尚未上报任何信息",
+    "tunnels.logs": "日志",
+
+    "rules.title": "分流规则",
+    "rules.sub": "按顺序匹配，且排在隧道上报的规则之前，所以显式设置总能胜出。应用会重建路由引擎，已建立的连接会短暂中断。",
+    "rules.empty": "没有显式规则。流量按各隧道上报的路由走，其余直连。",
+    "rules.add": "新增规则", "rules.apply": "应用并保存", "rules.revert": "撤销",
+    "rules.matcher": "+ 匹配条件", "rules.delete": "删除规则",
+    "rules.dropMatcher": "移除这个匹配条件",
+    "rules.dirty": "有未应用的改动", "rules.applying": "应用中…", "rules.saved": "已应用并保存",
+    "m.domain_suffix": "域名后缀", "m.domain": "域名", "m.domain_keyword": "域名关键词",
+    "m.ip_cidr": "IP 网段", "m.port": "端口",
+    "ph.domain": "corp.example.com, internal.corp", "ph.ip_cidr": "10.20.0.0/16, 192.168.1.0/24",
+    "ph.port": "443, 8443",
+    "t.direct": "直连", "t.block": "阻断",
+
+    "logs.title": "容器日志", "logs.sub": "读取服务端上该隧道容器的输出。",
+    "logs.refresh": "刷新", "logs.reconnect": "重连该隧道",
+    "logs.pick": "请选择一条隧道。", "logs.empty": "还没有日志。",
+    "logs.reconnecting": "正在重连 %s",
+
+    "config.title": "生成的配置",
+    "config.sub": "路由引擎实际运行的配置，包含全部规则。请求去向不符合预期时看这里。",
+
+    "prompt.later": "稍后", "prompt.send": "提交",
+    "prompt.expires": "%s后过期", "prompt.expired": "已过期",
+    "dur.m": "%d 分 ", "dur.s": "%d 秒",
+    "prompt.fallback": "网关要求提供一个验证码。",
+    "prompt.vnc": "把 VNC 客户端指向服务端的 %d 端口，在那里完成登录。",
+    "k.sms.t": "短信验证码", "k.sms.w": "网关已通过短信发送验证码。",
+    "k.totp.t": "动态口令", "k.totp.w": "请输入认证器 App 当前显示的验证码。",
+    "k.captcha.t": "图形验证码", "k.captcha.w": "网关要求识别一张图片上的字符。",
+    "k.url.t": "单点登录地址", "k.url.w": "在下面的页面登录，然后把跳转到的地址粘贴回来。",
+    "k.password.t": "密码或令牌", "k.password.w": "网关还需要一项凭据。",
+    "k.vnc.t": "图形界面登录", "k.vnc.w": "这个客户端没有屏幕就无法登录。",
+    "auth.generic": "需要认证",
+
+    "notoken": "这个页面需要客户端启动时打印的 token。请使用它给出的链接打开。"
+  },
+  en: {
+    "bar.up": "tunnels up", "bar.ingress": "ingress", "bar.onfail": "on failure",
+    "bar.langTitle": "Switch language", "bar.themeTitle": "Switch theme",
+    "bar.tun": "tun", "bar.proxy": "proxy", "bar.none": "none",
+    "meta.proxy": "proxy", "meta.dns": "dns", "meta.dnsLocal": "system resolver",
+    "meta.autoroutes": "auto routes", "meta.autodomains": "auto domains",
+    "on": "on", "off": "off",
+    "nav.tunnels": "tunnels", "nav.rules": "rules", "nav.logs": "logs", "nav.config": "config",
+    "offline": "Not receiving updates from the client.",
+    "loading": "Loading…",
+
+    "tunnels.title": "Tunnels",
+    "tunnels.sub": "What the server reports. Routes and resolvers come from the VPN itself and become routing rules automatically.",
+    "tunnels.empty": "No tunnels. The bundle names none the server has.",
+    "tunnels.up": "up", "tunnels.down": "down",
+    "tunnels.routes": "routes", "tunnels.dns": "dns", "tunnels.search": "search",
+    "tunnels.tcpdns": "dns over tcp", "tunnels.nothing": "nothing reported yet",
+    "tunnels.logs": "logs",
+
+    "rules.title": "Routing rules",
+    "rules.sub": "Matched in order, before anything derived from what a tunnel reports, so an explicit choice always wins. Applying rebuilds the routing engine and briefly interrupts open connections.",
+    "rules.empty": "No explicit rules. Traffic follows what each tunnel reports, and everything else goes direct.",
+    "rules.add": "add rule", "rules.apply": "apply & save", "rules.revert": "revert",
+    "rules.matcher": "+ matcher", "rules.delete": "delete rule",
+    "rules.dropMatcher": "remove this matcher",
+    "rules.dirty": "unapplied changes", "rules.applying": "applying…", "rules.saved": "applied and saved",
+    "m.domain_suffix": "domain suffix", "m.domain": "domain", "m.domain_keyword": "domain keyword",
+    "m.ip_cidr": "ip cidr", "m.port": "port",
+    "ph.domain": "corp.example.com, internal.corp", "ph.ip_cidr": "10.20.0.0/16, 192.168.1.0/24",
+    "ph.port": "443, 8443",
+    "t.direct": "direct", "t.block": "block",
+
+    "logs.title": "Container logs", "logs.sub": "Read from the tunnel's container on the server.",
+    "logs.refresh": "refresh", "logs.reconnect": "reconnect tunnel",
+    "logs.pick": "Pick a tunnel.", "logs.empty": "Nothing logged yet.",
+    "logs.reconnecting": "reconnecting %s",
+
+    "config.title": "Generated configuration",
+    "config.sub": "What the routing engine is actually running, rules and all. Useful when a request goes somewhere unexpected.",
+
+    "prompt.later": "not now", "prompt.send": "send",
+    "prompt.expires": "expires in %s", "prompt.expired": "expired",
+    "dur.m": "%dm ", "dur.s": "%ds",
+    "prompt.fallback": "The gateway is asking for a verification code.",
+    "prompt.vnc": "Point a VNC viewer at the server, port %d, and sign in there.",
+    "k.sms.t": "Verification code", "k.sms.w": "The gateway sent a code by SMS.",
+    "k.totp.t": "Authenticator code", "k.totp.w": "Enter the current code from your authenticator app.",
+    "k.captcha.t": "Characters from the image", "k.captcha.w": "The gateway is showing an image to read.",
+    "k.url.t": "Sign-on address", "k.url.w": "Sign in on the page below, then paste the address it sends you to.",
+    "k.password.t": "Password or token", "k.password.w": "The gateway is asking for one more credential.",
+    "k.vnc.t": "Graphical login", "k.vnc.w": "This client cannot log in without a screen.",
+    "auth.generic": "Authentication",
+
+    "notoken": "This page needs the token the client printed when it started. Open the link it gave you."
+  },
+};
+
+let lang = localStorage.getItem("vg.lang") || "zh";
+if (!STRINGS[lang]) lang = "zh";
+
+/* t looks a key up in the current language. %s and %d are replaced in order,
+   so a sentence can put its value wherever that language needs it. */
+function t(key, ...args) {
+  let out = (STRINGS[lang] && STRINGS[lang][key]) || STRINGS.en[key] || key;
+  for (const a of args) out = out.replace(/%[sd]/, a);
+  return out;
+}
+
+/* Durations are written the way each language writes them, rather than
+   dropping an English "4m 9s" into a Chinese sentence. */
+function duration(totalSeconds) {
+  const m = Math.floor(totalSeconds / 60);
+  const sec = totalSeconds % 60;
+  return (m > 0 ? t("dur.m", m) : "") + t("dur.s", sec);
+}
+
+function applyLanguage() {
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  document.querySelectorAll("[data-i18n]").forEach((n) => {
+    n.textContent = t(n.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((n) => {
+    n.title = t(n.dataset.i18nTitle);
+  });
+  $("lang").textContent = lang === "zh" ? "中文" : "EN";
+}
+
 /* --- theme --------------------------------------------------------------- */
 const root = document.documentElement;
 root.dataset.theme = localStorage.getItem("vg.theme") || "auto";
@@ -425,6 +577,16 @@ $("theme").addEventListener("click", () => {
   $("theme").textContent = next === "auto" ? "theme" : next;
 });
 $("theme").textContent = root.dataset.theme === "auto" ? "theme" : root.dataset.theme;
+
+$("lang").addEventListener("click", () => {
+  lang = lang === "zh" ? "en" : "zh";
+  localStorage.setItem("vg.lang", lang);
+  applyLanguage();
+  // Everything drawn from data has to be redrawn in the new language.
+  renderedRules = null;
+  shownPrompt = null;
+  render(state);
+});
 
 /* --- panes --------------------------------------------------------------- */
 document.querySelectorAll(".rail button[data-pane]").forEach((b) => {
@@ -471,17 +633,25 @@ function renderReadout(s) {
   const up = s.tunnels.filter((t) => t.up).length;
   $("r-up").textContent = up;
   $("r-total").textContent = s.tunnels.length;
-  const ingress = [s.client.tun && "tun", s.client.proxy && "proxy"].filter(Boolean);
-  $("r-ingress").textContent = ingress.join(" + ") || "none";
-  $("r-fail").textContent = s.client.on_failure || "—";
+  const ingress = [s.client.tun && t("bar.tun"), s.client.proxy && t("bar.proxy")].filter(Boolean);
+  $("r-ingress").textContent = ingress.join(" + ") || t("bar.none");
+  // "direct" and "block" are values the client understands; only the label
+  // shown here changes with the language.
+  $("r-fail").textContent = s.client.on_failure === "block" ? t("t.block")
+                          : s.client.on_failure === "direct" ? t("t.direct")
+                          : (s.client.on_failure || "—");
   $("bug").style.background = up ? "" : "var(--down)";
   $("bug").style.color = up ? "" : "var(--down)";
 
+  const onOff = (v) => t(v ? "on" : "off");
   const bits = [];
-  if (s.client.proxy_listen) bits.push("proxy " + s.client.proxy_listen);
-  if (s.client.dns_default) bits.push("dns " + s.client.dns_default);
-  bits.push("auto routes " + (s.client.auto_routes ? "on" : "off"));
-  bits.push("auto domains " + (s.client.auto_domains ? "on" : "off"));
+  if (s.client.proxy_listen) bits.push(t("meta.proxy") + " " + s.client.proxy_listen);
+  if (s.client.dns_default) {
+    bits.push(t("meta.dns") + " " +
+      (s.client.dns_default === "local" ? t("meta.dnsLocal") : s.client.dns_default));
+  }
+  bits.push(t("meta.autoroutes") + " " + onOff(s.client.auto_routes));
+  bits.push(t("meta.autodomains") + " " + onOff(s.client.auto_domains));
   $("railmeta").textContent = bits.join("\n");
 }
 
@@ -489,16 +659,16 @@ function renderTunnels(tunnels) {
   const box = $("tunnels");
   box.textContent = "";
   if (!tunnels.length) {
-    box.appendChild(el("div", "empty", "No tunnels. The bundle names none the server has."));
+    box.appendChild(el("div", "empty", t("tunnels.empty")));
     return;
   }
-  tunnels.forEach((t, i) => {
+  tunnels.forEach((tn, i) => {
     const row = el("div", "tunnel");
     row.style.animationDelay = Math.min(i * 45, 400) + "ms";
 
-    row.appendChild(el("span", "lamp " + (t.up ? "on" : "off")));
-    row.appendChild(el("span", "tname", t.name));
-    row.appendChild(el("span", "tstate " + (t.up ? "on" : "off"), t.up ? "up" : "down"));
+    row.appendChild(el("span", "lamp " + (tn.up ? "on" : "off")));
+    row.appendChild(el("span", "tname", tn.name));
+    row.appendChild(el("span", "tstate " + (tn.up ? "on" : "off"), tn.up ? t("tunnels.up") : t("tunnels.down")));
 
     const facts = el("div", "facts");
     const add = (k, v) => {
@@ -508,17 +678,17 @@ function renderTunnels(tunnels) {
       wrap.appendChild(el("code", null, Array.isArray(v) ? v.join(" ") : v));
       facts.appendChild(wrap);
     };
-    add("routes", t.routes);
-    add("dns", t.dns);
-    add("search", t.search_domains);
-    if (!t.udp) facts.appendChild(el("span", "k", "dns over tcp"));
-    if (!facts.children.length) facts.appendChild(el("span", "k", "nothing reported yet"));
+    add(t("tunnels.routes"), tn.routes);
+    add(t("tunnels.dns"), tn.dns);
+    add(t("tunnels.search"), tn.search_domains);
+    if (!tn.udp) facts.appendChild(el("span", "k", t("tunnels.tcpdns")));
+    if (!facts.children.length) facts.appendChild(el("span", "k", t("tunnels.nothing")));
     row.appendChild(facts);
 
-    const go = el("button", "act quiet", "logs");
+    const go = el("button", "act quiet", t("tunnels.logs"));
     go.addEventListener("click", () => {
       document.querySelector('.rail button[data-pane="logs"]').click();
-      $("log-tunnel").value = t.name;
+      $("log-tunnel").value = tn.name;
       loadLogs();
     });
     row.appendChild(go);
@@ -527,19 +697,13 @@ function renderTunnels(tunnels) {
 }
 
 /* --- rules --------------------------------------------------------------- */
-const MATCHERS = [
-  ["domain_suffix", "domain suffix"],
-  ["domain", "domain"],
-  ["domain_keyword", "domain keyword"],
-  ["ip_cidr", "ip cidr"],
-  ["port", "port"],
-];
+const MATCHER_KINDS = ["domain_suffix", "domain", "domain_keyword", "ip_cidr", "port"];
 
 function currentRules() { return draft !== null ? draft : state.rules; }
 
 function markDirty() {
   if (draft === null) draft = JSON.parse(JSON.stringify(state.rules));
-  $("rules-note").textContent = "unapplied changes";
+  $("rules-note").textContent = t("rules.dirty");
   $("rules-note").className = "note";
   $("c-rules").textContent = draft.length || "";
 }
@@ -548,21 +712,20 @@ function renderRules(rules) {
   const box = $("rules");
   box.textContent = "";
   if (!rules.length) {
-    box.appendChild(el("div", "empty",
-      "No explicit rules. Traffic follows what each tunnel reports, and everything else goes direct."));
+    box.appendChild(el("div", "empty", t("rules.empty")));
     return;
   }
   rules.forEach((rule, ri) => {
     const card = el("div", "rule");
 
-    const kinds = MATCHERS.filter(([k]) => rule[k] && rule[k].length);
-    if (!kinds.length) kinds.push(MATCHERS[0]);
+    let kinds = MATCHER_KINDS.filter((k) => rule[k] && rule[k].length);
+    if (!kinds.length) kinds = [MATCHER_KINDS[0]];
 
-    kinds.forEach(([kind]) => {
+    kinds.forEach((kind) => {
       const line = el("div", "matcher");
       const sel = el("select");
-      MATCHERS.forEach(([k, label]) => {
-        const o = el("option", null, label);
+      MATCHER_KINDS.forEach((k) => {
+        const o = el("option", null, t("m." + k));
         o.value = k;
         if (k === kind) o.selected = true;
         sel.appendChild(o);
@@ -577,9 +740,9 @@ function renderRules(rules) {
 
       const input = el("input");
       input.type = "text";
-      input.placeholder = kind === "ip_cidr" ? "10.20.0.0/16, 192.168.1.0/24"
-                        : kind === "port" ? "443, 8443"
-                        : "corp.example.com, internal.corp";
+      input.placeholder = kind === "ip_cidr" ? t("ph.ip_cidr")
+                        : kind === "port" ? t("ph.port")
+                        : t("ph.domain");
       input.value = (rule[kind] || []).join(", ");
       input.addEventListener("input", () => {
         markDirty();
@@ -588,7 +751,7 @@ function renderRules(rules) {
       });
 
       const drop = el("button", "act quiet", "✕");
-      drop.title = "remove this matcher";
+      drop.title = t("rules.dropMatcher");
       drop.addEventListener("click", () => {
         markDirty();
         delete draft[ri][kind];
@@ -600,25 +763,27 @@ function renderRules(rules) {
     });
 
     const foot = el("div", "rule-foot");
-    const more = el("button", "act", "+ matcher");
+    const more = el("button", "act", t("rules.matcher"));
     more.addEventListener("click", () => {
       markDirty();
-      const unused = MATCHERS.find(([k]) => !draft[ri][k] || !draft[ri][k].length);
-      if (unused) { draft[ri][unused[0]] = []; renderRules(draft); }
+      const unused = MATCHER_KINDS.find((k) => !draft[ri][k] || !draft[ri][k].length);
+      if (unused) { draft[ri][unused] = []; renderRules(draft); }
     });
 
     const target = el("select");
     const targets = ["direct", "block", ...state.tunnels.map((t) => t.name)];
     if (rule.tunnel && !targets.includes(rule.tunnel)) targets.push(rule.tunnel);
     targets.forEach((name) => {
-      const o = el("option", null, name);
+      // The label is translated; the value is the name the client expects.
+      const label = name === "direct" ? t("t.direct") : name === "block" ? t("t.block") : name;
+      const o = el("option", null, label);
       o.value = name;
       if (name === rule.tunnel) o.selected = true;
       target.appendChild(o);
     });
     target.addEventListener("change", () => { markDirty(); draft[ri].tunnel = target.value; });
 
-    const remove = el("button", "act quiet", "delete rule");
+    const remove = el("button", "act quiet", t("rules.delete"));
     remove.addEventListener("click", () => {
       markDirty();
       draft.splice(ri, 1);
@@ -647,12 +812,12 @@ $("revert-rules").addEventListener("click", () => {
 $("apply-rules").addEventListener("click", async () => {
   const rules = (draft || state.rules).map((r) => {
     const out = { tunnel: r.tunnel };
-    MATCHERS.forEach(([k]) => { if (r[k] && r[k].length) out[k] = r[k]; });
+    MATCHER_KINDS.forEach((k) => { if (r[k] && r[k].length) out[k] = r[k]; });
     return out;
   });
   const note = $("rules-note");
   note.className = "note";
-  note.textContent = "applying…";
+  note.textContent = t("rules.applying");
   $("apply-rules").disabled = true;
   try {
     await api("/api/rules", {
@@ -665,7 +830,7 @@ $("apply-rules").addEventListener("click", async () => {
     // from what was typed: the two can differ, and the accepted one is true.
     renderedRules = null;
     note.className = "note good";
-    note.textContent = "applied and saved";
+    note.textContent = t("rules.saved");
   } catch (e) {
     note.className = "note bad";
     note.textContent = e.message;
@@ -681,9 +846,9 @@ function renderLogTunnels(tunnels) {
   if (sel.children.length === tunnels.length &&
       [...sel.children].every((o, i) => tunnels[i] && o.value === tunnels[i].name)) return;
   sel.textContent = "";
-  tunnels.forEach((t) => {
-    const o = el("option", null, t.name);
-    o.value = t.name;
+  tunnels.forEach((tn) => {
+    const o = el("option", null, tn.name);
+    o.value = tn.name;
     sel.appendChild(o);
   });
   if (keep) sel.value = keep;
@@ -694,11 +859,11 @@ async function loadLogs() {
   if (!name) return;
   const out = $("logs");
   $("log-note").textContent = "";
-  out.textContent = "Loading…";
+  out.textContent = t("loading");
   try {
     const res = await api("/api/tunnels/" + encodeURIComponent(name) + "/logs?tail=300");
     const text = await res.text();
-    out.textContent = text.trim() || "Nothing logged yet.";
+    out.textContent = text.trim() || t("logs.empty");
     out.scrollTop = out.scrollHeight;
   } catch (e) {
     out.textContent = "";
@@ -714,7 +879,7 @@ $("log-reconnect").addEventListener("click", async () => {
   try {
     await api("/api/tunnels/" + encodeURIComponent(name) + "/reconnect", { method: "POST" });
     $("log-note").className = "note good";
-    $("log-note").textContent = "reconnecting " + name;
+    $("log-note").textContent = t("logs.reconnecting", name);
   } catch (e) {
     $("log-note").className = "note bad";
     $("log-note").textContent = e.message;
@@ -723,7 +888,7 @@ $("log-reconnect").addEventListener("click", async () => {
 
 async function loadGeneratedConfig() {
   const out = $("genconfig");
-  out.textContent = "Loading…";
+  out.textContent = t("loading");
   try {
     const res = await api("/api/generated-config");
     out.textContent = JSON.stringify(await res.json(), null, 2);
@@ -733,14 +898,7 @@ async function loadGeneratedConfig() {
 }
 
 /* --- prompts ------------------------------------------------------------- */
-const KIND_TEXT = {
-  sms: ["Verification code", "The gateway sent a code by SMS."],
-  totp: ["Authenticator code", "Enter the current code from your authenticator app."],
-  captcha: ["Characters from the image", "The gateway is showing an image to read."],
-  url: ["Sign-on address", "Sign in on the page below, then paste the address it sends you to."],
-  password: ["Password or token", "The gateway is asking for one more credential."],
-  vnc: ["Graphical login", "This client cannot log in without a screen."],
-};
+const KINDS = ["sms", "totp", "captcha", "url", "password", "vnc"];
 
 function renderPrompt(prompts) {
   const p = prompts && prompts[0];
@@ -752,16 +910,18 @@ function renderPrompt(prompts) {
   if (shownPrompt === p.id) return;
   shownPrompt = p.id;
 
-  const [title, why] = KIND_TEXT[p.type] || ["Authentication", p.prompt];
+  const known = KINDS.includes(p.type);
   $("p-kind").textContent = p.tunnel + " · " + p.type;
-  $("p-title").textContent = title;
-  $("p-why").textContent = p.prompt || why;
+  $("p-title").textContent = known ? t("k." + p.type + ".t") : t("auth.generic");
+  // The gateway's own wording is shown when there is any, because restating
+  // it in another language would be guessing at what it said.
+  $("p-why").textContent = p.prompt || (known ? t("k." + p.type + ".w") : t("prompt.fallback"));
 
   const link = $("p-link");
   if (p.url) { link.hidden = false; link.href = p.url; link.textContent = p.url; }
   else if (p.vnc_port) {
     link.hidden = false; link.removeAttribute("href");
-    link.textContent = "Point a VNC viewer at the server, port " + p.vnc_port + ", and sign in there.";
+    link.textContent = t("prompt.vnc", p.vnc_port);
   } else link.hidden = true;
 
   const input = $("p-input");
@@ -776,8 +936,8 @@ function renderPrompt(prompts) {
     const left = Math.floor((new Date(p.expires_at) - Date.now()) / 1000);
     const box = $("p-expiry");
     if (!p.expires_at || isNaN(left)) { box.textContent = ""; return; }
-    if (left <= 0) { box.textContent = "expired"; box.className = "expiry soon"; return; }
-    box.textContent = "expires in " + Math.floor(left / 60) + "m " + (left % 60) + "s";
+    if (left <= 0) { box.textContent = t("prompt.expired"); box.className = "expiry soon"; return; }
+    box.textContent = t("prompt.expires", duration(left));
     box.className = "expiry" + (left < 30 ? " soon" : "");
   };
   tick();
@@ -822,9 +982,10 @@ function connect() {
   };
 }
 
+applyLanguage();
+
 if (!TOKEN) {
-  document.body.textContent =
-    "This page needs the token the client printed when it started. Open the link it gave you.";
+  document.body.textContent = t("notoken");
 } else {
   api("/api/state").then((r) => r.json()).then(render).catch(() => {});
   connect();

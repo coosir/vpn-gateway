@@ -38,8 +38,10 @@ Phases 0 to 2 are complete and verified end to end. What works today:
 - interactive login: a gateway asking for an SMS code, a TOTP token, a
   captcha or a single sign-on address raises a challenge that reaches the
   client and is answered there
-- a local interface: live tunnel state, a rule editor that applies and saves
-  without a restart, container logs, and login prompts
+- a local interface in Chinese and English: live tunnel state, a rule editor
+  that applies and saves without a restart, container logs, and login prompts
+- a tray and window around it, for anyone who would rather not keep a browser
+  tab open
 
 Not built yet: privilege separation on the client (it currently needs
 elevation itself, see below). The iNode image is written but cannot be built
@@ -61,6 +63,28 @@ asks for verification codes when a gateway wants one.
 It listens on loopback and needs the token. Loopback alone is not enough:
 this interface can reroute traffic and answer authentication prompts, so any
 other process on the machine must not be able to drive it just by connecting.
+
+It is in Chinese by default, with English a click away in the top bar. Text
+that comes from a VPN gateway is passed through untouched: restating a
+gateway's own message in another language would be guessing at what it said.
+
+### Tray and window
+
+```sh
+make desktop                                   # needs CGO; build it where it runs
+bin/vpn-gateway-desktop -config /etc/vpn-gateway/client.yaml
+bin/vpn-gateway-desktop -url 'http://127.0.0.1:8645/?token=…'
+```
+
+The tray attaches to a running client rather than starting one: creating a TUN
+interface needs elevation, so the client runs as a service and a tray that
+claimed to start it would be lying about what it can do. It shows which
+tunnels are up, goes to a broken ring the moment one is not — including when
+one is waiting for a verification code — and opens the console in a native
+window.
+
+Pass `-url` when the client runs elevated and keeps its token somewhere your
+desktop session cannot read.
 
 The page is one file with no build step and reaches out to nothing. That is
 deliberate: it is most needed when the tunnels are down, which is exactly when
