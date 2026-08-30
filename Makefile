@@ -76,16 +76,23 @@ desktop:
 # added to Login Items. Everything in it is generated, including the icon:
 # there is no image checked in, only the code that draws one.
 #
+# The command line client goes in beside the shell. It is what the background
+# service runs, and the application installs that service itself: a bundle that
+# could not do so without something else already on the machine would be one
+# where TUN mode depends on having built this repository.
+#
 # It is a host artifact, so it does not live under the cross-compilation
 # directory.
 APPDIR := dist/$(shell $(GO) env GOOS)-$(shell $(GO) env GOARCH)
 APP    := $(APPDIR)/vpn-gateway.app
 
 app: desktop
+	$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/vpn-gateway ./cmd/vpn-gateway
 	@rm -rf "$(APP)" "$(APPDIR)/icon.iconset"
 	@mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
 	cp packaging/macos/Info.plist "$(APP)/Contents/Info.plist"
 	cp $(BIN)/vpn-gateway-desktop "$(APP)/Contents/MacOS/vpn-gateway-desktop"
+	cp $(BIN)/vpn-gateway "$(APP)/Contents/MacOS/vpn-gateway"
 	$(BIN)/vpn-gateway-desktop -write-iconset "$(APPDIR)/icon.iconset"
 	iconutil -c icns "$(APPDIR)/icon.iconset" -o "$(APP)/Contents/Resources/icon.icns"
 	@rm -rf "$(APPDIR)/icon.iconset"

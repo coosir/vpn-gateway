@@ -172,7 +172,7 @@ connects through every tunnel the way a real client does.
 Phase 2: the desktop client. A TUN interface or a local proxy port, rules by
 domain and IP, DNS that follows routing, and per-tunnel failover.
 
-Two things in the client are worth calling out.
+Three things in the client are worth calling out.
 
 **Rules target a selector, never a tunnel directly.** Each tunnel gets a
 selector holding `[tunnel, fallback]`. When a tunnel goes down the client
@@ -187,6 +187,17 @@ through its selector so it fails over with the tunnel. The query goes over TCP
 unless the tunnel reports that its data plane carries datagrams. Routing the
 traffic without also routing the lookup is the failure that looks correctly
 configured and does not work.
+
+**The application is not always the engine.** Creating a TUN interface needs
+privileges nothing opened from a launcher has. On macOS the application
+installs a launchd daemon that runs the same client as root, and then stops
+running an engine of its own: the window shows the service's interface and the
+menu bar reports its tunnels. Two engines over one routing table would fight,
+and whoever was watching could not tell which one they were looking at. The
+configuration is shared rather than copied, so there is nothing to keep in
+sync. What is copied is the executable, into a directory only root can write:
+a daemon that runs a binary its own user could replace is a root shell with
+extra steps.
 
 Phase 4: interactive login. A gateway that wants an SMS code, a TOTP token, a
 captcha or a single sign-on address raises a contract challenge; the server

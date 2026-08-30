@@ -118,6 +118,23 @@ func defaultConfig(bundlePath string) *Config {
 	return cfg
 }
 
+// Reload re-reads the configuration and the bundle from disk.
+//
+// The background service edits the same file this session was loaded from, so
+// once it has been running, what is on disk is newer than what is in memory.
+// This is how a session that has just been handed the engine back catches up.
+// A connected session is left alone: rereading under a running engine would
+// describe a configuration it is not using.
+func (s *Session) Reload() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != nil {
+		return
+	}
+	s.setPhase(PhaseSetup, nil)
+	s.load()
+}
+
 // Status reports where the session is.
 func (s *Session) Status() SessionStatus {
 	s.mu.RLock()

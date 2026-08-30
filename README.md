@@ -237,14 +237,32 @@ everything looks correctly configured.
 ### Privileges
 
 Creating a TUN interface and installing routes needs elevation on every
-platform. Today the client does that itself, so `run` needs `sudo` (or
-Administrator on Windows). `packaging/` has a systemd unit that grants only
-`CAP_NET_ADMIN` rather than running as root, and a launchd plist for macOS.
+platform. From the command line the client does that itself, so `run` needs
+`sudo` (or Administrator on Windows). `packaging/` has a systemd unit that
+grants only `CAP_NET_ADMIN` rather than running as root.
+
+An application opened from a launcher has no such option, so on macOS it
+installs a background service instead: **Settings → Background service →
+Install and hand over**. One authorisation prompt copies the client into
+`/Library/PrivilegedHelperTools`, writes a launchd daemon that runs it as root
+at boot, and starts it. Both then use the same configuration file, so nothing
+has to be set up twice.
+
+From that point the application is the service's front end rather than a
+client of its own: the window shows the service's interface and the menu bar
+reports its tunnels. Two engines would fight over one routing table, so the
+one in this application stops when the service takes over and starts again
+when the service is removed. Removing it is the same screen, and leaves the
+configuration where it is.
+
+The executable the service runs is copied somewhere only root can write. The
+configuration is not: it stays in the home directory of whoever authorised the
+install, because that is the person the service exists to serve and they can
+already reroute this machine by definition.
 
 Splitting the client into a small privileged helper and an unprivileged main
-process is the better shape and is not done yet: on macOS it needs a signed
-application bundle and an Apple developer identity, which this project does
-not have.
+process is still the better shape, and this is not it: SMAppService wants a
+signed bundle and an Apple developer identity this project does not have.
 
 ## Try it without any VPN credentials
 

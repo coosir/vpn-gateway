@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  macOS client daemon. Install to /Library/LaunchDaemons/ owned by root:wheel
-  with mode 0644, then:
+  macOS client daemon, for a machine set up from the command line. The desktop
+  application installs an equivalent of this itself, from Settings > Background
+  service, and there is no reason to do both: they would be two clients over
+  one routing table.
+
+  Install to /Library/LaunchDaemons/ owned by root:wheel with mode 0644, then:
 
     sudo launchctl bootstrap system /Library/LaunchDaemons/org.vpn-gateway.client.plist
 
@@ -9,6 +13,10 @@
   installing routes requires. Splitting it into a small privileged helper and
   an unprivileged client is the better shape, but on macOS that needs a signed
   application bundle and an Apple developer identity, so it is not done here.
+
+  Set ui.link_file and ui.link_owner in the configuration if a desktop session
+  should be able to open the interface this serves: the link carries the token,
+  and a file root writes belongs to root.
 -->
 <plist version="1.0">
 <dict>

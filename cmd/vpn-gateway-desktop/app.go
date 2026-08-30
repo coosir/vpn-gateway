@@ -8,13 +8,15 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"sort"
+	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/client"
+	"github.com/vpn-gateway/vpn-gateway/internal/client/helper"
 	"github.com/vpn-gateway/vpn-gateway/internal/client/ui"
 )
 
@@ -22,6 +24,15 @@ import (
 // updates; the menu bar only needs to be roughly current, and a tray that
 // polls hard is a laptop that runs warm.
 const pollInterval = 3 * time.Second
+
+// serviceCheckInterval is how often the background service is looked for.
+//
+// Answering runs launchctl, so it is not asked on every menu bar refresh: a
+// service is installed or removed by hand perhaps twice in the life of a
+// machine, and spawning two processes every few seconds to notice is the kind
+// of thing that shows up as battery. A service that stops answering shortens
+// this to the next tick, which is the case that actually needs to be quick.
+const serviceCheckInterval = 15 * time.Second
 
 // maxTunnelItems bounds the menu. Past this the list stops being something
 // anyone reads at a glance, and the window shows all of them anyway.
@@ -95,6 +106,18 @@ func run(configPath, lang string) error {
 		Hidden:    true,
 	})
 
+	// Which engine is in charge is decided here, not chosen: the background
+	// service either exists or it does not, and it can be installed or removed
+	// from somewhere this application never hears about.
+	sv := &supervisor{
+		configPath: absPath(configPath),
+		session:    session,
+		local:      &localEngine{session: session, link: link},
+		window:     window,
+		log:        log,
+	}
+	sv.current = sv.local
+
 	tray := app.SystemTray.New()
 	tray.SetTemplateIcon(degradedIcon())
 	tray.SetTooltip(t("tip.setup"))
@@ -113,7 +136,7 @@ func run(configPath, lang string) error {
 
 	menu.AddSeparator()
 	connect := menu.Add(t("connect"))
-	connect.OnClick(func(*application.Context) { toggle(session, log) })
+	connect.OnClick(func(*application.Context) { sv.toggle() })
 	menu.Add(t("open")).OnClick(func(*application.Context) { showWindow(window) })
 	menu.Add(t("quit")).OnClick(func(*application.Context) { app.Quit() })
 
@@ -124,28 +147,149 @@ func run(configPath, lang string) error {
 	// that dispatch does not exist until the application is running. Starting
 	// the refresh from here keeps the first update from racing it.
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		// A service installed on an earlier run is already in charge, so the
+		// window opens on its interface rather than on this one.
+		e := sv.engine()
 		// Nothing is configured yet, so the window is the whole point of
 		// opening this. Show it rather than leaving a menu bar icon someone
 		// has to discover.
-		if session.Status().Phase == client.PhaseSetup {
+		if e.Snapshot().Phase == client.PhaseSetup {
 			showWindow(window)
 		}
-		go refresh(session, t, tray, status, connect, items, menu)
+		go refresh(sv, t, tray, status, connect, items, menu)
 	})
 
 	return app.Run()
 }
 
-func toggle(session *client.Session, log *slog.Logger) {
-	if session.Status().Phase == client.PhaseConnected {
-		if err := session.Disconnect(); err != nil {
-			log.Error("could not disconnect", "error", err)
+// supervisor keeps one engine in charge and the window pointed at it.
+//
+// It is consulted on the menu bar's own timer rather than driven by an event.
+// Nothing tells an application that a launchd daemon was installed or removed,
+// and someone doing either from a terminal should not have to reopen this to
+// see the difference.
+type supervisor struct {
+	configPath string
+	session    *client.Session
+	local      *localEngine
+	log        *slog.Logger
+
+	// window is pointed at whichever interface is in charge. Before the
+	// application is running this only changes the address it will open at,
+	// which is the same answer arriving earlier.
+	window *application.WebviewWindow
+
+	mu      sync.Mutex
+	current engine
+	checked time.Time
+}
+
+// engine returns the engine in charge, handing over first if that has changed.
+func (sv *supervisor) engine() engine {
+	sv.mu.Lock()
+	if time.Since(sv.checked) < serviceCheckInterval {
+		cur := sv.current
+		sv.mu.Unlock()
+		return cur
+	}
+	sv.mu.Unlock()
+
+	// Asking runs launchctl, so it happens outside the lock.
+	link := sv.serviceLink()
+
+	sv.mu.Lock()
+	defer sv.mu.Unlock()
+	sv.checked = time.Now()
+
+	if link == "" {
+		if sv.current != engine(sv.local) {
+			// The service is gone. It owned the configuration file while it
+			// ran, so the session reads it again before taking over.
+			sv.log.Info("the background service is no longer running; using the engine in this application")
+			sv.session.Reload()
+			sv.point(sv.local.Link())
+			sv.current = sv.local
 		}
-		return
+		return sv.current
 	}
-	if err := session.Connect(context.Background()); err != nil {
-		log.Error("could not connect", "error", err)
+
+	if cur, ok := sv.current.(*serviceEngine); ok && cur.Link() == link {
+		return cur
 	}
+	svc, err := newServiceEngine(link)
+	if err != nil {
+		sv.log.Error("could not attach to the background service", "error", err)
+		return sv.current
+	}
+	// Handing over means letting go first: two engines would fight over the
+	// same routing table.
+	if err := sv.session.Disconnect(); err != nil {
+		sv.log.Error("could not stop the engine in this application", "error", err)
+	}
+	sv.log.Info("attached to the background service")
+	sv.point(link)
+	sv.current = svc
+	return svc
+}
+
+// serviceLink is where the background service serves its interface, empty when
+// there is none to attach to.
+func (sv *supervisor) serviceLink() string {
+	st := helper.Inspect(helper.Options{ConfigPath: sv.configPath})
+	if !st.Installed || !st.Running {
+		return ""
+	}
+	// A service running some other configuration belongs to somebody else.
+	// Attaching to it would show tunnels that have nothing to do with what
+	// this application is configured with.
+	if st.ConfigPath != "" && absPath(st.ConfigPath) != sv.configPath {
+		return ""
+	}
+	link, err := ui.ReadLink(sv.linkPath())
+	if err != nil {
+		return ""
+	}
+	return link
+}
+
+// linkPath is where the service was told to publish its link.
+func (sv *supervisor) linkPath() string {
+	if p := sv.session.Settings().UI.LinkFile; p != "" {
+		return p
+	}
+	return ui.ServiceLinkPath(sv.configPath)
+}
+
+// point moves the window. It is safe from any goroutine: the webview
+// dispatches to the main thread itself, and before there is a webview it only
+// records the address the window will open at.
+func (sv *supervisor) point(url string) {
+	sv.window.SetURL(url)
+}
+
+// recheck makes the next call look for the service again. It is what an
+// engine that has stopped answering asks for: either the service is gone and
+// this application takes over, or it is back and nothing changes.
+func (sv *supervisor) recheck() {
+	sv.mu.Lock()
+	sv.checked = time.Time{}
+	sv.mu.Unlock()
+}
+
+func (sv *supervisor) toggle() {
+	e := sv.engine()
+	if err := e.Toggle(context.Background()); err != nil {
+		sv.log.Error("could not change the connection", "error", err)
+	}
+}
+
+// absPath is best-effort: a path that cannot be resolved is compared as given,
+// which is still right whenever both sides were written the same way.
+func absPath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
 }
 
 func showWindow(w *application.WebviewWindow) {
@@ -153,12 +297,16 @@ func showWindow(w *application.WebviewWindow) {
 	w.Focus()
 }
 
-func refresh(session *client.Session, t func(string, ...any) string,
+func refresh(sv *supervisor, t func(string, ...any) string,
 	tray *application.SystemTray, status, connect *application.MenuItem,
 	items []*application.MenuItem, menu *application.Menu) {
 
 	for {
-		v := buildView(session, t)
+		snap := sv.engine().Snapshot()
+		if snap.Unreachable {
+			sv.recheck()
+		}
+		v := buildView(snap, t)
 
 		status.SetLabel(v.Status)
 		connect.SetLabel(v.Action)
@@ -196,10 +344,18 @@ type view struct {
 	Lines     []string
 }
 
-func buildView(session *client.Session, t func(string, ...any) string) view {
-	st := session.Status()
-
+func buildView(st snapshot, t func(string, ...any) string) view {
 	v := view{Action: t("connect")}
+
+	// The service is in charge and not answering. Nothing here can fix that,
+	// and offering a connect button that goes nowhere would be worse than
+	// saying so.
+	if st.Unreachable {
+		v.Status = t("status.unreachable")
+		v.Tooltip = t("tip.unreachable")
+		return v
+	}
+
 	switch st.Phase {
 	case client.PhaseSetup:
 		v.Status = t("status.setup")
@@ -225,28 +381,25 @@ func buildView(session *client.Session, t func(string, ...any) string) view {
 	v.CanToggle = true
 	v.Action = t("disconnect")
 
-	c := session.Client()
-	if c == nil {
+	if len(st.Tunnels) == 0 {
 		v.Status = t("status.idle", st.TunnelCount)
 		return v
 	}
-	tunnels := c.Tunnels()
-	sort.Slice(tunnels, func(i, j int) bool { return tunnels[i].Name < tunnels[j].Name })
 
 	up := 0
-	for _, tn := range tunnels {
+	for _, tn := range st.Tunnels {
 		if tn.Up {
 			up++
 		}
 	}
-	v.Status = t("status.up", up, len(tunnels))
-	v.Tooltip = t("tip.ok", up, len(tunnels))
+	v.Status = t("status.up", up, len(st.Tunnels))
+	v.Tooltip = t("tip.ok", up, len(st.Tunnels))
 	// A tunnel that is not carrying traffic has to show in the menu bar.
 	// Otherwise the one moment someone needs to look is the one moment it
 	// looks fine.
-	v.Healthy = len(tunnels) > 0 && up == len(tunnels)
+	v.Healthy = up == len(st.Tunnels)
 
-	for _, tn := range tunnels {
+	for _, tn := range st.Tunnels {
 		state := t("tunnel.down")
 		if tn.Up {
 			state = t("tunnel.up")

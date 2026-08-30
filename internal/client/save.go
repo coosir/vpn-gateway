@@ -90,6 +90,10 @@ func writeAtomically(path string, content []byte) error {
 		tmp.Close()
 		return err
 	}
+	if err := preserveOwner(tmp, path); err != nil {
+		tmp.Close()
+		return err
+	}
 	if _, err := tmp.Write(content); err != nil {
 		tmp.Close()
 		return fmt.Errorf("write the configuration: %w", err)

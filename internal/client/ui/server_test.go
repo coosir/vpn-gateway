@@ -499,7 +499,7 @@ func TestLinkFileRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "link")
 
-	if err := WriteLink(path, "127.0.0.1:8645", "tok123"); err != nil {
+	if err := WriteLink(path, "127.0.0.1:8645", "tok123", ""); err != nil {
 		t.Fatal(err)
 	}
 	got, err := ReadLink(path)

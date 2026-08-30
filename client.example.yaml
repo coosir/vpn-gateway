@@ -39,6 +39,13 @@ ui:
   state_dir: /var/lib/vpn-gateway
   # Open a browser at it on start.
   open: false
+  # An elevated client keeps its state directory to itself, which a desktop
+  # session cannot read. These two hand the link over: the path to write it
+  # to, and the user it belongs to afterwards. Whoever can read this file can
+  # drive the interface, so name the person, not a shared directory.
+  #
+  # link_file:  /Users/someone/Library/Application Support/vpn-gateway/service-link
+  # link_owner: someone
 
 dns:
   # Resolver for names no tunnel claims. Each tunnel's own resolver is

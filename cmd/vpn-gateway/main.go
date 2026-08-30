@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"syscall"
 	"text/tabwriter"
+	"time"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/client"
 	"github.com/vpn-gateway/vpn-gateway/internal/client/ui"
@@ -105,10 +106,21 @@ func run(configPath, logLevel, command string) error {
 	defer stop()
 
 	session := client.NewSession(configPath, log)
-	if err := session.Connect(ctx); err != nil {
-		return err
-	}
 	defer session.Close()
+
+	// A client started by launchd or systemd is restarted when it exits, so
+	// failing to connect at boot -- a server not reachable yet, a laptop whose
+	// network comes up late, a tunnel waiting for a verification code -- would
+	// be a restart loop with no interface anyone could open to see why. Where
+	// there is an interface, connecting is something it can retry. Where there
+	// is not, there is nobody to tell and the error is the exit status.
+	if err := session.Connect(ctx); err != nil {
+		if command != "run" || !cfg.UI.Enabled {
+			return err
+		}
+		// The session has already logged why. This says what happens next.
+		log.Warn("the interface is running; connecting can be retried there")
+	}
 	c := session.Client()
 
 	switch command {
@@ -151,7 +163,7 @@ func run(configPath, logLevel, command string) error {
 			if path := cfg.UI.LinkFile; path != "" {
 				// Recording it is a convenience, not a requirement: the link
 				// has already been printed either way.
-				if err := ui.WriteLink(path, addr, token); err != nil {
+				if err := ui.WriteLink(path, addr, token, cfg.UI.LinkOwner); err != nil {
 					log.Warn("could not record the interface link", "path", path, "error", err)
 				} else {
 					log.Info("recorded the interface link", "path", path)
@@ -162,7 +174,7 @@ func run(configPath, logLevel, command string) error {
 			}
 			prompter = srv.Prompter()
 		}
-		go client.WatchChallenges(ctx, c.API(), prompter)
+		go watchChallenges(ctx, session, prompter)
 
 		<-ctx.Done()
 		log.Info("shutting down")
@@ -172,6 +184,28 @@ func run(configPath, logLevel, command string) error {
 
 	default:
 		return fmt.Errorf("unknown command %q", command)
+	}
+}
+
+// watchChallenges follows the connection rather than one client.
+//
+// The client this starts with may not exist yet: an interface that came up
+// without connecting has nothing to watch until somebody presses connect. A
+// verification code is only valid for a minute or two, so the watcher has to
+// be there by the time one arrives, not started by the same hand that would
+// have to notice it was missing.
+func watchChallenges(ctx context.Context, session *client.Session, p client.Prompter) {
+	for {
+		if c := session.Client(); c != nil {
+			// This returns only when the context is done, or if the API
+			// object it was given stops being the current one.
+			client.WatchChallenges(ctx, c.API(), p)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
 	}
 }
 

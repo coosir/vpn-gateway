@@ -72,7 +72,7 @@ func newTestSession(t *testing.T) *client.Session {
 func TestMenuSaysItNeedsSettingUp(t *testing.T) {
 	// Opening this for the first time has to say what to do, not show an
 	// empty list of tunnels.
-	v := buildView(newTestSession(t), translator("en"))
+	v := buildView(sessionSnapshot(newTestSession(t)), translator("en"))
 	if !strings.Contains(v.Status, "Not set up") {
 		t.Errorf("status = %q", v.Status)
 	}
@@ -90,7 +90,7 @@ func TestMenuOffersConnectOnceABundleExists(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	v := buildView(s, translator("en"))
+	v := buildView(sessionSnapshot(s), translator("en"))
 	if !strings.Contains(v.Status, "Not connected") {
 		t.Errorf("status = %q", v.Status)
 	}
@@ -103,7 +103,7 @@ func TestMenuOffersConnectOnceABundleExists(t *testing.T) {
 }
 
 func TestMenuIsChineseByDefault(t *testing.T) {
-	v := buildView(newTestSession(t), translator("zh"))
+	v := buildView(sessionSnapshot(newTestSession(t)), translator("zh"))
 	if v.Status != "尚未配置" {
 		t.Errorf("status = %q", v.Status)
 	}

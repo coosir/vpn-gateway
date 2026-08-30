@@ -21,6 +21,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -96,6 +97,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/rules", s.auth(s.getRules))
 	mux.HandleFunc("PUT /api/rules", s.auth(s.putRules))
 	mux.HandleFunc("PUT /api/settings", s.auth(s.putSettings))
+	mux.HandleFunc("GET /api/service", s.auth(s.getService))
+	mux.HandleFunc("POST /api/service/install", s.auth(s.postServiceInstall))
+	mux.HandleFunc("POST /api/service/uninstall", s.auth(s.postServiceUninstall))
 	mux.HandleFunc("POST /api/bundle", s.auth(s.postBundle))
 	mux.HandleFunc("POST /api/connect", s.auth(s.postConnect))
 	mux.HandleFunc("POST /api/disconnect", s.auth(s.postDisconnect))
@@ -539,13 +543,46 @@ func Serve(ctx context.Context, addr string, h http.Handler, log *slog.Logger) (
 
 // WriteLink records the full interface link so a tray application can find
 // it. The file is written 0600: whoever can read it can drive the interface.
-func WriteLink(path, addr, token string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+func WriteLink(path, addr, token, owner string) error {
+	dir := filepath.Dir(path)
+	_, dirExisted := os.Stat(dir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("prepare the directory for %s: %w", path, err)
 	}
 	link := fmt.Sprintf("http://%s/?token=%s\n", addr, token)
 	if err := os.WriteFile(path, []byte(link), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if owner == "" {
+		return nil
+	}
+	// A directory this call created is root's and cannot even be entered by
+	// the person the link is for, so it goes with the file.
+	if dirExisted != nil {
+		if err := chownTo(dir, owner); err != nil {
+			return err
+		}
+	}
+	return chownTo(path, owner)
+}
+
+// chownTo gives a path to a named user, so a link written by an elevated
+// client can be read by the desktop session it was written for.
+func chownTo(path, owner string) error {
+	u, err := user.Lookup(owner)
+	if err != nil {
+		return fmt.Errorf("ui.link_owner: %w", err)
+	}
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return fmt.Errorf("ui.link_owner: %s has no numeric id", owner)
+	}
+	gid, err := strconv.Atoi(u.Gid)
+	if err != nil {
+		gid = -1
+	}
+	if err := os.Chown(path, uid, gid); err != nil {
+		return fmt.Errorf("give %s to %s: %w", path, owner, err)
 	}
 	return nil
 }

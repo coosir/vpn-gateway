@@ -122,6 +122,14 @@ type UIConfig struct {
 	// the operator put the link somewhere their own user can, and decide who
 	// that is: whoever can read this file can drive the interface.
 	LinkFile string `yaml:"link_file,omitempty"`
+
+	// LinkOwner is the user the link file is given to. A file root writes
+	// belongs to root and is unreadable by the desktop session that has to
+	// open it, so naming the owner is the other half of naming the path.
+	//
+	// Empty leaves it with whoever the client runs as, which is right for a
+	// client that is not elevated in the first place.
+	LinkOwner string `yaml:"link_owner,omitempty"`
 }
 
 // Rule routes matching traffic to a tunnel. Every matcher within one rule is

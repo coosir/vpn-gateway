@@ -274,6 +274,17 @@ Then switch `tun.enabled` to true and run it with `sudo` (or install the
 client unit from `packaging/systemd/`, which grants `CAP_NET_ADMIN` instead of
 running as root). At that point all traffic goes through the routing engine.
 
+On macOS the application does this for you. In **Settings → Background
+service**, *Install and hand over* asks once for an administrator password,
+installs a launchd daemon that runs the same configuration as root at boot,
+and starts it; the application then becomes that service's interface rather
+than running an engine of its own. Switch `tun` on there. The same screen
+shows whether the service is running, and removes it again.
+
+Two things about macOS are worth knowing before changing `tun` by hand:
+`tun.stack` has to stay `system` unless the client was built with
+`-tags with_gvisor`, and `tun.name`, if set at all, has to look like `utun3`.
+
 ## 6. Add a real VPN
 
 Now that the path is proven, add the gateway.

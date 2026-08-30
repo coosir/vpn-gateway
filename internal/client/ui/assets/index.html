@@ -269,6 +269,10 @@ textarea::placeholder { color: var(--faint); }
   text-transform: uppercase; color: var(--dim); margin-bottom: 7px;
 }
 .field .hint { margin: 6px 0 0; font-size: 11px; color: var(--faint); }
+.service-state { margin: 0; font-size: 12px; }
+.service-state b { font-weight: 600; }
+.service-state b.on { color: var(--live); }
+.service-state b.off { color: var(--dim); }
 .choices { display: flex; gap: 10px; flex-wrap: wrap; }
 .choice {
   flex: 1; min-width: 220px; display: flex; gap: 9px; align-items: flex-start;
@@ -444,6 +448,17 @@ textarea::placeholder { color: var(--faint); }
         <h2 data-i18n="settings.title"></h2>
         <p class="sub" data-i18n="settings.sub"></p>
 
+        <div class="field" id="service-field" hidden>
+          <label data-i18n="service.title"></label>
+          <p class="service-state"><b id="service-state"></b></p>
+          <p class="hint" id="service-detail"></p>
+          <div class="toolbar">
+            <button class="act" id="service-install" data-i18n="service.install"></button>
+            <button class="act quiet" id="service-uninstall" data-i18n="service.uninstall" hidden></button>
+            <span class="note" id="service-note"></span>
+          </div>
+        </div>
+
         <div class="field">
           <label data-i18n="settings.ingress"></label>
           <div class="choices">
@@ -598,6 +613,20 @@ const STRINGS = {
     "settings.save": "保存",
     "settings.saved": "已保存",
 
+    "service.title": "后台服务",
+    "service.install": "安装并交给它",
+    "service.uninstall": "卸载",
+    "service.absent": "未安装",
+    "service.running": "运行中（PID %s）",
+    "service.stopped": "已安装，但没有在运行",
+    "service.why": "创建 TUN 网卡和改路由表需要管理员权限，应用本身没有。装上后台服务后，它以 root 运行同一份配置，开机自启；应用随后交出引擎，只作为它的界面。",
+    "service.installing": "正在安装，请在弹出的窗口里输入管理员密码…",
+    "service.uninstalling": "正在卸载…",
+    "service.installed": "已安装。应用会切换到后台服务的界面。",
+    "service.removed": "已卸载。应用重新使用自己的引擎。",
+    "service.cancelled": "已取消，什么都没有改动。",
+    "service.elsewhere": "这个服务运行的是另一份配置：%s",
+
     "need.connect": "尚未连接。",
     "nav.tunnels": "隧道", "nav.rules": "分流规则", "nav.logs": "日志", "nav.config": "配置",
     "nav.setup": "导入 bundle",
@@ -690,6 +719,20 @@ const STRINGS = {
     "settings.autodomains": "Turn reported search domains into rules",
     "settings.save": "Save",
     "settings.saved": "Saved",
+
+    "service.title": "Background service",
+    "service.install": "Install and hand over",
+    "service.uninstall": "Remove",
+    "service.absent": "Not installed",
+    "service.running": "Running (pid %s)",
+    "service.stopped": "Installed, but not running",
+    "service.why": "Creating a TUN interface and changing the routing table needs privileges this application does not have. The service runs the same configuration as root, starts at boot, and the application hands the engine over to it and becomes its interface.",
+    "service.installing": "Installing. Enter an administrator password in the window that appeared\u2026",
+    "service.uninstalling": "Removing\u2026",
+    "service.installed": "Installed. The application will switch to the service's interface.",
+    "service.removed": "Removed. The application runs its own engine again.",
+    "service.cancelled": "Cancelled; nothing was changed.",
+    "service.elsewhere": "This service runs a different configuration: %s",
 
     "need.connect": "Nothing is connected.",
     "nav.tunnels": "tunnels", "nav.rules": "rules", "nav.logs": "logs", "nav.config": "config",
@@ -975,7 +1018,95 @@ function fillSettings() {
   const opts = $("set-onfail").options;
   opts[0].textContent = t("t.direct");
   opts[1].textContent = t("t.block");
+
+  loadService();
 }
+
+/* --- the background service ---------------------------------------------
+   Creating a TUN interface needs privileges an application opened from a
+   launcher does not have. Rather than explaining that and leaving someone to
+   find a terminal, the interface installs the service that does have them.
+
+   The service state is fetched on its own rather than carried in the state
+   everything else uses: answering it runs launchctl, and the tray reads that
+   state every few seconds. */
+let service = { supported: false };
+
+async function loadService() {
+  try {
+    const res = await api("/api/service");
+    renderService(await res.json());
+  } catch (_) {
+    // An interface that cannot answer this is one where the question does
+    // not arise; the rest of the settings still work.
+    $("service-field").hidden = true;
+  }
+}
+
+function renderService(sv) {
+  service = sv || {};
+  $("service-field").hidden = !service.supported;
+  if (!service.supported) return;
+
+  const label = $("service-state");
+  if (!service.installed) {
+    label.textContent = t("service.absent");
+    label.className = "off";
+  } else if (service.running) {
+    label.textContent = t("service.running", service.pid || "?");
+    label.className = "on";
+  } else {
+    label.textContent = t("service.stopped");
+    label.className = "off";
+  }
+
+  // The blocker is the client's own sentence about why installing would fail,
+  // so it is shown as written rather than restated.
+  const detail = [];
+  if (!service.installed && service.blocker) detail.push(service.blocker);
+  if (service.installed && service.config_path && service.config_path !== configPathOf()) {
+    detail.push(t("service.elsewhere", service.config_path));
+  }
+  if (!detail.length) detail.push(t("service.why"));
+  $("service-detail").textContent = detail.join(" ");
+
+  $("service-install").hidden = service.installed;
+  $("service-install").disabled = !!service.blocker;
+  $("service-uninstall").hidden = !service.installed;
+}
+
+/* The configuration this interface edits. A service running a different one
+   is someone else's install, and saying so is more use than showing a state
+   that has nothing to do with what is on this screen. */
+function configPathOf() {
+  return state.session ? state.session.config_path : "";
+}
+
+async function serviceAction(path, busyKey, doneKey) {
+  const note = $("service-note");
+  note.className = "note";
+  note.textContent = t(busyKey);
+  $("service-install").disabled = true;
+  $("service-uninstall").disabled = true;
+  try {
+    const res = await api(path, { method: "POST" });
+    const before = service.installed;
+    renderService(await res.json());
+    note.className = "note good";
+    note.textContent = service.installed === before ? t("service.cancelled") : t(doneKey);
+  } catch (e) {
+    note.className = "note bad";
+    note.textContent = e.message;
+  } finally {
+    $("service-uninstall").disabled = false;
+    loadService();
+  }
+}
+
+$("service-install").addEventListener("click", () =>
+  serviceAction("/api/service/install", "service.installing", "service.installed"));
+$("service-uninstall").addEventListener("click", () =>
+  serviceAction("/api/service/uninstall", "service.uninstalling", "service.removed"));
 
 $("settings-save").addEventListener("click", async () => {
   const note = $("settings-note");
