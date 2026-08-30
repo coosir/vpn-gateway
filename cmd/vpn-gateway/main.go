@@ -1,0 +1,133 @@
+// Command vpn-gateway is the desktop client. It brings up one TUN interface
+// (or a local proxy port), connects to the server over trojan, and routes
+// traffic to whichever tunnel each rule selects.
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+	"text/tabwriter"
+
+	"github.com/vpn-gateway/vpn-gateway/internal/client"
+)
+
+const usage = `vpn-gateway routes traffic to several VPNs at once.
+
+Usage:
+  vpn-gateway [-config path] <command>
+
+Commands:
+  run      bring up routing and keep it in step with the server
+  status   show what the server reports for each tunnel
+  config   print the generated sing-box configuration and exit
+  check    validate the configuration and the bundle, then exit
+
+Bringing up a TUN interface needs elevated privileges. Set proxy.enabled to
+use a local SOCKS5 and HTTP port instead, which does not.
+`
+
+func main() {
+	configPath := flag.String("config", "/etc/vpn-gateway/client.yaml", "path to the client configuration")
+	logLevel := flag.String("log-level", "info", "debug, info, warn or error")
+	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
+	flag.Parse()
+
+	if flag.NArg() != 1 {
+		flag.Usage()
+		os.Exit(2)
+	}
+	if err := run(*configPath, *logLevel, flag.Arg(0)); err != nil {
+		fmt.Fprintln(os.Stderr, "vpn-gateway:", err)
+		os.Exit(1)
+	}
+}
+
+func run(configPath, logLevel, command string) error {
+	var lvl slog.Level
+	if err := lvl.UnmarshalText([]byte(logLevel)); err != nil {
+		return fmt.Errorf("bad log level %q: %w", logLevel, err)
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: lvl}))
+
+	cfg, err := client.LoadConfig(configPath)
+	if err != nil {
+		return err
+	}
+	bundle, err := client.LoadBundle(cfg.Bundle)
+	if err != nil {
+		return err
+	}
+
+	if command == "check" {
+		fmt.Printf("configuration is valid\n")
+		fmt.Printf("  server     %s (sni %s)\n", bundle.Server.Address, bundle.Server.ServerName)
+		fmt.Printf("  api        %s\n", bundle.Server.APIURL)
+		fmt.Printf("  pinned     %t\n", bundle.Server.CertificatePEM != "")
+		fmt.Printf("  tunnels    %d in the bundle\n", len(bundle.Tunnels))
+		fmt.Printf("  rules      %d explicit, auto_routes=%t auto_domains=%t\n",
+			len(cfg.Rules), cfg.AutoRoutes, cfg.AutoDomains)
+		fmt.Printf("  ingress    tun=%t proxy=%t\n", cfg.TUN.Enabled, cfg.Proxy.Enabled)
+		fmt.Printf("  on_failure %s\n", cfg.OnFailure)
+		return nil
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	c, err := client.New(ctx, cfg, bundle, log)
+	if err != nil {
+		return err
+	}
+
+	switch command {
+	case "config":
+		raw, err := c.Config()
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(raw))
+		return nil
+
+	case "status":
+		return printStatus(c)
+
+	case "run":
+		if err := c.Start(ctx); err != nil {
+			return err
+		}
+		defer c.Close()
+
+		go c.Watch(ctx)
+
+		<-ctx.Done()
+		log.Info("shutting down")
+		// Closing tears down the TUN interface and the system routes that
+		// point at it; leaving them behind would take the machine offline.
+		return c.Close()
+
+	default:
+		return fmt.Errorf("unknown command %q", command)
+	}
+}
+
+func printStatus(c *client.Client) error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "TUNNEL\tSTATE\tROUTES\tDNS\tUDP")
+	for _, t := range c.Tunnels() {
+		state := "down"
+		if t.Up {
+			state = "up"
+		}
+		dns := "-"
+		if len(t.DNS) > 0 {
+			dns = t.DNS[0]
+		}
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%t\n", t.Name, state, len(t.Routes), dns, t.UDP)
+	}
+	return w.Flush()
+}

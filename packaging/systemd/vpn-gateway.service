@@ -1,0 +1,34 @@
+# Client unit. Install to /etc/systemd/system/ and enable with
+#   systemctl enable --now vpn-gateway
+#
+# Creating the TUN interface and installing routes needs CAP_NET_ADMIN. This
+# unit grants that capability rather than running the whole client as root.
+
+[Unit]
+Description=vpn-gateway client
+Documentation=https://github.com/vpn-gateway/vpn-gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/vpn-gateway -config /etc/vpn-gateway/client.yaml run
+Restart=on-failure
+RestartSec=5s
+
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/vpn-gateway
+
+# Stopping must tear down the interface and its routes; leaving them behind
+# would take the machine offline.
+TimeoutStopSec=15s
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

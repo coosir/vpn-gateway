@@ -138,5 +138,25 @@ Phase 1: the trojan listener with per-tunnel users, TLS with pinned
 self-signed certificates, the client bundle, and `vgctl verify`, which
 connects through every tunnel the way a real client does.
 
-Next is the desktop client: a TUN interface, the routing rules, and the DNS
-handling that turns each tunnel's reported routes into split routing.
+Phase 2: the desktop client. A TUN interface or a local proxy port, rules by
+domain and IP, DNS that follows routing, and per-tunnel failover.
+
+Two things in the client are worth calling out.
+
+**Rules target a selector, never a tunnel directly.** Each tunnel gets a
+selector holding `[tunnel, fallback]`. When a tunnel goes down the client
+switches that one selector in place. Rebuilding the configuration and
+restarting instead would tear down every other tunnel's connections, which is
+exactly the disruption tunnels are supposed to be isolated from.
+
+**DNS follows routing.** An intranet name resolves only through the VPN's own
+resolver, which is reachable only through that tunnel. Every rule that selects
+by name gets a matching DNS rule, and each tunnel's resolver is reached
+through its selector so it fails over with the tunnel. The query goes over TCP
+unless the tunnel reports that its data plane carries datagrams. Routing the
+traffic without also routing the lookup is the failure that looks correctly
+configured and does not work.
+
+Next is the GUI, and the Fortinet and iNode images. Client privilege
+separation is still open: creating a TUN interface needs elevation, and
+splitting out a signed helper needs an Apple developer identity on macOS.

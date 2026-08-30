@@ -1,0 +1,73 @@
+# vpn-gateway client configuration.
+#
+# Validate with:  vpn-gateway -config client.yaml check
+# Inspect with:   vpn-gateway -config client.yaml config
+
+# The bundle produced on the server by `vgctl client-config`. It carries the
+# server address, the certificate to pin, and one password per tunnel.
+bundle: /etc/vpn-gateway/client.json
+
+# The system-wide interface. Creating it needs elevated privileges: root on
+# Linux, root on macOS, Administrator on Windows.
+tun:
+  enabled: true
+  address: 172.19.0.1/30
+  mtu: 1400
+  # Installs the system routes that send traffic to the interface. Without
+  # it the interface exists but carries nothing.
+  auto_route: true
+  # Additionally blocks traffic that tries to bypass the interface. More
+  # thorough, and more likely to interfere with other networking.
+  strict_route: false
+  # system, gvisor or mixed.
+  stack: system
+
+# A local SOCKS5 and HTTP port instead of, or as well as, the interface.
+# It needs no privileges, which makes it the way to try things out.
+proxy:
+  enabled: false
+  listen: 127.0.0.1:1080
+
+dns:
+  # Resolver for names no tunnel claims. Each tunnel's own resolver is
+  # derived from what it reports, so it does not appear here.
+  # Use "local" to defer to the operating system instead.
+  default: https://1.1.1.1/dns-query
+  strategy: prefer_ipv4
+
+# What happens to traffic for a tunnel that is not up.
+#   direct  send it out normally. A dead tunnel never takes the machine
+#           offline, but traffic meant for an intranet leaves the network.
+#   block   refuse it. Safer for tunnels carrying anything sensitive.
+on_failure: direct
+
+# Turn the routes and search domains each tunnel reports into implicit rules.
+# This is what makes split routing usable without writing a rule for every
+# intranet range.
+auto_routes: true
+auto_domains: true
+
+# Explicit rules are matched in order, before any derived rule, so a specific
+# choice always beats an inferred one.
+#
+# Every matcher in one rule is combined with OR. `tunnel` is a tunnel name, or
+# `direct`, or `block`.
+rules:
+  - domain_suffix: [corp.example.com, internal.corp]
+    tunnel: office
+
+  - ip_cidr: [10.20.0.0/16]
+    tunnel: office
+
+  - domain_keyword: [gitlab]
+    tunnel: lab
+
+  # Send one subnet of a range a tunnel claims somewhere else. Explicit rules
+  # come first, so this wins over the derived rule.
+  - ip_cidr: [10.20.5.0/24]
+    tunnel: direct
+
+  - domain_suffix: [ads.example.com]
+    tunnel: block
+
+log_level: warn

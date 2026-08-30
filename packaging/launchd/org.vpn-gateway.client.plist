@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  macOS client daemon. Install to /Library/LaunchDaemons/ owned by root:wheel
+  with mode 0644, then:
+
+    sudo launchctl bootstrap system /Library/LaunchDaemons/org.vpn-gateway.client.plist
+
+  This runs the client as root, which is what creating a utun interface and
+  installing routes requires. Splitting it into a small privileged helper and
+  an unprivileged client is the better shape, but on macOS that needs a signed
+  application bundle and an Apple developer identity, so it is not done here.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>org.vpn-gateway.client</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/vpn-gateway</string>
+        <string>-config</string>
+        <string>/etc/vpn-gateway/client.yaml</string>
+        <string>run</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>NetworkState</key>
+        <true/>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/vpn-gateway.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/vpn-gateway.log</string>
+
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

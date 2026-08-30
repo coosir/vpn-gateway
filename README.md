@@ -14,7 +14,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for why it is built this way, and
 
 ## Status
 
-Phases 0 and 1 are complete and verified end to end. What works today:
+Phases 0 to 2 are complete and verified end to end. What works today:
 
 - image contract v1, with authentication on both the data and control planes
 - `vg-agent`: the in-container supervisor, SOCKS5 data plane with traffic
@@ -27,9 +27,60 @@ Phases 0 and 1 are complete and verified end to end. What works today:
   password the client sends, with self-signed certificates clients pin or a
   certificate you supply
 - `vgctl`: emits the client bundle and verifies every tunnel end to end
+- `vpn-gateway`: the desktop client. One TUN interface or a local proxy port,
+  rules by domain and IP, per-tunnel DNS, and failover that switches a tunnel
+  out without disturbing the others
 
-Not built yet: the desktop client with its TUN interface and routing rules,
-the GUI, and the Fortinet and iNode images.
+Not built yet: privilege separation on the client (it currently needs
+elevation itself, see below), the GUI, and the Fortinet and iNode images.
+
+## Running the client
+
+```sh
+# on the server
+vgctl -config config.yaml client-config > client.json
+
+# on the client, with client.json copied across
+vpn-gateway -config client.yaml check     # validate
+vpn-gateway -config client.yaml status    # what the server reports
+vpn-gateway -config client.yaml config    # the generated sing-box config
+sudo vpn-gateway -config client.yaml run  # bring up routing
+```
+
+Start with `proxy.enabled` and a local SOCKS5 port, which needs no
+privileges, and switch to `tun` once the rules do what you expect.
+
+Rules are matched in order and explicit rules come before anything derived
+from what a tunnel reports, so a specific choice always beats an inferred
+one:
+
+```yaml
+auto_routes: true      # a tunnel's reported CIDRs become ip_cidr rules
+auto_domains: true     # its search domains become domain_suffix rules
+on_failure: direct     # or block, for tunnels carrying anything sensitive
+
+rules:
+  - {domain_suffix: [corp.example.com], tunnel: office}
+  - {ip_cidr: [10.20.5.0/24], tunnel: direct}   # carve one subnet back out
+  - {domain_keyword: [gitlab], tunnel: lab}
+```
+
+DNS follows routing automatically: a name routed to a tunnel is also resolved
+through that tunnel's own resolver, over TCP unless the tunnel reports that it
+can carry datagrams. Without that, intranet names fail to resolve while
+everything looks correctly configured.
+
+### Privileges
+
+Creating a TUN interface and installing routes needs elevation on every
+platform. Today the client does that itself, so `run` needs `sudo` (or
+Administrator on Windows). `packaging/` has a systemd unit that grants only
+`CAP_NET_ADMIN` rather than running as root, and a launchd plist for macOS.
+
+Splitting the client into a small privileged helper and an unprivileged main
+process is the better shape and is not done yet: on macOS it needs a signed
+application bundle and an Apple developer identity, which this project does
+not have.
 
 ## Try it without any VPN credentials
 
