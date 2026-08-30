@@ -408,6 +408,10 @@ textarea::placeholder { color: var(--faint); }
         <div class="offline" id="offline" hidden data-i18n="offline"></div>
         <h2 data-i18n="tunnels.title"></h2>
         <p class="sub" data-i18n="tunnels.subManual"></p>
+        <div class="toolbar" style="margin:0 0 14px">
+          <button class="act" id="tunnels-refresh" data-i18n="tunnels.refresh"></button>
+          <span class="note" id="tunnels-updated"></span>
+        </div>
         <div class="tunnels" id="tunnels"></div>
       </section>
 
@@ -607,6 +611,7 @@ const STRINGS = {
     "tunnels.routes": "路由", "tunnels.dns": "DNS", "tunnels.search": "搜索域",
     "tunnels.tcpdns": "DNS 走 TCP", "tunnels.nothing": "尚未上报任何信息",
     "tunnels.logs": "日志",
+    "tunnels.refresh": "刷新", "tunnels.updated": "更新于 %s", "tunnels.never": "尚未读取",
 
     "rules.title": "分流规则",
     "rules.sub": "按顺序匹配，且排在隧道上报的规则之前，所以显式设置总能胜出。应用会重建路由引擎，已建立的连接会短暂中断。",
@@ -698,6 +703,7 @@ const STRINGS = {
     "tunnels.routes": "routes", "tunnels.dns": "dns", "tunnels.search": "search",
     "tunnels.tcpdns": "dns over tcp", "tunnels.nothing": "nothing reported yet",
     "tunnels.logs": "logs",
+    "tunnels.refresh": "refresh", "tunnels.updated": "read at %s", "tunnels.never": "not read yet",
 
     "rules.title": "Routing rules",
     "rules.sub": "Matched in order, before anything derived from what a tunnel reports, so an explicit choice always wins. Applying rebuilds the routing engine and briefly interrupts open connections.",
@@ -788,6 +794,7 @@ $("lang").addEventListener("click", () => {
   applyLanguage();
   // Everything drawn from data has to be redrawn in the new language.
   renderedRules = null;
+  renderedTunnels = null;
   shownPrompt = null;
   render(state);
   if (currentPane() === "settings") fillSettings();
@@ -802,18 +809,26 @@ document.querySelectorAll(".rail button[data-pane]").forEach((b) => {
 let state = { tunnels: [], prompts: [], rules: [], client: {}, server: {} };
 let draft = null;          // rules being edited; null means "showing live"
 let shownPrompt = null;
-/* What the rules editor is currently showing. Updates arrive every couple of
-   seconds, and rebuilding the editor for one that changed nothing would throw
-   away the field someone had just clicked into, along with anything they had
-   started typing. */
+/* What the rules editor is currently showing. Rebuilding the editor for an
+   update that changed nothing would throw away the field someone had just
+   clicked into, along with anything they had started typing. */
 let renderedRules = null;
+/* Same idea for the tunnel list, which is redrawn from scratch: rebuilding
+   rows that say exactly what they already said replays their animation and
+   moves the button under a hand that was reaching for it. */
+let renderedTunnels = null;
 
 function render(s) {
   state = s;
   renderPhase(s);
   renderReadout(s);
-  renderTunnels(s.tunnels);
+  const freshTunnels = JSON.stringify(s.tunnels);
+  if (freshTunnels !== renderedTunnels) {
+    renderedTunnels = freshTunnels;
+    renderTunnels(s.tunnels);
+  }
   renderLogTunnels(s.tunnels);
+  stampTunnels(s.at);
   if (draft === null) {
     const fresh = JSON.stringify(s.rules);
     if (fresh !== renderedRules) {
@@ -869,6 +884,7 @@ function showPane(name) {
   document.querySelectorAll(".rail button[data-pane]").forEach((o) =>
     o.setAttribute("aria-current", String(o.dataset.pane === name)));
   document.querySelectorAll(".pane").forEach((p) => (p.hidden = p.id !== "pane-" + name));
+  if (name === "tunnels") refreshTunnels();
   if (name === "config") loadGeneratedConfig();
   if (name === "logs" && $("log-tunnel").value) loadLogs();
   if (name === "settings") fillSettings();
@@ -1004,6 +1020,38 @@ function renderReadout(s) {
   $("railmeta").textContent = bits.join("\n");
 }
 
+/* --- refreshing ----------------------------------------------------------
+   Tunnel state is asked for rather than pushed. Dialling takes as long as the
+   authentication behind it does, so a list that redrew itself every couple of
+   seconds spent most of that time saying nothing new while shifting under the
+   hand reaching for it. The stream still arrives on its own for a challenge
+   waiting to be answered: nobody would think to press refresh for a code they
+   were never told to expect. */
+async function refreshTunnels() {
+  const btn = $("tunnels-refresh");
+  btn.disabled = true;
+  try {
+    const res = await api("/api/state");
+    $("offline").hidden = true;
+    render(await res.json());
+  } catch (e) {
+    $("offline").hidden = false;
+    $("offline").textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+$("tunnels-refresh").addEventListener("click", refreshTunnels);
+
+/* When the reading was taken, so a list that has gone stale says so rather
+   than looking like the tunnels simply stopped changing. */
+function stampTunnels(at) {
+  const d = new Date(at);
+  $("tunnels-updated").textContent = isNaN(d)
+    ? t("tunnels.never")
+    : t("tunnels.updated", d.toTimeString().slice(0, 8));
+}
+
 function renderTunnels(tunnels) {
   const box = $("tunnels");
   box.textContent = "";
@@ -1055,6 +1103,10 @@ function renderTunnels(tunnels) {
       } finally {
         toggle.disabled = false;
       }
+      // The server answers once it has asked, not once the tunnel is up, so
+      // this reads back the decision. Whether the dial succeeded is the next
+      // refresh's answer.
+      refreshTunnels();
     });
     actions.appendChild(toggle);
 

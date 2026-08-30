@@ -211,7 +211,14 @@ func (s *Server) getState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.state())
 }
 
-// streamEvents pushes the whole state whenever it changes.
+// streamEvents pushes the whole state when something happens that nobody
+// asked for.
+//
+// It does not poll. Tunnel state is read back by the interface when a person
+// asks for it; sending it every couple of seconds mostly repeated what the
+// page already had. What has to arrive on its own is a challenge waiting for
+// an answer, because nobody would think to press refresh for a code they were
+// never told to expect.
 //
 // The state is small and sending all of it means a client that misses an
 // update is still correct after the next one, which matters more here than
@@ -239,8 +246,6 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 	changes := s.prompts.subscribe()
 	defer s.prompts.unsubscribe(changes)
 
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
@@ -248,10 +253,6 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 		case <-changes:
 			// A challenge appearing or being answered must show at once; a
 			// person has a minute or two to type a code.
-			if !send() {
-				return
-			}
-		case <-ticker.C:
 			if !send() {
 				return
 			}
