@@ -46,6 +46,17 @@ trojan:
 
   log_level: warn
 
+# Tunnels wait to be told to dial, from the client. Every attempt is a full
+# authentication against the gateway, and a server that reconnects on its own
+# schedule can lock an account while nobody is watching.
+#
+# Per tunnel:
+#   autostart: true    dial as soon as the server comes up
+#   max_attempts: 3    how many times to try before stopping and waiting
+#
+# A tunnel that has been started or stopped from a client keeps that decision
+# across a server restart, whatever autostart says.
+
 tunnels:
   # A credential-free tunnel that dials straight out. Useful for verifying
   # routing, the GUI and failover without touching a real VPN.
@@ -54,6 +65,8 @@ tunnels:
     image: coosir/vg-mock:latest
     server: mock.example.com
     username: tester
+    # Nothing to lock out, so this one may as well come up by itself.
+    autostart: true
     extra:
       routes: "10.99.0.0/16"
       dns: "10.99.0.53"

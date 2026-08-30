@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -498,13 +499,14 @@ func TestRunReturnsWhenTheChildFailsToStartServing(t *testing.T) {
 func TestSupervisorRetriesAFailingChild(t *testing.T) {
 	p := &failingRunnerProvider{addr: freeAddr(t)}
 	a := &Agent{
-		cfg:      Config{Provider: "failing"},
-		provider: p,
-		log:      slog.New(slog.DiscardHandler),
-		state:    contract.StateConnecting,
-		since:    time.Now(),
-		subs:     map[int]chan contract.Event{},
-		redial:   make(chan struct{}, 1),
+		cfg:         Config{Provider: "failing"},
+		provider:    p,
+		log:         slog.New(slog.DiscardHandler),
+		maxAttempts: DefaultMaxAttempts,
+		state:       contract.StateConnecting,
+		since:       time.Now(),
+		subs:        map[int]chan contract.Event{},
+		redial:      make(chan struct{}, 1),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
@@ -548,3 +550,149 @@ var errNotDialable = errorString("not dialable")
 type errorString string
 
 func (e errorString) Error() string { return string(e) }
+
+// TestSupervisorStopsKnockingAfterRepeatedFailures is the point of bounding
+// the retries: every attempt is a full authentication against a corporate
+// gateway, and enough failures in a row is what locks an account.
+func TestSupervisorStopsKnockingAfterRepeatedFailures(t *testing.T) {
+	p := &failingRunnerProvider{addr: freeAddr(t)}
+	a := &Agent{
+		cfg:         Config{Provider: "failing"},
+		provider:    p,
+		log:         slog.New(slog.DiscardHandler),
+		secret:      "",
+		maxAttempts: 3,
+		state:       contract.StateConnecting,
+		since:       time.Now(),
+		subs:        map[int]chan contract.Event{},
+		redial:      make(chan struct{}, 1),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	go a.Supervise(ctx)
+
+	// It should reach the cap and then stay there.
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) && p.runs.Load() < 3 {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if got := p.runs.Load(); got != 3 {
+		t.Fatalf("dialled %d times, want 3", got)
+	}
+
+	// And it must stop rather than carry on quietly.
+	time.Sleep(3 * time.Second)
+	if got := p.runs.Load(); got != 3 {
+		t.Errorf("kept dialling after giving up: %d attempts", got)
+	}
+	if st := a.Status(); st.State != contract.StateError {
+		t.Errorf("state = %q, want error", st.State)
+	}
+}
+
+// TestReconnectRevivesAGivenUpTunnel checks that giving up is not the end:
+// someone who has fixed whatever was wrong can ask for another go.
+func TestReconnectRevivesAGivenUpTunnel(t *testing.T) {
+	p := &failingRunnerProvider{addr: freeAddr(t)}
+	a := &Agent{
+		cfg:         Config{Provider: "failing"},
+		provider:    p,
+		log:         slog.New(slog.DiscardHandler),
+		maxAttempts: 1,
+		state:       contract.StateConnecting,
+		since:       time.Now(),
+		subs:        map[int]chan contract.Event{},
+		redial:      make(chan struct{}, 1),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	go a.Supervise(ctx)
+
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) && p.runs.Load() < 1 {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if p.runs.Load() != 1 {
+		t.Fatalf("dialled %d times before giving up", p.runs.Load())
+	}
+
+	a.Reconnect()
+	deadline = time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) && p.runs.Load() < 2 {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if p.runs.Load() < 2 {
+		t.Error("asking for a reconnect did not start another attempt")
+	}
+}
+
+// TestAPermanentFailureCanStillBeRetriedOnRequest covers rejected
+// credentials: the tunnel must not keep trying by itself, but someone who has
+// corrected the password should not have to recreate the container.
+func TestAPermanentFailureCanStillBeRetriedOnRequest(t *testing.T) {
+	p := &scriptedProvider{results: []error{Permanent(errors.New("bad password"))}}
+	a := &Agent{
+		cfg:         Config{Provider: "test"},
+		provider:    p,
+		log:         slog.New(slog.DiscardHandler),
+		maxAttempts: DefaultMaxAttempts,
+		state:       contract.StateConnecting,
+		since:       time.Now(),
+		subs:        map[int]chan contract.Event{},
+		redial:      make(chan struct{}, 1),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	go a.Supervise(ctx)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && a.Status().State != contract.StateError {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if a.Status().State != contract.StateError {
+		t.Fatalf("state = %q, want error", a.Status().State)
+	}
+	if n := p.calls.Load(); n != 1 {
+		t.Fatalf("dialled %d times after a permanent failure, want 1", n)
+	}
+
+	a.Reconnect()
+	deadline = time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) && a.Status().State != contract.StateUp {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if a.Status().State != contract.StateUp {
+		t.Errorf("state after a requested reconnect = %q", a.Status().State)
+	}
+}
+
+// registerOnce makes a provider available to NewAgent. The real ones live in
+// packages that import this one, so a test here brings its own.
+func init() {
+	Register("attempts-test", func() Provider { return &scriptedProvider{} })
+}
+
+func TestMaxAttemptsComesFromTheConfiguration(t *testing.T) {
+	a, err := NewAgent(Config{
+		Provider: "attempts-test",
+		Extra:    map[string]string{"max_attempts": "7"},
+	}, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.maxAttempts != 7 {
+		t.Errorf("maxAttempts = %d, want 7", a.maxAttempts)
+	}
+
+	// A nonsense value must not disable dialling altogether.
+	a, err = NewAgent(Config{
+		Provider: "attempts-test",
+		Extra:    map[string]string{"max_attempts": "0"},
+	}, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.maxAttempts < 1 {
+		t.Errorf("maxAttempts = %d, which would never dial", a.maxAttempts)
+	}
+}

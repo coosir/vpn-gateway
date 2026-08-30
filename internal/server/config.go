@@ -107,8 +107,23 @@ type TunnelConfig struct {
 	CapAdd  []string `yaml:"cap_add"`
 	Devices []string `yaml:"devices"`
 
-	// Disabled keeps a tunnel's configuration without starting it.
+	// Disabled keeps a tunnel's configuration without starting it, and
+	// without offering it to a client either.
 	Disabled bool `yaml:"disabled"`
+
+	// Autostart dials this tunnel as soon as the server comes up, rather
+	// than waiting to be told.
+	//
+	// It defaults to off. Every dial is a full authentication against a
+	// corporate gateway, and a server that reconnects on its own schedule is
+	// a server that can lock an account while nobody is watching. Turn it on
+	// for a tunnel that should be up without anyone logging in, and accept
+	// that trade.
+	Autostart bool `yaml:"autostart"`
+
+	// MaxAttempts bounds how many times this tunnel dials before it waits to
+	// be told to try again. Zero uses the agent's own default.
+	MaxAttempts int `yaml:"max_attempts"`
 
 	// DataPort and ControlPort pin the loopback ports. Zero means the server
 	// allocates them from PortBase in name order.

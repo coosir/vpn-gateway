@@ -180,6 +180,12 @@ h2 {
   background: var(--down); border-color: var(--down);
   color: var(--down); box-shadow: var(--lamp-glow);
 }
+.lamp.idle {
+  background: var(--bg); border-color: var(--hair-firm);
+  color: transparent; box-shadow: none;
+}
+.tstate.idle { color: var(--faint); }
+.trow-actions { display: flex; gap: 6px; align-items: center; }
 .tname { font-weight: 600; overflow-wrap: anywhere; }
 .tstate { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
 .tstate.on { color: var(--live); }
@@ -401,7 +407,7 @@ textarea::placeholder { color: var(--faint); }
       <section class="pane" id="pane-tunnels">
         <div class="offline" id="offline" hidden data-i18n="offline"></div>
         <h2 data-i18n="tunnels.title"></h2>
-        <p class="sub" data-i18n="tunnels.sub"></p>
+        <p class="sub" data-i18n="tunnels.subManual"></p>
         <div class="tunnels" id="tunnels"></div>
       </section>
 
@@ -595,7 +601,9 @@ const STRINGS = {
     "tunnels.title": "隧道",
     "tunnels.sub": "服务端上报的状态。路由和 DNS 由 VPN 自己下发，会自动变成分流规则。",
     "tunnels.empty": "没有隧道。bundle 里的隧道服务端都没有。",
-    "tunnels.up": "在线", "tunnels.down": "离线",
+    "tunnels.up": "在线", "tunnels.down": "离线", "tunnels.stopped": "已停止",
+    "tunnels.start": "连接", "tunnels.stop": "断开",
+    "tunnels.subManual": "每条隧道单独连接。每次连接都是一次完整认证，所以不会自动重连——失败几次后会停下等你处理。",
     "tunnels.routes": "路由", "tunnels.dns": "DNS", "tunnels.search": "搜索域",
     "tunnels.tcpdns": "DNS 走 TCP", "tunnels.nothing": "尚未上报任何信息",
     "tunnels.logs": "日志",
@@ -684,7 +692,9 @@ const STRINGS = {
     "tunnels.title": "Tunnels",
     "tunnels.sub": "What the server reports. Routes and resolvers come from the VPN itself and become routing rules automatically.",
     "tunnels.empty": "No tunnels. The bundle names none the server has.",
-    "tunnels.up": "up", "tunnels.down": "down",
+    "tunnels.up": "up", "tunnels.down": "down", "tunnels.stopped": "stopped",
+    "tunnels.start": "connect", "tunnels.stop": "disconnect",
+    "tunnels.subManual": "Each tunnel is dialled on its own. Every attempt is a full authentication, so nothing reconnects by itself: after a few failures a tunnel stops and waits for you.",
     "tunnels.routes": "routes", "tunnels.dns": "dns", "tunnels.search": "search",
     "tunnels.tcpdns": "dns over tcp", "tunnels.nothing": "nothing reported yet",
     "tunnels.logs": "logs",
@@ -965,9 +975,12 @@ $("settings-save").addEventListener("click", async () => {
 });
 
 function renderReadout(s) {
-  const up = s.tunnels.filter((t) => t.up).length;
+  const wanted = s.tunnels.filter((t) => t.wanted);
+  const up = wanted.filter((t) => t.up).length;
   $("r-up").textContent = up;
-  $("r-total").textContent = s.tunnels.length;
+  // Counted against the tunnels that were asked for: a stopped one is not a
+  // tunnel that is failing to come up.
+  $("r-total").textContent = wanted.length;
   const ingress = [s.client.tun && t("bar.tun"), s.client.proxy && t("bar.proxy")].filter(Boolean);
   $("r-ingress").textContent = ingress.join(" + ") || t("bar.none");
   // "direct" and "block" are values the client understands; only the label
@@ -975,8 +988,9 @@ function renderReadout(s) {
   $("r-fail").textContent = s.client.on_failure === "block" ? t("t.block")
                           : s.client.on_failure === "direct" ? t("t.direct")
                           : (s.client.on_failure || "—");
-  $("bug").style.background = up ? "" : "var(--down)";
-  $("bug").style.color = up ? "" : "var(--down)";
+  const healthy = wanted.length > 0 && up === wanted.length;
+  $("bug").style.background = healthy ? "" : wanted.length ? "var(--down)" : "var(--faint)";
+  $("bug").style.color = healthy ? "" : wanted.length ? "var(--down)" : "var(--faint)";
 
   const onOff = (v) => t(v ? "on" : "off");
   const bits = [];
@@ -1001,9 +1015,14 @@ function renderTunnels(tunnels) {
     const row = el("div", "tunnel");
     row.style.animationDelay = Math.min(i * 45, 400) + "ms";
 
-    row.appendChild(el("span", "lamp " + (tn.up ? "on" : "off")));
+    // Three states, not two. A tunnel nobody has asked for is stopped on
+    // purpose; showing it as "down" beside one that failed to dial would put
+    // the same face on a decision and a fault.
+    const cls = tn.up ? "on" : tn.wanted ? "off" : "idle";
+    const label = tn.up ? t("tunnels.up") : tn.wanted ? t("tunnels.down") : t("tunnels.stopped");
+    row.appendChild(el("span", "lamp " + cls));
     row.appendChild(el("span", "tname", tn.name));
-    row.appendChild(el("span", "tstate " + (tn.up ? "on" : "off"), tn.up ? t("tunnels.up") : t("tunnels.down")));
+    row.appendChild(el("span", "tstate " + cls, label));
 
     const facts = el("div", "facts");
     const add = (k, v) => {
@@ -1020,13 +1039,34 @@ function renderTunnels(tunnels) {
     if (!facts.children.length) facts.appendChild(el("span", "k", t("tunnels.nothing")));
     row.appendChild(facts);
 
+    const actions = el("div", "trow-actions");
+
+    const toggle = el("button", "act" + (tn.wanted ? " quiet" : ""),
+      tn.wanted ? t("tunnels.stop") : t("tunnels.start"));
+    toggle.addEventListener("click", async () => {
+      toggle.disabled = true;
+      const path = "/api/tunnels/" + encodeURIComponent(tn.name) +
+        (tn.wanted ? "/stop" : "/start");
+      try {
+        await api(path, { method: "POST" });
+      } catch (e) {
+        $("offline").hidden = false;
+        $("offline").textContent = e.message;
+      } finally {
+        toggle.disabled = false;
+      }
+    });
+    actions.appendChild(toggle);
+
     const go = el("button", "act quiet", t("tunnels.logs"));
     go.addEventListener("click", () => {
       document.querySelector('.rail button[data-pane="logs"]').click();
       $("log-tunnel").value = tn.name;
       loadLogs();
     });
-    row.appendChild(go);
+    actions.appendChild(go);
+
+    row.appendChild(actions);
     box.appendChild(row);
   });
 }

@@ -38,6 +38,10 @@ type TunnelState struct {
 
 	// Up reports whether the server says the tunnel is carrying traffic.
 	Up bool
+	// Wanted reports whether the tunnel has been asked to dial. One that has
+	// not is stopped on purpose rather than broken, and its rules fall back
+	// the same way a failed one's do.
+	Wanted bool
 
 	// Routes, DNS and SearchDomains are what the VPN pushed, relayed by the
 	// server. They become implicit rules.

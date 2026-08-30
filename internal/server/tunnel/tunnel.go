@@ -15,8 +15,10 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/server"
@@ -49,6 +51,9 @@ type Snapshot struct {
 	Name     string `json:"name"`
 	Provider string `json:"provider"`
 	Disabled bool   `json:"disabled"`
+	// Wanted is whether this tunnel has been asked to dial. A tunnel that has
+	// not is stopped on purpose, not broken.
+	Wanted bool `json:"wanted"`
 
 	// Reachable reports whether the container's control plane answered the
 	// most recent poll. When false, Status is the last known value.
@@ -72,6 +77,12 @@ type Tunnel struct {
 	stateDir   string
 	pullPolicy string
 	mgr        *Manager
+
+	// wanted is whether this tunnel should be dialled. It is persisted, so a
+	// server restart brings back what was running rather than everything.
+	wanted atomic.Bool
+	// wake interrupts the supervisor when the wanted state changes.
+	wake chan struct{}
 	// secret authenticates this tunnel's container on both planes.
 	secret string
 	// trojanPassword is what a client sends to select this tunnel. It is
@@ -167,6 +178,7 @@ func NewManager(cfg *server.Config, engine runtime.Engine, log *slog.Logger) (*M
 			log:            log.With("tunnel", tc.Name),
 			stateDir:       cfg.StateDir,
 			pullPolicy:     cfg.PullPolicy,
+			wake:           make(chan struct{}, 1),
 			snap: Snapshot{
 				Name:     tc.Name,
 				Provider: tc.Provider,
@@ -179,7 +191,94 @@ func NewManager(cfg *server.Config, engine runtime.Engine, log *slog.Logger) (*M
 			},
 		})
 	}
+	for _, t := range m.tunnels {
+		t.wanted.Store(t.restoreWish())
+		t.mu.Lock()
+		t.snap.Wanted = t.wanted.Load()
+		t.mu.Unlock()
+	}
 	return m, nil
+}
+
+// wishPath records whether a tunnel was asked to dial, so a server restart
+// brings back what was running rather than everything at once.
+func (t *Tunnel) wishPath() string {
+	return filepath.Join(t.stateDir, "wanted", t.cfg.Name)
+}
+
+func (t *Tunnel) restoreWish() bool {
+	b, err := os.ReadFile(t.wishPath())
+	if err != nil {
+		// Never asked either way: dial only if the configuration says to.
+		return t.cfg.Autostart
+	}
+	return strings.TrimSpace(string(b)) == "yes"
+}
+
+func (t *Tunnel) recordWish(want bool) {
+	value := "no"
+	if want {
+		value = "yes"
+	}
+	if err := os.MkdirAll(filepath.Dir(t.wishPath()), 0o700); err != nil {
+		t.log.Warn("could not record whether this tunnel should dial", "error", err)
+		return
+	}
+	if err := os.WriteFile(t.wishPath(), []byte(value+"\n"), 0o600); err != nil {
+		t.log.Warn("could not record whether this tunnel should dial", "error", err)
+	}
+}
+
+// Start asks a tunnel to dial.
+func (m *Manager) Start(name string) error {
+	t, ok := m.Lookup(name)
+	if !ok {
+		return fmt.Errorf("no tunnel named %q", name)
+	}
+	if t.cfg.Disabled {
+		return fmt.Errorf("tunnel %q is disabled in the configuration", name)
+	}
+	t.setWanted(true)
+	return nil
+}
+
+// Stop takes a tunnel down and leaves it down.
+func (m *Manager) Stop(name string) error {
+	t, ok := m.Lookup(name)
+	if !ok {
+		return fmt.Errorf("no tunnel named %q", name)
+	}
+	t.setWanted(false)
+	return nil
+}
+
+func (t *Tunnel) setWanted(want bool) {
+	if t.wanted.Swap(want) == want {
+		return
+	}
+	t.recordWish(want)
+
+	t.mu.Lock()
+	t.snap.Wanted = want
+	if !want {
+		t.snap.Reachable = false
+		t.snap.ContainerUp = false
+		t.snap.Status.State = contract.StateDown
+		t.snap.LastError = ""
+	}
+	after := t.snap
+	t.mu.Unlock()
+
+	t.publish(after)
+	if want {
+		t.log.Info("asked to dial")
+	} else {
+		t.log.Info("asked to stop")
+	}
+	select {
+	case t.wake <- struct{}{}:
+	default:
+	}
 }
 
 // Run reconciles and supervises every tunnel until ctx is cancelled.
@@ -251,6 +350,18 @@ func (t *Tunnel) supervise(ctx context.Context) {
 
 	backoff := restartMin
 	for {
+		// A tunnel nobody has asked for stays down. Dialling on our own
+		// schedule is what turns a gateway refusing us into an account
+		// getting locked while nobody is watching.
+		if !t.wanted.Load() {
+			t.stopContainer(ctx)
+			if !t.awaitWish(ctx) {
+				return
+			}
+			backoff = restartMin
+			continue
+		}
+
 		if err := t.reconcile(ctx); err != nil {
 			if ctx.Err() != nil {
 				return
@@ -270,9 +381,39 @@ func (t *Tunnel) supervise(ctx context.Context) {
 		if !t.pollUntilUnhealthy(ctx) {
 			return
 		}
+		if !t.wanted.Load() {
+			continue // asked to stop; the top of the loop takes it down
+		}
 		t.log.Warn("container is unresponsive, recreating")
 		if err := t.engine.Remove(ctx, t.cfg.ContainerName()); err != nil {
 			t.log.Warn("removing unresponsive container failed", "error", err)
+		}
+	}
+}
+
+// stopContainer takes the container down without removing it, so a tunnel
+// that authenticated interactively does not have to do it again.
+func (t *Tunnel) stopContainer(ctx context.Context) {
+	st, err := t.engine.Inspect(ctx, t.cfg.ContainerName())
+	if err != nil || !st.Running {
+		return
+	}
+	if err := t.engine.Stop(ctx, t.cfg.ContainerName(), stopGraceSeconds); err != nil {
+		t.log.Warn("stopping the container failed", "error", err)
+	}
+}
+
+// awaitWish blocks until the tunnel is asked to dial, reporting false when
+// the server is shutting down instead.
+func (t *Tunnel) awaitWish(ctx context.Context) bool {
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-t.wake:
+			if t.wanted.Load() {
+				return true
+			}
 		}
 	}
 }
@@ -400,9 +541,15 @@ func (t *Tunnel) pollUntilUnhealthy(ctx context.Context) bool {
 		select {
 		case <-ctx.Done():
 			return false
+		case <-t.wake:
+			// Asked to stop; the supervisor takes it down.
+			return true
 		case <-ticker.C:
 		}
 
+		if !t.wanted.Load() {
+			return true
+		}
 		if t.poll(ctx) {
 			continue
 		}
@@ -515,6 +662,17 @@ func (t *Tunnel) writeEnvFile() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// The attempt cap belongs to the agent, so it travels with the rest of
+	// the provider settings rather than as a flag nobody would find.
+	if t.cfg.MaxAttempts > 0 {
+		if t.cfg.Extra == nil {
+			t.cfg.Extra = map[string]string{}
+		}
+		if _, set := t.cfg.Extra["max_attempts"]; !set {
+			t.cfg.Extra["max_attempts"] = strconv.Itoa(t.cfg.MaxAttempts)
+		}
+	}
+
 	extra := "{}"
 	if len(t.cfg.Extra) > 0 {
 		b, err := json.Marshal(t.cfg.Extra)

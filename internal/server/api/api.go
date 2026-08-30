@@ -50,6 +50,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/tunnels/{name}/logs", s.auth(s.getLogs))
 	mux.HandleFunc("GET /api/v1/tunnels/{name}/challenge", s.auth(s.getChallenge))
 	mux.HandleFunc("POST /api/v1/tunnels/{name}/auth", s.auth(s.postAuth))
+	mux.HandleFunc("POST /api/v1/tunnels/{name}/start", s.auth(s.postStart))
+	mux.HandleFunc("POST /api/v1/tunnels/{name}/stop", s.auth(s.postStop))
 	mux.HandleFunc("POST /api/v1/tunnels/{name}/reconnect", s.auth(s.postReconnect))
 
 	return mux
@@ -202,6 +204,28 @@ func (s *Server) postAuth(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("relayed auth answer", "tunnel", t.Snapshot().Name)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// postStart asks a tunnel to dial. Tunnels wait to be asked rather than
+// dialling on their own: every attempt authenticates against a corporate
+// gateway, and a server reconnecting on its own schedule can lock an account
+// while nobody is watching.
+func (s *Server) postStart(w http.ResponseWriter, r *http.Request) {
+	if err := s.mgr.Start(r.PathValue("name")); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.log.Info("tunnel asked to dial", "tunnel", r.PathValue("name"))
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (s *Server) postStop(w http.ResponseWriter, r *http.Request) {
+	if err := s.mgr.Stop(r.PathValue("name")); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.log.Info("tunnel asked to stop", "tunnel", r.PathValue("name"))
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func (s *Server) postReconnect(w http.ResponseWriter, r *http.Request) {

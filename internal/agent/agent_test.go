@@ -39,13 +39,14 @@ func (p *scriptedProvider) Answer(contract.AuthAnswer) error { return nil }
 func newTestAgent(t *testing.T, p Provider) *Agent {
 	t.Helper()
 	return &Agent{
-		cfg:      Config{Provider: "test"},
-		provider: p,
-		log:      slog.New(slog.DiscardHandler),
-		state:    contract.StateConnecting,
-		since:    time.Now(),
-		subs:     map[int]chan contract.Event{},
-		redial:   make(chan struct{}, 1),
+		cfg:         Config{Provider: "test"},
+		provider:    p,
+		log:         slog.New(slog.DiscardHandler),
+		maxAttempts: DefaultMaxAttempts,
+		state:       contract.StateConnecting,
+		since:       time.Now(),
+		subs:        map[int]chan contract.Event{},
+		redial:      make(chan struct{}, 1),
 	}
 }
 
@@ -85,25 +86,30 @@ func TestUptimeTracksTheCurrentConnection(t *testing.T) {
 	}
 }
 
-func TestSuperviseStopsOnPermanentFailure(t *testing.T) {
+func TestSuperviseStopsDiallingOnAPermanentFailure(t *testing.T) {
 	// A rejected password must not become a login loop against a corporate
-	// gateway, which is how accounts get locked.
+	// gateway, which is how accounts get locked. The supervisor stays alive
+	// so a corrected password can be tried without recreating the container,
+	// but it must not dial again on its own.
 	p := &scriptedProvider{results: []error{Permanent(errors.New("bad password"))}}
 	a := newTestAgent(t, p)
 
-	done := make(chan struct{})
-	go func() { defer close(done); a.Supervise(context.Background()) }()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go a.Supervise(ctx)
 
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("Supervise did not return on a permanent failure")
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && a.Status().State != contract.StateError {
+		time.Sleep(20 * time.Millisecond)
 	}
+	if st := a.Status(); st.State != contract.StateError {
+		t.Fatalf("state = %q, want %q", st.State, contract.StateError)
+	}
+
+	// Left alone for well past any backoff, it must not have tried again.
+	time.Sleep(3 * time.Second)
 	if n := p.calls.Load(); n != 1 {
-		t.Errorf("provider ran %d times, want 1", n)
-	}
-	if s := a.Status(); s.State != contract.StateError {
-		t.Errorf("state = %q, want %q", s.State, contract.StateError)
+		t.Errorf("dialled %d times after a permanent failure, want 1", n)
 	}
 }
 

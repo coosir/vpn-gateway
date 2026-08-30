@@ -133,6 +133,7 @@ func (c *Client) fetch(ctx context.Context) ([]TunnelState, error) {
 			Name:          bt.Name,
 			Password:      bt.Password,
 			Up:            s.Up(),
+			Wanted:        s.Wanted,
 			Routes:        s.Network.Routes,
 			DNS:           s.Network.DNS,
 			SearchDomains: s.Network.SearchDomains,

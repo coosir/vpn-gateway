@@ -33,14 +33,15 @@ func (upProvider) Answer(contract.AuthAnswer) error { return nil }
 func startAgent(t *testing.T, secret string) (*Agent, string) {
 	t.Helper()
 	a := &Agent{
-		cfg:      Config{Provider: "test", Secret: secret},
-		provider: upProvider{},
-		log:      slog.New(slog.DiscardHandler),
-		secret:   secret,
-		state:    contract.StateUp,
-		since:    time.Now(),
-		subs:     map[int]chan contract.Event{},
-		redial:   make(chan struct{}, 1),
+		cfg:         Config{Provider: "test", Secret: secret},
+		provider:    upProvider{},
+		log:         slog.New(slog.DiscardHandler),
+		secret:      secret,
+		maxAttempts: DefaultMaxAttempts,
+		state:       contract.StateUp,
+		since:       time.Now(),
+		subs:        map[int]chan contract.Event{},
+		redial:      make(chan struct{}, 1),
 	}
 	now := time.Now()
 	a.connectedAt = &now

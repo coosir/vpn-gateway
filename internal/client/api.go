@@ -25,6 +25,10 @@ type Snapshot struct {
 	Reachable bool   `json:"reachable"`
 	LastError string `json:"last_error"`
 
+	// Wanted is whether this tunnel has been asked to dial. One that has not
+	// is stopped on purpose rather than broken.
+	Wanted bool `json:"wanted"`
+
 	Status  contract.Status  `json:"status"`
 	Network contract.Network `json:"network"`
 	// Challenge is the interactive prompt the tunnel is blocked on, if any.
@@ -107,6 +111,24 @@ func (a *API) Logs(ctx context.Context, tunnel string, tail int) (string, error)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	return string(body), err
+}
+
+// StartTunnel asks the server to dial one tunnel.
+func (a *API) StartTunnel(ctx context.Context, tunnel string) error {
+	req, err := a.request(ctx, http.MethodPost, "/api/v1/tunnels/"+tunnel+"/start", nil)
+	if err != nil {
+		return err
+	}
+	return a.do(req, nil)
+}
+
+// StopTunnel takes one tunnel down and leaves it down.
+func (a *API) StopTunnel(ctx context.Context, tunnel string) error {
+	req, err := a.request(ctx, http.MethodPost, "/api/v1/tunnels/"+tunnel+"/stop", nil)
+	if err != nil {
+		return err
+	}
+	return a.do(req, nil)
 }
 
 // Reconnect asks the server to redial a tunnel.

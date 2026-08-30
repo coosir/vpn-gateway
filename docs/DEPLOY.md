@@ -321,6 +321,11 @@ interface inside its container, so that container needs two extra things:
       authgroup: "corp"       # the realm, if the login form has one
 ```
 
+Tunnels do not dial by themselves. Connect this one from the client, or set
+`autostart: true` on it. Either way it stops after `max_attempts` failures
+rather than knocking at a gateway that is refusing it, because enough failed
+authentications in a row is what locks a corporate account.
+
 Then:
 
 ```sh
@@ -382,10 +387,13 @@ vgctl -config /etc/vpn-gateway/config.yaml tunnels     # find it
 docker logs --tail 50 vpngw-corp
 ```
 
-**A tunnel keeps reconnecting.** The gateway is rejecting something. Credentials
-that are simply wrong are reported as permanent and the tunnel stops trying,
-on purpose: a login loop against a corporate gateway is how accounts get
-locked.
+**A tunnel keeps reconnecting.** It should not: after `max_attempts` failures
+it stops and waits, and wrong credentials stop it at once. If you are watching
+it retry, that is the few attempts it is allowed. Reconnect from the client
+once whatever was wrong has been dealt with.
+
+**A tunnel says stopped and will not come up on its own.** That is the
+default. Connect it from the client, or set `autostart: true`.
 
 **An intranet name does not resolve, but its address works.** The tunnel
 reported no resolver. Set `extra.dns` to the VPN's own DNS server.

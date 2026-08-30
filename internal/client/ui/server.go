@@ -101,6 +101,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/disconnect", s.auth(s.postDisconnect))
 	mux.HandleFunc("GET /api/generated-config", s.auth(s.getGeneratedConfig))
 	mux.HandleFunc("GET /api/tunnels/{name}/logs", s.auth(s.getLogs))
+	mux.HandleFunc("POST /api/tunnels/{name}/start", s.auth(s.postTunnelStart))
+	mux.HandleFunc("POST /api/tunnels/{name}/stop", s.auth(s.postTunnelStop))
 	mux.HandleFunc("POST /api/tunnels/{name}/reconnect", s.auth(s.postReconnect))
 	mux.HandleFunc("POST /api/prompts/{id}", s.auth(s.postPromptAnswer))
 
@@ -135,8 +137,12 @@ type State struct {
 
 // TunnelView is one tunnel as the interface shows it.
 type TunnelView struct {
-	Name          string   `json:"name"`
-	Up            bool     `json:"up"`
+	Name string `json:"name"`
+	Up   bool   `json:"up"`
+	// Wanted is whether this tunnel has been asked to dial. One that has not
+	// is stopped on purpose, and the interface says so rather than showing it
+	// as a failure.
+	Wanted        bool     `json:"wanted"`
 	Routes        []string `json:"routes"`
 	DNS           []string `json:"dns"`
 	SearchDomains []string `json:"search_domains"`
@@ -176,7 +182,7 @@ func (s *Server) state() State {
 	if c := s.ctl.Client(); c != nil {
 		for _, t := range c.Tunnels() {
 			views = append(views, TunnelView{
-				Name: t.Name, Up: t.Up,
+				Name: t.Name, Up: t.Up, Wanted: t.Wanted,
 				Routes: t.Routes, DNS: t.DNS,
 				SearchDomains: t.SearchDomains, UDP: t.UDP,
 			})
@@ -392,6 +398,35 @@ func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Write([]byte(body))
+}
+
+// postTunnelStart asks the server to dial one tunnel. Tunnels wait to be
+// asked: every attempt authenticates against a corporate gateway, and dialling
+// on a schedule of our own can lock an account while nobody is watching.
+func (s *Server) postTunnelStart(w http.ResponseWriter, r *http.Request) {
+	c := s.ctl.Client()
+	if c == nil {
+		writeErr(w, http.StatusConflict, "nothing is connected")
+		return
+	}
+	if err := c.API().StartTunnel(r.Context(), r.PathValue("name")); err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (s *Server) postTunnelStop(w http.ResponseWriter, r *http.Request) {
+	c := s.ctl.Client()
+	if c == nil {
+		writeErr(w, http.StatusConflict, "nothing is connected")
+		return
+	}
+	if err := c.API().StopTunnel(r.Context(), r.PathValue("name")); err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func (s *Server) postReconnect(w http.ResponseWriter, r *http.Request) {

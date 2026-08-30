@@ -110,6 +110,22 @@ Images needing a vendor binary ship as a Dockerfile only. The operator
 supplies their own licensed installer; vendor binaries are never
 redistributed.
 
+## Dialling is asked for, not assumed
+
+Tunnels wait to be told to connect, and a failing one stops after a few tries.
+
+Every dial is a full authentication against a corporate gateway. A server that
+reconnects on its own schedule is a server that can keep knocking at a gateway
+refusing it, and enough failed authentications in a row is what locks an
+account -- while nobody is watching, on a machine at home. Retrying forever is
+the wrong default for something holding credentials it can get taken away.
+
+So the retry budget is small, exhausting it parks the tunnel rather than
+ending it, and an explicit reconnect revives it. A corrected password does not
+mean recreating anything. What each tunnel was asked to do is written down, so
+a server restart brings back what was running rather than everything at once,
+and an explicit stop outlives `autostart`.
+
 ## Fragile assumption
 
 This design assumes corporate VPN gateways do not reject a login because the

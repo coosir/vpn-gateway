@@ -32,6 +32,8 @@ Phases 0 to 2 are complete and verified end to end. What works today:
   password the client sends, with self-signed certificates clients pin or a
   certificate you supply
 - `vgctl`: emits the client bundle and verifies every tunnel end to end
+- per-tunnel control: nothing dials by itself, and a tunnel that keeps
+  failing stops rather than knocking
 - `vpn-gateway`: the desktop client. One TUN interface or a local proxy port,
   rules by domain and IP, per-tunnel DNS, and failover that switches a tunnel
   out without disturbing the others
@@ -123,6 +125,26 @@ are all reimplementations, so none of them needs a vendor's own client.
 The capability and device are for the tun interface the client creates. Both
 stay inside that container's own network namespace, which is exactly what
 lets several of these run at once.
+
+### Dialling
+
+Tunnels wait to be told. Each one is connected and disconnected on its own
+from the client, and the decision survives a server restart.
+
+That is not a convenience. Every attempt is a full authentication against a
+corporate gateway, and enough failures in a row is what locks an account. A
+tunnel that fails stops after a few tries and waits, rather than knocking at a
+gateway that is refusing it:
+
+```yaml
+    autostart: true     # dial when the server starts, for a tunnel with
+                        # nothing to lock out
+    max_attempts: 3     # tries before it stops and waits (the default)
+```
+
+Rejected credentials stop it immediately, without using up the attempts. In
+every case a reconnect from the client starts it again, so a corrected
+password does not mean recreating anything.
 
 ### Two-factor
 

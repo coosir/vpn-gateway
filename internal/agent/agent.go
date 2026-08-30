@@ -22,6 +22,16 @@ const (
 	retryMax = 60 * time.Second
 )
 
+// DefaultMaxAttempts is how many times a tunnel dials before giving up and
+// waiting to be told to try again.
+//
+// Every attempt is a full authentication against a corporate gateway, and
+// enough failures in a row is what locks an account. Retrying forever turns a
+// gateway that is refusing us into a machine that keeps knocking, so the
+// default is small: enough to ride out a network blip, not enough to look
+// like anything else.
+const DefaultMaxAttempts = 3
+
 // Agent owns the state of one tunnel: it supervises the Provider, tracks
 // uptime and traffic, and serves the control plane. It is the only writer of
 // contract.Status.
@@ -32,6 +42,9 @@ type Agent struct {
 	// secret authenticates both planes. Empty disables authentication, which
 	// is only appropriate for local development.
 	secret string
+	// maxAttempts bounds how many times a failing tunnel dials before it
+	// waits to be told to try again.
+	maxAttempts int
 
 	mu          sync.RWMutex
 	state       contract.State
@@ -60,15 +73,20 @@ func NewAgent(cfg Config, log *slog.Logger) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
+	attempts := cfg.Int("max_attempts", DefaultMaxAttempts)
+	if attempts < 1 {
+		attempts = 1
+	}
 	return &Agent{
-		cfg:      cfg,
-		provider: p,
-		log:      log,
-		secret:   cfg.Secret,
-		state:    contract.StateConnecting,
-		since:    time.Now(),
-		subs:     map[int]chan contract.Event{},
-		redial:   make(chan struct{}, 1),
+		cfg:         cfg,
+		provider:    p,
+		log:         log,
+		secret:      cfg.Secret,
+		maxAttempts: attempts,
+		state:       contract.StateConnecting,
+		since:       time.Now(),
+		subs:        map[int]chan contract.Event{},
+		redial:      make(chan struct{}, 1),
 	}, nil
 }
 
@@ -259,12 +277,16 @@ func (a *Agent) publish(ev contract.Event) {
 
 // --- supervisor -----------------------------------------------------------
 
-// Supervise runs the provider until ctx is cancelled, redialing with
-// exponential backoff. It returns when ctx is done or the provider reports a
-// permanent failure.
+// Supervise runs the provider until ctx is cancelled.
+//
+// A failed dial is retried with backoff, but only a few times: see
+// DefaultMaxAttempts. After that the tunnel parks in error and waits to be
+// told to try again, rather than knocking at a gateway that is refusing it.
 func (a *Agent) Supervise(ctx context.Context) {
 	backoff := retryMin
+	attempts := 0
 	for {
+		attempts++
 		runCtx, cancel := context.WithCancel(ctx)
 		done := make(chan error, 1)
 		go func() { done <- a.provider.Run(runCtx, a.cfg, a) }()
@@ -280,6 +302,7 @@ func (a *Agent) Supervise(ctx context.Context) {
 			cancel()
 			<-done
 			backoff = retryMin
+			attempts = 0
 			continue
 		case err = <-done:
 			cancel()
@@ -295,20 +318,50 @@ func (a *Agent) Supervise(ctx context.Context) {
 		case errors.Is(err, ErrPermanent):
 			a.SetState(contract.StateError, err)
 			a.log.Error("permanent failure, not redialing", "error", err)
-			return
+			// Parked rather than returned: an explicit reconnect can still
+			// revive this once whatever was wrong has been dealt with.
+			if !a.waitForRedial(ctx) {
+				return
+			}
+			backoff, attempts = retryMin, 0
+			continue
 		}
 
 		a.SetState(contract.StateError, err)
+
+		if attempts >= a.maxAttempts {
+			a.log.Warn("giving up after repeated failures; waiting to be told to try again",
+				"attempts", attempts, "error", err)
+			a.Log("gave up after %d attempts; reconnect to try again", attempts)
+			if !a.waitForRedial(ctx) {
+				return
+			}
+			backoff, attempts = retryMin, 0
+			continue
+		}
+
 		wait := jitter(backoff)
-		a.Log("redialing in %s", wait.Round(time.Second))
+		a.Log("redialing in %s (attempt %d of %d)", wait.Round(time.Second), attempts+1, a.maxAttempts)
 		select {
 		case <-ctx.Done():
 			return
 		case <-a.redial:
-			backoff = retryMin
+			backoff, attempts = retryMin, 0
 		case <-time.After(wait):
 			backoff = min(backoff*2, retryMax)
 		}
+	}
+}
+
+// waitForRedial blocks until someone asks for another attempt, reporting
+// false when the agent is shutting down instead.
+func (a *Agent) waitForRedial(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-a.redial:
+		a.Log("reconnect requested")
+		return true
 	}
 }
 
