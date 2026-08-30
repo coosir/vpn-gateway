@@ -45,6 +45,20 @@ func (c Config) Str(key, def string) string {
 	return def
 }
 
+// Int returns the Extra value for key parsed as an integer, or def when unset
+// or unparseable.
+func (c Config) Int(key string, def int) int {
+	v, ok := c.Extra[key]
+	if !ok || v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	return n
+}
+
 // Bool returns the Extra value for key parsed as a bool, or def when unset or
 // unparseable.
 func (c Config) Bool(key string, def bool) bool {

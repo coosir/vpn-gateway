@@ -329,8 +329,18 @@ sudo systemctl restart vpn-gateway-server
 sudo vgctl -config /etc/vpn-gateway/config.yaml -host 127.0.0.1 verify
 ```
 
-**If the gateway asks for a code**, the tunnel sits in `auth_required` until
-someone answers. Either the client interface will show a prompt, or:
+**If the gateway wants a one-time code in the password field** rather than
+asking for it separately — a common Fortinet arrangement, where you normally
+type your password with the six digits on the end — set both:
+
+```yaml
+    extra:
+      totp_secret: "BASE32SEED"
+      totp_append: "true"
+```
+
+**If the gateway asks for a code** as a separate prompt, the tunnel sits in
+`auth_required` until someone answers. Either the client interface will show a prompt, or:
 
 ```sh
 vpn-gateway -config /etc/vpn-gateway/client.yaml auth
@@ -394,6 +404,12 @@ publicly trusted. openconnect prints the fingerprint to use; put it in
 **A Fortinet gateway rejects the client.** Some check the user agent. Try
 `extra.useragent`, and `extra.authgroup` if the login page has a realm
 dropdown.
+
+**One-time codes are always rejected.** Either the wrong shape is configured —
+`totp_append` for a gateway that prompts separately, or the reverse — or the
+server's clock has drifted. A code is only valid for the period around the
+time it was computed for, so more than about fifteen seconds of drift breaks
+every one of them.
 
 ## What this does not do yet
 

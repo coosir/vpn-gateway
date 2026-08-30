@@ -95,9 +95,23 @@ tunnels:
       dns: "10.30.0.53"
       # The realm or group from the gateway's login form, when it has one.
       authgroup: "corp"
-      # Answer a token prompt from a seed instead of asking a person on every
-      # reconnect.
+      # Two-factor comes in two shapes, and nothing in the protocol tells
+      # them apart, so say which one this gateway uses.
+      #
+      # The gateway asks for a code separately, and it is answered from a
+      # seed rather than by a person on every reconnect:
       # totp_secret: "BASE32SEED"
+      #
+      # Or the gateway has no second prompt and wants the code joined onto
+      # the end of the password, so the field carries "yourpassword123456":
+      # totp_secret: "BASE32SEED"
+      # totp_append: "true"
+      #
+      # Only if the gateway departs from the usual six digits over thirty
+      # seconds with SHA-1:
+      # totp_digits: "8"
+      # totp_period: "60"
+      # totp_algorithm: "sha256"
       # Pin the gateway's certificate. openconnect prints the value to use the
       # first time it refuses to trust one.
       # servercert: "pin-sha256:..."

@@ -124,6 +124,32 @@ The capability and device are for the tun interface the client creates. Both
 stay inside that container's own network namespace, which is exactly what
 lets several of these run at once.
 
+### Two-factor
+
+Gateways ask for a one-time code in one of two shapes, and nothing in the
+protocol distinguishes them, so the configuration says which:
+
+```yaml
+# The gateway prompts for the code separately.
+extra: {totp_secret: "BASE32SEED"}
+
+# The gateway has no second prompt: it wants the code joined onto the end of
+# the password, so the field carries "yourpassword123456".
+extra: {totp_secret: "BASE32SEED", totp_append: "true"}
+```
+
+Either way the code is computed for each attempt, so a reconnect an hour later
+sends a current one, and a code with only a moment of its life left is held
+back for the next one rather than spent on a login that would be rejected.
+
+The seed can be written the way an authenticator app shows it — spaced,
+lowercase, unpadded. `totp_digits`, `totp_period` and `totp_algorithm` are
+there for a gateway that departs from six digits over thirty seconds with
+SHA-1.
+
+One-time codes depend on the clock: a server whose time has drifted more than
+about half a period will have every code rejected, with nothing to say why.
+
 ## Logging in to a gateway that asks questions
 
 Sangfor gateways commonly want a verification code. The container raises a

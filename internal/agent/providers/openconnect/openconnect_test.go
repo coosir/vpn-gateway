@@ -1,9 +1,11 @@
 package openconnect
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/agent"
 	"github.com/vpn-gateway/vpn-gateway/pkg/contract"
@@ -230,3 +232,164 @@ func (r *recordingReporter) SetState(s contract.State, err error) {
 func (r *recordingReporter) SetNetwork(contract.Network)      {}
 func (r *recordingReporter) SetChallenge(*contract.Challenge) {}
 func (r *recordingReporter) Log(string, ...any)               {}
+
+// recordingReporter already exists above; this one only needs the log lines.
+type quietReporter struct{ logs []string }
+
+func (q *quietReporter) SetState(contract.State, error)   {}
+func (q *quietReporter) SetNetwork(contract.Network)      {}
+func (q *quietReporter) SetChallenge(*contract.Challenge) {}
+func (q *quietReporter) Log(format string, args ...any)   { q.logs = append(q.logs, format) }
+
+// The RFC 6238 seed, so the expected codes can be computed independently.
+const testSeed = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+
+func TestPasswordIsUntouchedWithoutAppending(t *testing.T) {
+	p := &Provider{protocol: "fortinet"}
+	got, err := p.password(cfgWith(nil), &quietReporter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "s3cret" {
+		t.Errorf("password = %q", got)
+	}
+}
+
+// TestCodeIsJoinedOntoThePassword covers the gateways that take both in one
+// field rather than asking for the code separately.
+func TestCodeIsJoinedOntoThePassword(t *testing.T) {
+	p := &Provider{protocol: "fortinet"}
+	cfg := cfgWith(map[string]string{"totp_append": "true", "totp_secret": testSeed})
+
+	got, err := p.password(cfg, &quietReporter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "s3cret") {
+		t.Fatalf("the fixed part is missing: %q", got)
+	}
+	code := strings.TrimPrefix(got, "s3cret")
+	if len(code) != 6 {
+		t.Fatalf("appended %q, want six digits", code)
+	}
+
+	want, err := agent.TOTP(testSeed, time.Now(), agent.TOTPOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != want {
+		t.Errorf("appended %s, want %s", code, want)
+	}
+}
+
+func TestAppendingHonoursTheGatewaysScheme(t *testing.T) {
+	// Not every gateway uses six digits over thirty seconds with SHA-1.
+	p := &Provider{protocol: "fortinet"}
+	cfg := cfgWith(map[string]string{
+		"totp_append":    "true",
+		"totp_secret":    testSeed,
+		"totp_digits":    "8",
+		"totp_period":    "60",
+		"totp_algorithm": "sha256",
+	})
+
+	got, err := p.password(cfg, &quietReporter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := strings.TrimPrefix(got, "s3cret")
+	want, err := agent.TOTP(testSeed, time.Now(), agent.TOTPOptions{
+		Digits: 8, Period: 60 * time.Second, Algorithm: "sha256",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != want {
+		t.Errorf("appended %s, want %s", code, want)
+	}
+}
+
+func TestAppendingWithoutASeedIsPermanent(t *testing.T) {
+	// Retrying cannot conjure a seed, and a login loop against a corporate
+	// gateway is how accounts get locked.
+	p := &Provider{protocol: "fortinet"}
+	_, err := p.password(cfgWith(map[string]string{"totp_append": "true"}), &quietReporter{})
+	if err == nil {
+		t.Fatal("appending was accepted with no seed")
+	}
+	if !errors.Is(err, agent.ErrPermanent) {
+		t.Errorf("error is not permanent: %v", err)
+	}
+	if !strings.Contains(err.Error(), "totp_secret") {
+		t.Errorf("the message does not say what is missing: %v", err)
+	}
+}
+
+func TestAnUnreadableSeedIsPermanent(t *testing.T) {
+	p := &Provider{protocol: "fortinet"}
+	_, err := p.password(cfgWith(map[string]string{
+		"totp_append": "true", "totp_secret": "not base32 !!",
+	}), &quietReporter{})
+	if err == nil {
+		t.Fatal("an unreadable seed was accepted")
+	}
+	if !errors.Is(err, agent.ErrPermanent) {
+		t.Errorf("error is not permanent: %v", err)
+	}
+}
+
+// TestSeparateTokenFlagsAreDroppedWhenAppending checks the two forms do not
+// both get configured: telling the client to expect a prompt that never comes
+// leaves it waiting.
+func TestSeparateTokenFlagsAreDroppedWhenAppending(t *testing.T) {
+	appended := buildArgs("fortinet", cfgWith(map[string]string{
+		"totp_append": "true", "totp_secret": testSeed,
+	}))
+	for _, a := range appended {
+		if strings.HasPrefix(a, "--token-") {
+			t.Errorf("%q was passed even though the code goes in the password", a)
+		}
+	}
+
+	// The separate-prompt form still configures them.
+	separate := buildArgs("fortinet", cfgWith(map[string]string{"totp_secret": testSeed}))
+	if !slices.Contains(separate, "--token-mode=totp") {
+		t.Error("--token-mode is missing from the separate-prompt form")
+	}
+}
+
+// TestACodeAboutToExpireIsNotSent covers the wait: a code computed in the last
+// moment of its period expires while the gateway is still being dialled.
+func TestACodeAboutToExpireIsNotSent(t *testing.T) {
+	// A short period, so the boundary this waits for arrives in seconds
+	// rather than in most of a minute.
+	const period = 6 * time.Second
+	opts := agent.TOTPOptions{Period: period}
+
+	// Line up with a moment shortly before a boundary.
+	for agent.TOTPValidFor(time.Now(), opts) > minCodeValidity-time.Second {
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	p := &Provider{protocol: "fortinet"}
+	start := time.Now()
+	got, err := p.password(cfgWith(map[string]string{
+		"totp_append": "true", "totp_secret": testSeed, "totp_period": "6",
+	}), &quietReporter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if time.Since(start) < 500*time.Millisecond {
+		t.Error("it did not wait for the next code")
+	}
+	// What came back belongs to the period it waited for, with most of that
+	// period still ahead of it.
+	want, _ := agent.TOTP(testSeed, time.Now(), opts)
+	if strings.TrimPrefix(got, "s3cret") != want {
+		t.Error("the code returned is not the current one")
+	}
+	if left := agent.TOTPValidFor(time.Now(), opts); left < period-time.Second {
+		t.Errorf("returned a code with only %v left of its life", left)
+	}
+}

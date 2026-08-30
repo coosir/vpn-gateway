@@ -19,6 +19,7 @@ import (
 	"net"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/agent"
 	"github.com/vpn-gateway/vpn-gateway/pkg/contract"
@@ -56,9 +57,14 @@ func init() {
 //	authgroup      realm or group to select from the gateway's login form
 //	servercert     pin the gateway's certificate, as openconnect prints it
 //	               when it first refuses to trust one
-//	totp_secret    seed for a software token, answered without prompting
-//	token_mode     software token type: totp (default when a seed is set),
-//	               hotp, rsa or oidc
+//	totp_secret    seed for a software token
+//	totp_append    "true" when the gateway wants the code joined onto the end
+//	               of the password rather than asked for separately
+//	totp_digits    length of the code, 6 unless the gateway says otherwise
+//	totp_period    seconds a code is valid for, 30 unless stated
+//	totp_algorithm sha1 (default), sha256 or sha512
+//	token_mode     software token type for the separate-prompt form: totp
+//	               (default when a seed is set), hotp, rsa or oidc
 //	form_entry     a login form answer, as FORM:OPTION=VALUE; repeat with a
 //	               comma between entries
 //	useragent      pretend to be the vendor's own client, which some
@@ -98,11 +104,16 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 
 	rep.SetNetwork(agent.ApplyNetworkOverrides(cfg, contract.Network{UDP: false, MTU: 1400}))
 
+	password, err := p.password(cfg, rep)
+	if err != nil {
+		return err
+	}
+
 	p.runner = agent.Runner{
 		Path: cfg.Str("binary", defaultBinary),
 		Args: args,
 		// The password is the first thing the client reads.
-		StdinPrelude: []string{cfg.Password},
+		StdinPrelude: []string{password},
 		// The client installs its routes in this namespace, so traffic
 		// already leaves through them.
 		DirectDial: true,
@@ -114,7 +125,7 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 		OnLine:    func(line string, rep agent.Reporter) { p.onLine(line, rep) },
 	}
 
-	err := p.runner.Run(ctx, rep)
+	err = p.runner.Run(ctx, rep)
 	if err != nil && p.authFailed.Load() {
 		return agent.Permanent(fmt.Errorf("%s rejected the credentials: %w", p.protocol, err))
 	}
@@ -148,7 +159,9 @@ func buildArgs(protocol string, cfg agent.Config) []string {
 			args = append(args, opt.flag+v)
 		}
 	}
-	if secret := cfg.Str("totp_secret", ""); secret != "" {
+	// The appended form is answered in the password itself, so the client
+	// must not also be told to expect a separate token prompt.
+	if secret := cfg.Str("totp_secret", ""); secret != "" && !cfg.Bool("totp_append", false) {
 		// Answering the token from a seed avoids prompting a person every
 		// time the tunnel reconnects.
 		args = append(args,
@@ -169,6 +182,55 @@ func buildArgs(protocol string, cfg agent.Config) []string {
 	// relay exists to handle.
 	return append(args, cfg.Server)
 }
+
+// password builds what goes into the gateway's password field.
+//
+// Some gateways do not ask for a one-time code separately: they want it
+// joined onto the end of the fixed password, so the field carries both and
+// there is never a second prompt. Nothing in the protocol distinguishes the
+// two, so which one this is has to be configured.
+//
+// The code is computed for each attempt, not once, so a reconnect an hour
+// later sends a current one.
+func (p *Provider) password(cfg agent.Config, rep agent.Reporter) (string, error) {
+	if !cfg.Bool("totp_append", false) {
+		return cfg.Password, nil
+	}
+
+	secret := cfg.Str("totp_secret", "")
+	if secret == "" {
+		return "", agent.Permanent(errors.New(
+			"extra.totp_append is set but extra.totp_secret is empty; " +
+				"there is nothing to compute a code from"))
+	}
+
+	opts := agent.TOTPOptions{
+		Digits:    cfg.Int("totp_digits", 0),
+		Period:    time.Duration(cfg.Int("totp_period", 0)) * time.Second,
+		Algorithm: cfg.Str("totp_algorithm", ""),
+	}
+
+	// A code computed in the last moment of its period expires while the
+	// gateway is still being dialled. Waiting for the next one costs a few
+	// seconds; a rejected login costs an attempt against a corporate account,
+	// and enough of those lock it.
+	if left := agent.TOTPValidFor(time.Now(), opts); left < minCodeValidity {
+		rep.Log("waiting %s for the next one-time code", left.Round(time.Second))
+		time.Sleep(left)
+	}
+
+	code, err := agent.TOTP(secret, time.Now(), opts)
+	if err != nil {
+		// A seed that cannot be read will not start working later.
+		return "", agent.Permanent(err)
+	}
+	rep.Log("using a one-time code joined to the password")
+	return cfg.Password + code, nil
+}
+
+// minCodeValidity is how much of a code's life has to remain for it to be
+// worth sending.
+const minCodeValidity = 5 * time.Second
 
 // prompts describe the questions openconnect relays.
 //
