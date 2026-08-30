@@ -264,6 +264,11 @@ func (s *Session) Disconnect() error {
 // Apply changes the configuration. A connected session is reconfigured in
 // place; an idle one just records it.
 func (s *Session) Apply(ctx context.Context, next *Config) error {
+	// The interface sends only what someone changed, so turning TUN on
+	// arrives as an interface with no address, MTU or stack. Those are the
+	// same defaults a configuration file gets when it omits them, so fill
+	// them in here rather than making the interface repeat them.
+	next.applyDefaults()
 	if err := next.Validate(); err != nil {
 		return err
 	}

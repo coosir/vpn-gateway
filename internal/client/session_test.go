@@ -138,6 +138,34 @@ func TestApplyRejectsAnInvalidConfiguration(t *testing.T) {
 	}
 }
 
+func TestApplySwitchingToTUNFillsInTheDefaults(t *testing.T) {
+	// The interface sends only the ingress choice, so a TUN interface arrives
+	// with no address, MTU or stack. Rejecting that would make the switch
+	// impossible from the interface.
+	s, path := newSession(t)
+	if err := s.ImportBundle([]byte(bundleJSON)); err != nil {
+		t.Fatal(err)
+	}
+
+	next := *s.Settings()
+	next.TUN = TUNConfig{Enabled: true, AutoRoute: true}
+	next.Proxy.Enabled = false
+	if err := s.Apply(t.Context(), &next); err != nil {
+		t.Fatalf("switching to TUN was refused: %v", err)
+	}
+
+	reloaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reloaded.TUN.Enabled {
+		t.Error("the saved configuration does not have TUN on")
+	}
+	if reloaded.TUN.Stack == "" || reloaded.TUN.Address == "" || reloaded.TUN.MTU == 0 {
+		t.Errorf("the interface was saved incomplete: %+v", reloaded.TUN)
+	}
+}
+
 func TestApplyKeepsComments(t *testing.T) {
 	s, path := newSession(t)
 	if err := s.ImportBundle([]byte(bundleJSON)); err != nil {
