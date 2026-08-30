@@ -370,6 +370,7 @@ textarea::placeholder { color: var(--faint); }
       <button data-pane="logs" data-i18n="nav.logs"></button>
       <button data-pane="settings" data-i18n="nav.settings"></button>
       <button data-pane="config" data-i18n="nav.config"></button>
+      <button data-pane="setup" data-i18n="nav.setup"></button>
       <div class="sep"></div>
       <div class="meta" id="railmeta"></div>
     </nav>
@@ -599,6 +600,7 @@ const STRINGS = {
 
     "need.connect": "尚未连接。",
     "nav.tunnels": "隧道", "nav.rules": "分流规则", "nav.logs": "日志", "nav.config": "配置",
+    "nav.setup": "导入 bundle",
     "offline": "已断开与客户端的连接。",
     "loading": "加载中…",
 
@@ -691,6 +693,7 @@ const STRINGS = {
 
     "need.connect": "Nothing is connected.",
     "nav.tunnels": "tunnels", "nav.rules": "rules", "nav.logs": "logs", "nav.config": "config",
+    "nav.setup": "bundle",
     "offline": "Not receiving updates from the client.",
     "loading": "Loading…",
 
@@ -853,6 +856,10 @@ const PHASE_ACTION = {
   idle: "act.connect", connected: "act.disconnect", failed: "act.retry",
 };
 
+/* The phase the last render drew, so a change of phase can be told from a
+   redraw that found the same one. */
+let lastPhase = null;
+
 function renderPhase(st) {
   const phase = (st.session && st.session.phase) || "setup";
   const box = $("phase");
@@ -872,8 +879,13 @@ function renderPhase(st) {
   document.querySelectorAll('.rail button[data-pane]').forEach((b) => {
     b.hidden = !ready && b.dataset.pane !== "setup";
   });
+  // Move on when the import lands, and only then. Doing it whenever a render
+  // found the pane open meant the page could never be shown again: a bundle
+  // has to be re-imported whenever the server gains a tunnel, and the pane
+  // that does it was being closed the moment anything redrew.
   if (!ready) showPane("setup");
-  else if (currentPane() === "setup") showPane("tunnels");
+  else if (lastPhase === "setup") showPane("tunnels");
+  lastPhase = phase;
 
   if (phase === "failed" && st.session.last_error) {
     $("offline").hidden = false;
