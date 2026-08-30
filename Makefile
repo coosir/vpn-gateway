@@ -8,7 +8,7 @@ DIST_OS   ?= linux
 DIST_ARCH ?= amd64
 DIST      := dist/$(DIST_OS)-$(DIST_ARCH)
 
-.PHONY: all build test vet check check-desktop clean dist desktop images image-mock image-sangfor image-openconnect image-inode
+.PHONY: all build test vet check check-desktop clean dist desktop app images image-mock image-sangfor image-openconnect image-inode
 
 all: build
 
@@ -29,8 +29,8 @@ check: build vet test
 # The desktop shell is excluded from the default build, so check it too where
 # its libraries are present.
 check-desktop:
-	$(GO) vet -tags desktop ./cmd/vpn-gateway-desktop
-	$(GO) test -tags desktop ./cmd/vpn-gateway-desktop
+	$(DESKTOP_ENV) $(GO) vet -tags desktop ./cmd/vpn-gateway-desktop
+	$(DESKTOP_ENV) $(GO) test -tags desktop ./cmd/vpn-gateway-desktop
 
 images: image-mock image-sangfor image-openconnect
 
@@ -55,9 +55,39 @@ image-inode:
 # behind a build tag so a headless server still builds everything else.
 #
 #   Linux also needs: libgtk-3-dev libwebkit2gtk-4.1-dev
+# Windows needs neither: the framework talks to WebView2 through pure Go, so
+# `make desktop GOOS=windows` cross-compiles.
+# The minimum macOS this is built for. Go defaults the link step to 10.13,
+# older than the framework's Objective-C, which makes the linker warn on every
+# object file; naming it on both the compile and link side settles that.
+MACOS_MIN ?= 11.0
+DESKTOP_ENV := MACOSX_DEPLOYMENT_TARGET=$(MACOS_MIN) \
+	CGO_CFLAGS=-mmacosx-version-min=$(MACOS_MIN) \
+	CGO_LDFLAGS=-mmacosx-version-min=$(MACOS_MIN)
+
 desktop:
-	$(GO) build -tags desktop -trimpath -ldflags="$(LDFLAGS)" \
+	$(DESKTOP_ENV) $(GO) build -tags desktop -trimpath -ldflags="$(LDFLAGS)" \
 		-o $(BIN)/vpn-gateway-desktop ./cmd/vpn-gateway-desktop
+
+# A macOS application bundle, so the shell can be launched from Finder and
+# added to Login Items. Everything in it is generated: there is no icon file
+# checked in, only the code that draws one.
+# The bundle is a host artifact: the shell needs the platform's webview
+# libraries and cannot be cross-compiled, so it does not belong under the
+# cross-compilation directory.
+APPDIR := dist/$(shell $(GO) env GOOS)-$(shell $(GO) env GOARCH)
+APP    := $(APPDIR)/vpn-gateway.app
+
+app: desktop
+	@rm -rf "$(APP)" "$(APPDIR)/icon.iconset"
+	@mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
+	cp packaging/macos/Info.plist "$(APP)/Contents/Info.plist"
+	cp $(BIN)/vpn-gateway-desktop "$(APP)/Contents/MacOS/vpn-gateway-desktop"
+	$(BIN)/vpn-gateway-desktop -write-iconset "$(APPDIR)/icon.iconset"
+	iconutil -c icns "$(APPDIR)/icon.iconset" -o "$(APP)/Contents/Resources/icon.icns"
+	@rm -rf "$(APPDIR)/icon.iconset"
+	@echo "built $(APP)"
+	@echo "unsigned, so the first launch needs right-click then Open"
 
 # Binaries for the server, built for whatever the server runs. The images are
 # built on the server itself, where the engine supplies the Go toolchain, so

@@ -6,15 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
-	"os/exec"
 	"sort"
 	"strings"
 	"time"
 
-	"fyne.io/systray"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // pollInterval is how often the tray asks the client what it is doing. The
@@ -23,8 +22,17 @@ import (
 const pollInterval = 5 * time.Second
 
 // maxTunnelItems bounds the menu. Past this the list stops being something
-// anyone reads at a glance, and the console shows all of them anyway.
+// anyone reads at a glance, and the window shows all of them anyway.
 const maxTunnelItems = 12
+
+// Window geometry. The interface is a dense table, so it wants width more
+// than height, and it stays usable well below this.
+const (
+	windowWidth  = 1100
+	windowHeight = 720
+	windowMinW   = 720
+	windowMinH   = 460
+)
 
 type tunnelView struct {
 	Name string `json:"name"`
@@ -38,64 +46,97 @@ type trayState struct {
 	} `json:"prompts"`
 }
 
-func runTray(link, lang string) {
+// run builds the application and blocks until it quits.
+func run(link, lang string) error {
 	t := translator(lang)
 
 	base, token, err := splitLink(link)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "vpn-gateway-desktop:", err)
-		os.Exit(1)
+		return err
 	}
 
-	systray.Run(func() {
-		systray.SetTemplateIcon(degradedIcon(), degradedIcon())
-		systray.SetTooltip(t("tip.gone"))
+	app := application.New(application.Options{
+		Name:        t("title"),
+		Description: t("description"),
+		// A tray tool should be silent unless something is wrong. At the
+		// default level the framework announces its build and platform on
+		// every start, which is noise in a menu bar application's log.
+		LogLevel: slog.LevelWarn,
+		Mac: application.MacOptions{
+			// A menu bar tool, not a windowed application: no Dock icon, and
+			// closing the window leaves the tray running rather than quitting.
+			ActivationPolicy: application.ActivationPolicyAccessory,
+			ApplicationShouldTerminateAfterLastWindowClosed: false,
+		},
+	})
 
-		status := systray.AddMenuItem(t("status.gone"), "")
-		status.Disable()
+	// Created hidden and reused. Rebuilding the window on every open would
+	// reload the interface and lose whatever was being typed into it.
+	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:      "console",
+		Title:     t("title"),
+		URL:       link,
+		Width:     windowWidth,
+		Height:    windowHeight,
+		MinWidth:  windowMinW,
+		MinHeight: windowMinH,
+		Hidden:    true,
+	})
 
-		systray.AddSeparator()
-		tunnelItems := make([]*systray.MenuItem, maxTunnelItems)
-		for i := range tunnelItems {
-			tunnelItems[i] = systray.AddMenuItem("", "")
-			tunnelItems[i].Disable()
-			tunnelItems[i].Hide()
-		}
+	tray := app.SystemTray.New()
+	tray.SetTemplateIcon(degradedIcon())
+	tray.SetTooltip(t("tip.gone"))
 
-		systray.AddSeparator()
-		open := systray.AddMenuItem(t("open"), "")
-		quit := systray.AddMenuItem(t("quit"), "")
+	menu := application.NewMenu()
+	status := menu.Add(t("status.gone"))
+	status.SetEnabled(false)
 
-		go func() {
-			for {
-				select {
-				case <-open.ClickedCh:
-					openWindow(link)
-				case <-quit.ClickedCh:
-					systray.Quit()
-					return
-				}
-			}
-		}()
+	menu.AddSeparator()
+	items := make([]*application.MenuItem, maxTunnelItems)
+	for i := range items {
+		items[i] = menu.Add("")
+		items[i].SetEnabled(false)
+		items[i].SetHidden(true)
+	}
 
-		go pollLoop(base, token, t, status, tunnelItems)
-	}, func() {})
+	menu.AddSeparator()
+	menu.Add(t("open")).OnClick(func(*application.Context) { showWindow(window) })
+	menu.Add(t("quit")).OnClick(func(*application.Context) { app.Quit() })
+
+	tray.SetMenu(menu)
+	// Clicking the icon itself opens the console, which is what a person
+	// reaches for far more often than the menu.
+	tray.OnClick(func() { showWindow(window) })
+
+	go poll(base, token, t, tray, status, items, menu)
+
+	return app.Run()
 }
 
-func pollLoop(base, token string, t func(string, ...any) string, status *systray.MenuItem, items []*systray.MenuItem) {
-	client := &http.Client{Timeout: 4 * time.Second}
+func showWindow(w *application.WebviewWindow) {
+	w.Show()
+	w.Focus()
+}
+
+func poll(base, token string, t func(string, ...any) string,
+	tray *application.SystemTray, status *application.MenuItem,
+	items []*application.MenuItem, menu *application.Menu) {
+
+	c := &http.Client{Timeout: 4 * time.Second}
 	for {
-		st, err := fetchState(client, base, token)
+		st, err := fetchState(c, base, token)
 		if err != nil {
-			systray.SetTemplateIcon(degradedIcon(), degradedIcon())
-			systray.SetTooltip(t("tip.gone"))
-			status.SetTitle(t("status.gone"))
+			tray.SetTemplateIcon(degradedIcon())
+			tray.SetTooltip(t("tip.gone"))
+			status.SetLabel(t("status.gone"))
 			for _, it := range items {
-				it.Hide()
+				it.SetHidden(true)
 			}
 		} else {
-			applyState(st, t, status, items)
+			apply(buildView(st, t), t, tray, status, items)
 		}
+		// The menu is rebuilt from its items, so it has to be told they moved.
+		menu.Update()
 		time.Sleep(pollInterval)
 	}
 }
@@ -150,24 +191,24 @@ func buildView(st *trayState, t func(string, ...any) string) view {
 	return v
 }
 
-func applyState(st *trayState, t func(string, ...any) string, status *systray.MenuItem, items []*systray.MenuItem) {
-	v := buildView(st, t)
+func apply(v view, t func(string, ...any) string,
+	tray *application.SystemTray, status *application.MenuItem, items []*application.MenuItem) {
 
-	status.SetTitle(v.Status)
+	status.SetLabel(v.Status)
 	if v.Healthy {
-		systray.SetTemplateIcon(connectedIcon(), connectedIcon())
+		tray.SetTemplateIcon(connectedIcon())
 	} else {
-		systray.SetTemplateIcon(degradedIcon(), degradedIcon())
+		tray.SetTemplateIcon(degradedIcon())
 	}
-	systray.SetTooltip(t("tip.ok", v.Up, v.Total))
+	tray.SetTooltip(t("tip.ok", v.Up, v.Total))
 
 	for i, it := range items {
 		if i >= len(v.Lines) {
-			it.Hide()
+			it.SetHidden(true)
 			continue
 		}
-		it.SetTitle(v.Lines[i])
-		it.Show()
+		it.SetLabel(v.Lines[i])
+		it.SetHidden(false)
 	}
 }
 
@@ -190,22 +231,6 @@ func fetchState(c *http.Client, base, token string) (*trayState, error) {
 		return nil, err
 	}
 	return &st, nil
-}
-
-// openWindow re-executes this binary in window mode. A tray and a webview
-// each want the process's main run loop, so they cannot share one; a second
-// process is what lets both exist, and it also means closing the window
-// leaves the tray alone.
-func openWindow(link string) {
-	cmd := exec.Command(selfPath(), "-window", link)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		fmt.Fprintln(os.Stderr, "vpn-gateway-desktop: could not open the console:", err)
-		return
-	}
-	// Reap it so a session of opening and closing does not leave zombies.
-	go cmd.Wait()
 }
 
 // splitLink separates the address from the token, so the token travels in a

@@ -71,10 +71,16 @@ gateway's own message in another language would be guessing at what it said.
 ### Tray and window
 
 ```sh
-make desktop                                   # needs CGO; build it where it runs
+make desktop      # the binary
+make app          # and a macOS .app bundle around it
+
 bin/vpn-gateway-desktop -config /etc/vpn-gateway/client.yaml
 bin/vpn-gateway-desktop -url 'http://127.0.0.1:8645/?token=…'
 ```
+
+It is built on Wails. On macOS and Linux that needs CGO and the platform's
+webview libraries, so build it where it runs; on Windows the webview bindings
+are pure Go, so `make desktop GOOS=windows` cross-compiles.
 
 The tray attaches to a running client rather than starting one: creating a TUN
 interface needs elevation, so the client runs as a service and a tray that
@@ -82,6 +88,9 @@ claimed to start it would be lying about what it can do. It shows which
 tunnels are up, goes to a broken ring the moment one is not — including when
 one is waiting for a verification code — and opens the console in a native
 window.
+
+On macOS it lives in the menu bar and takes no Dock slot. The bundle is
+unsigned, so the first launch needs right-click then Open.
 
 Pass `-url` when the client runs elevated and keeps its token somewhere your
 desktop session cannot read.

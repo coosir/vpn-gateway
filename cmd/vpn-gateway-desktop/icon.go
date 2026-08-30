@@ -65,6 +65,56 @@ func ring(broken bool) []byte {
 	return buf.Bytes()
 }
 
+// appIcon draws the launcher icon: the same ring, but filled in and on a
+// rounded ground, because a Dock or Finder icon is looked at rather than
+// glanced past and a bare outline reads as unfinished there.
+func appIcon(size int) []byte {
+	img := image.NewNRGBA(image.Rect(0, 0, size, size))
+
+	s := float64(size)
+	centre := (s - 1) / 2
+	corner := s * 0.22
+	outer := s * 0.30
+	inner := s * 0.185
+
+	ground := color.NRGBA{R: 0x14, G: 0x17, B: 0x1c, A: 0xff}
+	mark := color.NRGBA{R: 0x45, G: 0xc9, B: 0xa3, A: 0xff}
+
+	for y := range size {
+		for x := range size {
+			fx, fy := float64(x), float64(y)
+
+			// A rounded square, measured by distance to the inset rectangle.
+			dx := math.Max(math.Max(corner-fx, fx-(s-1-corner)), 0)
+			dy := math.Max(math.Max(corner-fy, fy-(s-1-corner)), 0)
+			if math.Hypot(dx, dy) > corner+0.5 {
+				continue
+			}
+			img.SetNRGBA(x, y, blend(ground, clamp(corner+0.5-math.Hypot(dx, dy))))
+
+			d := math.Hypot(fx-centre, fy-centre)
+			a := clamp(outer-d+0.5) * clamp(d-inner+0.5)
+			if a > 0 {
+				img.SetNRGBA(x, y, over(mark, ground, a))
+			}
+		}
+	}
+
+	var buf bytes.Buffer
+	png.Encode(&buf, img)
+	return buf.Bytes()
+}
+
+func blend(c color.NRGBA, a float64) color.NRGBA {
+	c.A = uint8(float64(c.A) * a)
+	return c
+}
+
+func over(fg, bg color.NRGBA, a float64) color.NRGBA {
+	mix := func(f, b uint8) uint8 { return uint8(float64(f)*a + float64(b)*(1-a)) }
+	return color.NRGBA{R: mix(fg.R, bg.R), G: mix(fg.G, bg.G), B: mix(fg.B, bg.B), A: 0xff}
+}
+
 func clamp(v float64) float64 {
 	if v < 0 {
 		return 0

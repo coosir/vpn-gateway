@@ -6,13 +6,10 @@
 // It attaches to a client rather than starting one. Creating a TUN interface
 // needs elevated privileges, so the client runs as a service; a tray that
 // claimed to start it would be lying about what it can do. What it does is
-// show what that client is doing and open its interface.
+// show what that client is doing, and open its interface in a window.
 //
-// The window runs as a child process. A tray and a webview each want the
-// process's main run loop, and on macOS they cannot share one.
-//
-// This binary needs CGO and the platform's webview libraries, so it is behind
-// a build tag: a headless server must still build everything else.
+// It needs the platform's webview libraries, so it is behind a build tag: a
+// headless server must still build everything else.
 //
 //	go build -tags desktop ./cmd/vpn-gateway-desktop
 package main
@@ -43,16 +40,19 @@ func main() {
 	var (
 		configPath = flag.String("config", defaultConfigPath(), "the client's configuration file")
 		link       = flag.String("url", "", "the interface link the client printed")
-		window     = flag.String("window", "", "internal: open a window on this address")
 		lang       = flag.String("lang", "", "zh or en; defaults to the system language")
+		iconset    = flag.String("write-iconset", "", "internal: write launcher icons into this directory and exit")
 	)
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 
-	// The window mode is what the tray re-executes to get a second main run
-	// loop; it is not meant to be run by hand.
-	if *window != "" {
-		runWindow(*window, pickLanguage(*lang))
+	// Packaging calls this to produce the launcher icon, so the drawing lives
+	// in one place rather than as a binary blob checked in beside it.
+	if *iconset != "" {
+		if err := writeIconset(*iconset); err != nil {
+			fmt.Fprintln(os.Stderr, "vpn-gateway-desktop:", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -61,7 +61,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "vpn-gateway-desktop:", err)
 		os.Exit(1)
 	}
-	runTray(target, pickLanguage(*lang))
+	if err := run(target, pickLanguage(*lang)); err != nil {
+		fmt.Fprintln(os.Stderr, "vpn-gateway-desktop:", err)
+		os.Exit(1)
+	}
 }
 
 // resolveLink works out where the interface is and how to authenticate to it.
@@ -91,6 +94,27 @@ func resolveLink(link, configPath string) (string, error) {
 	return fmt.Sprintf("http://%s/?token=%s", cfg.UI.Listen, token), nil
 }
 
+// writeIconset writes the sizes macOS asks for in an .iconset directory.
+func writeIconset(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for _, size := range []int{16, 32, 64, 128, 256, 512, 1024} {
+		name := fmt.Sprintf("icon_%dx%d.png", size, size)
+		if err := os.WriteFile(filepath.Join(dir, name), appIcon(size), 0o644); err != nil {
+			return err
+		}
+		// The 2x variants are the same pixels at the next size up.
+		if size >= 32 {
+			retina := fmt.Sprintf("icon_%dx%d@2x.png", size/2, size/2)
+			if err := os.WriteFile(filepath.Join(dir, retina), appIcon(size), 0o644); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func defaultConfigPath() string {
 	if p := os.Getenv("VPN_GATEWAY_CONFIG"); p != "" {
 		return p
@@ -115,13 +139,4 @@ func pickLanguage(explicit string) string {
 		return "en"
 	}
 	return "zh"
-}
-
-// selfPath is the binary to re-execute for the window.
-func selfPath() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return filepath.Base(os.Args[0])
-	}
-	return exe
 }

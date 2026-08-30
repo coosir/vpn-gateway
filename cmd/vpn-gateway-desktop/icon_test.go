@@ -88,6 +88,44 @@ func opaque(t *testing.T, raw []byte) int {
 	return n
 }
 
+func TestAppIconIsOpaqueAndSquare(t *testing.T) {
+	// A launcher icon is looked at rather than glanced past, so unlike the
+	// menu bar one it is filled in and carries its own colour.
+	img := decode(t, appIcon(256))
+	if img.Bounds().Dx() != 256 || img.Bounds().Dy() != 256 {
+		t.Fatalf("app icon is %v", img.Bounds())
+	}
+	// The middle of an edge is inside the rounded square, so it must be solid.
+	if _, _, _, a := img.At(128, 4).RGBA(); a < 0xf000 {
+		t.Error("the icon's ground is not opaque")
+	}
+	// A corner is outside it, so it must be clear.
+	if _, _, _, a := img.At(1, 1).RGBA(); a != 0 {
+		t.Error("the corners are not rounded")
+	}
+	// And the mark has colour, unlike the template icon.
+	r, g, b, _ := img.At(128, 60).RGBA()
+	if r == g && g == b {
+		t.Error("the mark is grey; the launcher icon should carry the accent colour")
+	}
+}
+
+func TestIconsetCoversWhatMacOSAsksFor(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeIconset(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"icon_16x16.png", "icon_16x16@2x.png", "icon_32x32.png",
+		"icon_128x128.png", "icon_256x256.png", "icon_512x512.png",
+		"icon_512x512@2x.png",
+	} {
+		if _, err := os.Stat(dir + "/" + name); err != nil {
+			t.Errorf("%s is missing from the iconset", name)
+		}
+	}
+}
+
 // TestWriteIconsForInspection saves the icons when asked, so they can be
 // looked at rather than only measured.
 func TestWriteIconsForInspection(t *testing.T) {

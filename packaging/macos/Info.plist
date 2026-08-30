@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The bundle description for the menu bar application.
+
+  LSUIElement keeps it out of the Dock and the app switcher: this lives in the
+  menu bar, and a VPN indicator that also takes a Dock slot is one more thing
+  to look past. The application sets the same policy at runtime; stating it
+  here as well means the system knows before the process starts.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>vpn-gateway</string>
+    <key>CFBundleDisplayName</key>
+    <string>vpn-gateway</string>
+    <key>CFBundleIdentifier</key>
+    <string>org.vpn-gateway.desktop</string>
+    <key>CFBundleExecutable</key>
+    <string>vpn-gateway-desktop</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>0.1.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string></string>
+</dict>
+</plist>
