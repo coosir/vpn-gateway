@@ -3,39 +3,14 @@
 package main
 
 import (
-	"net/http"
-	"net/http/httptest"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vpn-gateway/vpn-gateway/internal/client"
 )
-
-func TestSplitLinkSeparatesTheToken(t *testing.T) {
-	// The token travels in a header rather than in every request line, so it
-	// does not end up in any log the client keeps.
-	base, token, err := splitLink("http://127.0.0.1:8645/?token=abc123")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if base != "http://127.0.0.1:8645" {
-		t.Errorf("base = %q", base)
-	}
-	if token != "abc123" {
-		t.Errorf("token = %q", token)
-	}
-	if strings.Contains(base, "token") {
-		t.Error("the token is still in the address")
-	}
-}
-
-func TestSplitLinkRejectsALinkWithNoToken(t *testing.T) {
-	// Without one nothing would authenticate, and the tray would sit showing
-	// "client not running" against a client that is running fine.
-	if _, _, err := splitLink("http://127.0.0.1:8645/"); err == nil {
-		t.Fatal("a link with no token was accepted")
-	}
-}
 
 func TestPickLanguage(t *testing.T) {
 	for _, k := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
@@ -74,146 +49,118 @@ func TestTranslatorFallsBackToEnglish(t *testing.T) {
 	}
 }
 
-func TestFindLinkPrefersTheGivenLink(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	got, err := findLink("http://127.0.0.1:1/?token=t", "/nonexistent/client.yaml")
-	if err != nil {
-		t.Fatal(err)
+func TestDefaultConfigPathIsWritableByWhoeverOpensIt(t *testing.T) {
+	// This is opened by the person at the machine, so its configuration lives
+	// in their own directory: it has to be able to write what it is told
+	// without being elevated first.
+	t.Setenv("VPN_GATEWAY_CONFIG", "")
+	got := defaultConfigPath()
+	if strings.HasPrefix(got, "/etc/") {
+		t.Errorf("the default configuration is in a system directory: %q", got)
 	}
-	if got != "http://127.0.0.1:1/?token=t" {
-		t.Errorf("link = %q", got)
-	}
-}
-
-func TestFindLinkUsesTheRememberedOne(t *testing.T) {
-	// Opening this from a launcher passes no arguments, so a link that worked
-	// once has to keep working without them.
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-
-	want := "http://127.0.0.1:9999/?token=remembered"
-	if err := rememberLink(want); err != nil {
-		t.Skipf("no user configuration directory here: %v", err)
-	}
-	got, err := findLink("", "/nonexistent/client.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != want {
-		t.Errorf("link = %q, want the remembered one", got)
+	if !strings.Contains(got, "vpn-gateway") {
+		t.Errorf("path = %q", got)
 	}
 }
 
-func TestRememberedLinkIsPrivate(t *testing.T) {
-	// It carries a token that can drive the interface.
+func newTestSession(t *testing.T) *client.Session {
+	t.Helper()
 	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	t.Setenv("HOME", dir)
-	if err := rememberLink("http://127.0.0.1:1/?token=t"); err != nil {
-		t.Skipf("no user configuration directory here: %v", err)
+	return client.NewSession(filepath.Join(dir, "client.yaml"), slog.New(slog.DiscardHandler))
+}
+
+func TestMenuSaysItNeedsSettingUp(t *testing.T) {
+	// Opening this for the first time has to say what to do, not show an
+	// empty list of tunnels.
+	v := buildView(newTestSession(t), translator("en"))
+	if !strings.Contains(v.Status, "Not set up") {
+		t.Errorf("status = %q", v.Status)
 	}
-	info, err := os.Stat(cachePath())
-	if err != nil {
-		t.Fatal(err)
+	if v.Healthy {
+		t.Error("an unconfigured application was shown as healthy")
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("the remembered link is mode %o, want 600", perm)
+	if v.CanToggle {
+		t.Error("connecting was offered with nothing to connect to")
 	}
 }
 
-func TestFindLinkReadsTheClientsLinkFile(t *testing.T) {
-	// The client usually runs elevated and keeps its token to itself; this is
-	// the path that lets a desktop session find the link anyway.
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "cfg"))
-	t.Setenv("HOME", dir)
-
-	linkPath := filepath.Join(dir, "link")
-	want := "http://127.0.0.1:8645/?token=from-the-client"
-	if err := os.WriteFile(linkPath, []byte(want+"\n"), 0o600); err != nil {
+func TestMenuOffersConnectOnceABundleExists(t *testing.T) {
+	s := newTestSession(t)
+	if err := s.ImportBundle(testBundleJSON); err != nil {
 		t.Fatal(err)
 	}
 
-	cfgPath := filepath.Join(dir, "client.yaml")
-	body := "bundle: /dev/null\nproxy: {enabled: true}\n" +
-		"ui: {enabled: true, listen: \"127.0.0.1:8645\", state_dir: " + dir + "/unreadable, link_file: " + linkPath + "}\n"
-	if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
+	v := buildView(s, translator("en"))
+	if !strings.Contains(v.Status, "Not connected") {
+		t.Errorf("status = %q", v.Status)
 	}
-
-	got, err := findLink("", cfgPath)
-	if err != nil {
-		t.Fatal(err)
+	if !v.CanToggle || v.Action != "Connect" {
+		t.Errorf("action = %q, canToggle = %t", v.Action, v.CanToggle)
 	}
-	if got != want {
-		t.Errorf("link = %q", got)
+	if v.Healthy {
+		t.Error("an idle session was shown as healthy")
 	}
 }
 
-func TestFindLinkExplainsWhatToDoWithNothingToGoOn(t *testing.T) {
-	// This is what a launcher sees on a fresh machine, and it has to say
-	// something a person can act on rather than exiting silently.
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	t.Setenv("HOME", dir)
-
-	_, err := findLink("", filepath.Join(dir, "absent.yaml"))
-	if err == nil {
-		t.Fatal("a missing configuration was accepted")
+func TestMenuIsChineseByDefault(t *testing.T) {
+	v := buildView(newTestSession(t), translator("zh"))
+	if v.Status != "尚未配置" {
+		t.Errorf("status = %q", v.Status)
 	}
-	for _, want := range []string{"-url", "remembered"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the message does not mention %q:\n%v", want, err)
+}
+
+var testBundleJSON = []byte(`{
+  "version": 1,
+  "server": {"address": "vpn.example:443", "server_name": "vpn.example", "api_url": "http://vpn.example:8642"},
+  "api_token": "tok",
+  "tunnels": [{"name": "office", "password": "pw"}]
+}`)
+
+func TestIconsetWritesIntoAFreshDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "nested", "icons")
+	if err := writeIconset(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "icon_512x512.png")); err != nil {
+		t.Errorf("the iconset is incomplete: %v", err)
+	}
+}
+
+func TestBothTrayLanguagesCoverTheSameKeys(t *testing.T) {
+	// A key in one language and not the other shows as raw key text in the
+	// menu bar, which reads as a bug rather than a translation gap.
+	zh, en := trayStrings["zh"], trayStrings["en"]
+	for k := range zh {
+		if _, ok := en[k]; !ok {
+			t.Errorf("%q is in Chinese but missing from English", k)
+		}
+	}
+	for k := range en {
+		if _, ok := zh[k]; !ok {
+			t.Errorf("%q is in English but missing from Chinese; the tray defaults to Chinese", k)
 		}
 	}
 }
 
-func TestFindLinkNoticesTheInterfaceIsOff(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	t.Setenv("HOME", dir)
-
-	cfgPath := filepath.Join(dir, "client.yaml")
-	if err := os.WriteFile(cfgPath, []byte("bundle: /dev/null\nproxy: {enabled: true}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, err := findLink("", cfgPath)
-	if err == nil || !strings.Contains(err.Error(), "ui.enabled") {
-		t.Errorf("a client with no interface should say so, got %v", err)
-	}
-}
-
-func TestCheckLinkRejectsAWrongToken(t *testing.T) {
-	// A mistyped link must fail now, with a reason, rather than being
-	// remembered and failing silently on every later launch.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer right" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
+func TestEveryTrayStringTheMenuAsksForExists(t *testing.T) {
+	// Every key the menu uses, checked against the table rather than trusted.
+	tr := translator("zh")
+	for _, key := range []string{
+		"title", "description", "open", "connect", "disconnect", "quit",
+		"status.setup", "status.idle", "status.connecting", "status.failed", "status.up",
+		"tunnel.up", "tunnel.down",
+		"tip.setup", "tip.idle", "tip.connecting", "tip.failed", "tip.ok",
+	} {
+		if got := tr(key); got == key {
+			t.Errorf("%q is missing from the table", key)
 		}
-		w.Write([]byte(`{"tunnels":[]}`))
-	}))
-	defer srv.Close()
-
-	if err := checkLink(srv.URL + "/?token=right"); err != nil {
-		t.Errorf("a working link was rejected: %v", err)
-	}
-
-	err := checkLink(srv.URL + "/?token=wrong")
-	if err == nil {
-		t.Fatal("a wrong token was accepted")
-	}
-	if !strings.Contains(err.Error(), "token") {
-		t.Errorf("the message does not explain: %v", err)
 	}
 }
 
-func TestCheckLinkReportsAClientThatIsNotRunning(t *testing.T) {
-	err := checkLink("http://127.0.0.1:9/?token=t")
-	if err == nil {
-		t.Fatal("an unreachable client was accepted")
-	}
-	if !strings.Contains(err.Error(), "running") {
-		t.Errorf("the message does not say what is wrong: %v", err)
+func TestAMissingStringShowsItsKey(t *testing.T) {
+	// Blank menu entries look like a broken application; a visible key says
+	// which string is absent.
+	if got := translator("zh")("no.such.key"); got != "no.such.key" {
+		t.Errorf("a missing string came back as %q", got)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -32,13 +33,20 @@ import (
 //go:embed assets
 var assets embed.FS
 
-// Controller is what the interface can do to the running client.
+// Controller is what the interface can do to the session behind it.
+//
+// It is the whole session rather than a running client because the interface
+// has to be usable before anything is connected: that is the state someone
+// opening the application for the first time is in.
 type Controller interface {
-	Tunnels() []client.TunnelState
+	Status() client.SessionStatus
 	Settings() *client.Config
-	Config() ([]byte, error)
-	API() *client.API
-	Reload(ctx context.Context, cfg *client.Config) error
+	Client() *client.Client
+
+	ImportBundle(raw []byte) error
+	Connect(ctx context.Context) error
+	Disconnect() error
+	Apply(ctx context.Context, cfg *client.Config) error
 }
 
 // Server serves the interface.
@@ -87,6 +95,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/events", s.auth(s.streamEvents))
 	mux.HandleFunc("GET /api/rules", s.auth(s.getRules))
 	mux.HandleFunc("PUT /api/rules", s.auth(s.putRules))
+	mux.HandleFunc("PUT /api/settings", s.auth(s.putSettings))
+	mux.HandleFunc("POST /api/bundle", s.auth(s.postBundle))
+	mux.HandleFunc("POST /api/connect", s.auth(s.postConnect))
+	mux.HandleFunc("POST /api/disconnect", s.auth(s.postDisconnect))
 	mux.HandleFunc("GET /api/generated-config", s.auth(s.getGeneratedConfig))
 	mux.HandleFunc("GET /api/tunnels/{name}/logs", s.auth(s.getLogs))
 	mux.HandleFunc("POST /api/tunnels/{name}/reconnect", s.auth(s.postReconnect))
@@ -113,12 +125,12 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 
 // State is everything the interface needs to draw itself.
 type State struct {
-	Tunnels []TunnelView  `json:"tunnels"`
-	Prompts []PromptView  `json:"prompts"`
-	Client  ClientView    `json:"client"`
-	Server  ServerView    `json:"server"`
-	At      time.Time     `json:"at"`
-	Rules   []client.Rule `json:"rules"`
+	Session client.SessionStatus `json:"session"`
+	Tunnels []TunnelView         `json:"tunnels"`
+	Prompts []PromptView         `json:"prompts"`
+	Client  ClientView           `json:"client"`
+	At      time.Time            `json:"at"`
+	Rules   []client.Rule        `json:"rules"`
 }
 
 // TunnelView is one tunnel as the interface shows it.
@@ -157,27 +169,22 @@ type ClientView struct {
 	DNSDefault  string `json:"dns_default"`
 }
 
-// ServerView describes the server the client is attached to.
-type ServerView struct {
-	Address    string `json:"address"`
-	ServerName string `json:"server_name"`
-	Pinned     bool   `json:"pinned"`
-}
-
 func (s *Server) state() State {
 	cfg := s.ctl.Settings()
-	tunnels := s.ctl.Tunnels()
 
-	views := make([]TunnelView, 0, len(tunnels))
-	for _, t := range tunnels {
-		views = append(views, TunnelView{
-			Name: t.Name, Up: t.Up,
-			Routes: t.Routes, DNS: t.DNS,
-			SearchDomains: t.SearchDomains, UDP: t.UDP,
-		})
+	views := []TunnelView{}
+	if c := s.ctl.Client(); c != nil {
+		for _, t := range c.Tunnels() {
+			views = append(views, TunnelView{
+				Name: t.Name, Up: t.Up,
+				Routes: t.Routes, DNS: t.DNS,
+				SearchDomains: t.SearchDomains, UDP: t.UDP,
+			})
+		}
 	}
 
 	return State{
+		Session: s.ctl.Status(),
 		Tunnels: views,
 		Prompts: s.prompts.pending(),
 		Rules:   cfg.Rules,
@@ -263,23 +270,100 @@ func (s *Server) putRules(w http.ResponseWriter, r *http.Request) {
 
 	next := *s.ctl.Settings()
 	next.Rules = rules
-	if err := s.ctl.Reload(r.Context(), &next); err != nil {
+	// Apply validates, reconfigures a running engine, and only then saves.
+	// Saving first would leave a file the client rejected, so the next start
+	// would fail with rules that were never in effect.
+	if err := s.ctl.Apply(r.Context(), &next); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := client.SaveRules(s.configPath, rules); err != nil {
-		// The rules are live but not written down. Say so plainly rather than
-		// reporting success and losing them at the next start.
-		writeErr(w, http.StatusInternalServerError,
-			"the rules are in effect but could not be saved to "+s.configPath+": "+err.Error())
 		return
 	}
 	s.log.Info("rules updated from the interface", "count", len(rules))
 	writeJSON(w, http.StatusOK, rules)
 }
 
+// Settings are the parts of the configuration the interface can change.
+// Everything else stays as written in the file.
+type Settings struct {
+	TUN         *client.TUNConfig   `json:"tun,omitempty"`
+	Proxy       *client.ProxyConfig `json:"proxy,omitempty"`
+	DNSDefault  *string             `json:"dns_default,omitempty"`
+	OnFailure   *string             `json:"on_failure,omitempty"`
+	AutoRoutes  *bool               `json:"auto_routes,omitempty"`
+	AutoDomains *bool               `json:"auto_domains,omitempty"`
+}
+
+func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
+	var in Settings
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "malformed settings: "+err.Error())
+		return
+	}
+
+	next := *s.ctl.Settings()
+	if in.TUN != nil {
+		next.TUN = *in.TUN
+	}
+	if in.Proxy != nil {
+		next.Proxy = *in.Proxy
+	}
+	if in.DNSDefault != nil {
+		next.DNS.Default = *in.DNSDefault
+	}
+	if in.OnFailure != nil {
+		next.OnFailure = *in.OnFailure
+	}
+	if in.AutoRoutes != nil {
+		next.AutoRoutes = *in.AutoRoutes
+	}
+	if in.AutoDomains != nil {
+		next.AutoDomains = *in.AutoDomains
+	}
+
+	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.state())
+}
+
+// postBundle imports the file the server produced with `vgctl client-config`.
+func (s *Server) postBundle(w http.ResponseWriter, r *http.Request) {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 4<<20))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.ctl.ImportBundle(raw); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.log.Info("imported a server bundle from the interface")
+	writeJSON(w, http.StatusOK, s.state())
+}
+
+func (s *Server) postConnect(w http.ResponseWriter, r *http.Request) {
+	if err := s.ctl.Connect(r.Context()); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.state())
+}
+
+func (s *Server) postDisconnect(w http.ResponseWriter, r *http.Request) {
+	if err := s.ctl.Disconnect(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.state())
+}
+
 func (s *Server) getGeneratedConfig(w http.ResponseWriter, r *http.Request) {
-	raw, err := s.ctl.Config()
+	c := s.ctl.Client()
+	if c == nil {
+		writeErr(w, http.StatusConflict, "nothing is connected, so there is no configuration in effect")
+		return
+	}
+	raw, err := c.Config()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -296,7 +380,12 @@ func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
 			tail = n
 		}
 	}
-	body, err := s.ctl.API().Logs(r.Context(), name, tail)
+	c := s.ctl.Client()
+	if c == nil {
+		writeErr(w, http.StatusConflict, "nothing is connected")
+		return
+	}
+	body, err := c.API().Logs(r.Context(), name, tail)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -306,7 +395,12 @@ func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) postReconnect(w http.ResponseWriter, r *http.Request) {
-	if err := s.ctl.API().Reconnect(r.Context(), r.PathValue("name")); err != nil {
+	c := s.ctl.Client()
+	if c == nil {
+		writeErr(w, http.StatusConflict, "nothing is connected")
+		return
+	}
+	if err := c.API().Reconnect(r.Context(), r.PathValue("name")); err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -326,6 +420,40 @@ func (s *Server) postPromptAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// NewToken generates an interface token. An application that keeps its own
+// port also keeps its own token, generated per run: there is nothing else to
+// hand it to.
+func NewToken() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw), nil
+}
+
+// ServeOn serves the interface on a listener the caller already opened, so
+// the port can be chosen by the system and read back before anything is told
+// where to look.
+func ServeOn(ln net.Listener, h http.Handler, log *slog.Logger) error {
+	host, _, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		return err
+	}
+	// Anything reachable from the network would let a stranger reroute this
+	// machine's traffic.
+	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("the interface must listen on loopback, got %q", host)
+	}
+
+	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("the interface stopped serving", "error", err)
+		}
+	}()
+	return nil
 }
 
 // Serve runs the interface until ctx is cancelled, and returns the address it

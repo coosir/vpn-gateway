@@ -70,6 +70,9 @@ func SaveRules(path string, rules []Rule) error {
 // leave a client with a half-written configuration and no way to start.
 func writeAtomically(path string, content []byte) error {
 	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("prepare %s: %w", dir, err)
+	}
 	tmp, err := os.CreateTemp(dir, ".vpn-gateway-*.yaml")
 	if err != nil {
 		return fmt.Errorf("create a temporary file next to the configuration: %w", err)

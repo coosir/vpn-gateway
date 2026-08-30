@@ -41,21 +41,21 @@ type Config struct {
 	// "direct" or "block". A tunnel going down must never take the whole
 	// machine offline, so this is answered explicitly rather than left to
 	// whatever the connection error happens to be.
-	OnFailure string `yaml:"on_failure"`
+	OnFailure string `yaml:"on_failure,omitempty"`
 
 	// Rules are matched in order, before any rule derived from what a tunnel
 	// reports, so an explicit choice always wins over an inferred one.
-	Rules []Rule `yaml:"rules"`
+	Rules []Rule `yaml:"rules,omitempty"`
 
 	// AutoRoutes turns the routes a tunnel reports into implicit ip_cidr
 	// rules. This is what makes split routing usable without writing a rule
 	// for every intranet range.
-	AutoRoutes bool `yaml:"auto_routes"`
+	AutoRoutes bool `yaml:"auto_routes,omitempty"`
 	// AutoDomains does the same for the search domains a tunnel reports.
-	AutoDomains bool `yaml:"auto_domains"`
+	AutoDomains bool `yaml:"auto_domains,omitempty"`
 
 	// LogLevel is sing-box's log level.
-	LogLevel string `yaml:"log_level"`
+	LogLevel string `yaml:"log_level,omitempty"`
 }
 
 // TUNConfig controls the system-wide interface. Bringing it up needs
@@ -63,19 +63,19 @@ type Config struct {
 type TUNConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// Name is the interface name; empty lets the platform choose.
-	Name string `yaml:"name"`
+	Name string `yaml:"name,omitempty"`
 	// Address is the interface's own prefix, e.g. "172.19.0.1/30".
-	Address string `yaml:"address"`
-	MTU     uint32 `yaml:"mtu"`
+	Address string `yaml:"address,omitempty"`
+	MTU     uint32 `yaml:"mtu,omitempty"`
 	// AutoRoute installs the system routes that send traffic to the
 	// interface. Without it the interface exists but carries nothing.
-	AutoRoute bool `yaml:"auto_route"`
+	AutoRoute bool `yaml:"auto_route,omitempty"`
 	// StrictRoute additionally blocks traffic that tries to bypass the
 	// interface. It is more thorough and more likely to interfere with other
 	// networking on the machine, so it is off by default.
-	StrictRoute bool `yaml:"strict_route"`
+	StrictRoute bool `yaml:"strict_route,omitempty"`
 	// Stack is "system", "gvisor" or "mixed".
-	Stack string `yaml:"stack"`
+	Stack string `yaml:"stack,omitempty"`
 }
 
 // ProxyConfig exposes a local SOCKS5 and HTTP port instead of, or as well as,
@@ -83,7 +83,7 @@ type TUNConfig struct {
 // the client out and the fallback when TUN is not available.
 type ProxyConfig struct {
 	Enabled bool   `yaml:"enabled"`
-	Listen  string `yaml:"listen"`
+	Listen  string `yaml:"listen,omitempty"`
 }
 
 // DNSConfig controls name resolution for everything no tunnel claims.
@@ -95,9 +95,9 @@ type DNSConfig struct {
 	//
 	// A public resolver keeps names outside every tunnel off the local
 	// network, which is worth having where it is reachable.
-	Default string `yaml:"default"`
+	Default string `yaml:"default,omitempty"`
 	// Strategy is "prefer_ipv4", "prefer_ipv6", "ipv4_only" or "ipv6_only".
-	Strategy string `yaml:"strategy"`
+	Strategy string `yaml:"strategy,omitempty"`
 }
 
 // UIConfig controls the local interface.
@@ -106,12 +106,12 @@ type UIConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// Listen must be a loopback address. Anything reachable from the network
 	// would let a stranger reroute this machine's traffic.
-	Listen string `yaml:"listen"`
+	Listen string `yaml:"listen,omitempty"`
 	// StateDir holds the interface token, so the link stays the same between
 	// restarts.
-	StateDir string `yaml:"state_dir"`
+	StateDir string `yaml:"state_dir,omitempty"`
 	// Open launches a browser at the interface when the client starts.
-	Open bool `yaml:"open"`
+	Open bool `yaml:"open,omitempty"`
 
 	// LinkFile is where the client writes the full interface link, including
 	// the token, so the tray application can find it without anyone copying
@@ -121,7 +121,7 @@ type UIConfig struct {
 	// itself, which a desktop session cannot read. Naming the path here lets
 	// the operator put the link somewhere their own user can, and decide who
 	// that is: whoever can read this file can drive the interface.
-	LinkFile string `yaml:"link_file"`
+	LinkFile string `yaml:"link_file,omitempty"`
 }
 
 // Rule routes matching traffic to a tunnel. Every matcher within one rule is

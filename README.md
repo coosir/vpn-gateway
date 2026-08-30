@@ -73,42 +73,31 @@ gateway's own message in another language would be guessing at what it said.
 ```sh
 make desktop      # the binary
 make app          # and a macOS .app bundle around it
-
-bin/vpn-gateway-desktop -config /etc/vpn-gateway/client.yaml
-bin/vpn-gateway-desktop -url 'http://127.0.0.1:8645/?token=…'
 ```
+
+Then open it. It takes no arguments: it runs the client itself, opens on a
+setup screen, takes the bundle your server issued, and connects when told to.
+Everything after that — rules, settings, logs — is in the same window.
 
 It is built on Wails. On macOS and Linux that needs CGO and the platform's
 webview libraries, so build it where it runs; on Windows the webview bindings
 are pure Go, so `make desktop GOOS=windows` cross-compiles.
 
-The tray attaches to a running client rather than starting one: creating a TUN
-interface needs elevation, so the client runs as a service and a tray that
-claimed to start it would be lying about what it can do. It shows which
-tunnels are up, goes to a broken ring the moment one is not — including when
-one is waiting for a verification code — and opens the console in a native
-window.
+It starts as a local proxy, which needs no privileges at all, so the rules can
+be proven before anything touches the routing table. Switching to a TUN
+interface in the settings takes over the whole machine and needs to be run
+with administrator rights.
 
-On macOS it lives in the menu bar and takes no Dock slot.
+The tray shows which tunnels are up and goes to a broken ring the moment one
+is not. On macOS it lives in the menu bar and takes no Dock slot; closing the
+window leaves it running.
 
-Opening it from a launcher passes no arguments, so it has to be told where the
-client is once. Either run it with `-url` a single time — the link is
-remembered afterwards — or set `ui.link_file` in the client configuration to a
-path your own user can read, and it will find it there:
+Its configuration lives in your own directory, not `/etc`, because it is
+opened by whoever is sitting at the machine and has to be able to write what
+it is told without being elevated first.
 
-```yaml
-ui:
-  enabled: true
-  link_file: /Users/you/.config/vpn-gateway/link
-```
-
-That second option exists because the client usually runs elevated and keeps
-its token in a directory a desktop session cannot read. Whoever can read that
-file can drive the interface, so put it somewhere only you can.
-
-It starts whether or not the client is running: a client that is down is the
-case the tray exists to show. Only having no link at all stops it, and then it
-says so in a dialog rather than exiting silently.
+`vpn-gateway run` is still there for a machine that should connect without
+anyone logging in, and reads the same configuration.
 
 Pass `-url` when the client runs elevated and keeps its token somewhere your
 desktop session cannot read.

@@ -1,12 +1,12 @@
 //go:build desktop
 
-// Command vpn-gateway-desktop is the tray and window around a running
-// vpn-gateway client.
+// Command vpn-gateway-desktop is the vpn-gateway client with a tray and a
+// window around it.
 //
-// It attaches to a client rather than starting one. Creating a TUN interface
-// needs elevated privileges, so the client runs as a service; a tray that
-// claimed to start it would be lying about what it can do. What it does is
-// show what that client is doing, and open its interface in a window.
+// It runs the client itself rather than attaching to one. Opening an
+// application passes no arguments and shows no terminal, so anything it needs
+// has to be asked for in the interface: it opens on a setup screen, takes the
+// bundle the server produced, and connects when told to.
 //
 // It needs the platform's webview libraries, so it is behind a build tag: a
 // headless server must still build everything else.
@@ -22,21 +22,21 @@ import (
 	"strings"
 )
 
-const usage = `vpn-gateway-desktop shows a running vpn-gateway client in the tray.
+const usage = `vpn-gateway-desktop runs the vpn-gateway client with a tray and a window.
 
 Usage:
-  vpn-gateway-desktop [-config path]
-  vpn-gateway-desktop -url <the link the client printed>
+  vpn-gateway-desktop [-config path] [-lang zh|en]
 
-The client has to be running. It prints its interface link on startup; pass
-that with -url, or point -config at the same configuration file the client is
-using and the link will be worked out from it.
+Everything it needs is configured in the interface, so it takes no arguments
+in normal use. Opening it is enough.
+
+Bringing up a TUN interface needs elevated privileges. Without them the client
+still runs as a local proxy, which is what it starts as.
 `
 
 func main() {
 	var (
-		configPath = flag.String("config", defaultConfigPath(), "the client's configuration file")
-		link       = flag.String("url", "", "the interface link the client printed")
+		configPath = flag.String("config", defaultConfigPath(), "where to keep the configuration")
 		lang       = flag.String("lang", "", "zh or en; defaults to the system language")
 		iconset    = flag.String("write-iconset", "", "internal: write launcher icons into this directory and exit")
 	)
@@ -53,10 +53,43 @@ func main() {
 		return
 	}
 
-	if err := run(*link, *configPath, pickLanguage(*lang)); err != nil {
+	if err := run(*configPath, pickLanguage(*lang)); err != nil {
 		fmt.Fprintln(os.Stderr, "vpn-gateway-desktop:", err)
 		os.Exit(1)
 	}
+}
+
+// defaultConfigPath is under the user's own configuration directory, not
+// /etc: this is opened by whoever is sitting at the machine, and it has to be
+// able to write what it is told without being elevated first.
+func defaultConfigPath() string {
+	if p := os.Getenv("VPN_GATEWAY_CONFIG"); p != "" {
+		return p
+	}
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "vpn-gateway-client.yaml"
+	}
+	return filepath.Join(dir, "vpn-gateway", "client.yaml")
+}
+
+// pickLanguage honours an explicit choice, then the environment, and falls
+// back to Chinese, which is what the interface itself defaults to.
+func pickLanguage(explicit string) string {
+	if explicit == "zh" || explicit == "en" {
+		return explicit
+	}
+	for _, key := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
+		v := strings.ToLower(os.Getenv(key))
+		if v == "" {
+			continue
+		}
+		if strings.HasPrefix(v, "zh") {
+			return "zh"
+		}
+		return "en"
+	}
+	return "zh"
 }
 
 // writeIconset writes the sizes macOS asks for in an .iconset directory.
@@ -78,30 +111,4 @@ func writeIconset(dir string) error {
 		}
 	}
 	return nil
-}
-
-func defaultConfigPath() string {
-	if p := os.Getenv("VPN_GATEWAY_CONFIG"); p != "" {
-		return p
-	}
-	return "/etc/vpn-gateway/client.yaml"
-}
-
-// pickLanguage honours an explicit choice, then the environment, and falls
-// back to Chinese, which is what the interface itself defaults to.
-func pickLanguage(explicit string) string {
-	if explicit == "zh" || explicit == "en" {
-		return explicit
-	}
-	for _, key := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
-		v := strings.ToLower(os.Getenv(key))
-		if v == "" {
-			continue
-		}
-		if strings.HasPrefix(v, "zh") {
-			return "zh"
-		}
-		return "en"
-	}
-	return "zh"
 }

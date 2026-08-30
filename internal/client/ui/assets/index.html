@@ -232,6 +232,50 @@ button.act:disabled { opacity: .45; cursor: default; }
 .note.bad { color: var(--down); }
 .note.good { color: var(--live); }
 
+/* --- setup and settings ------------------------------------------------- */
+.phase { font-size: 11px; color: var(--dim); margin-right: 4px; }
+.phase b { color: var(--ink); font-weight: 600; }
+.phase.live b { color: var(--live); }
+.phase.bad b { color: var(--down); }
+
+.steps { margin: 0 0 22px; padding-left: 20px; max-width: 74ch; }
+.steps li { margin-bottom: 20px; }
+.steps b { font-weight: 600; }
+.steps p { margin: 4px 0 9px; color: var(--dim); font-size: 12px; }
+.cmd {
+  margin: 0; padding: 9px 11px; font-size: 11.5px;
+  background: var(--surface); border: 1px solid var(--hair);
+  overflow-x: auto; color: var(--ink);
+}
+.drop { display: flex; align-items: center; gap: 12px; margin-bottom: 9px; }
+.drop .or { color: var(--faint); font-size: 11px; }
+textarea {
+  width: 100%; max-width: 74ch; font: inherit; font-size: 11.5px;
+  color: var(--ink); background: var(--raised);
+  border: 1px solid var(--hair-firm); border-radius: 0; padding: 9px 11px;
+  resize: vertical;
+}
+textarea::placeholder { color: var(--faint); }
+
+.field { margin-bottom: 20px; max-width: 74ch; }
+.field > label {
+  display: block; font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--dim); margin-bottom: 7px;
+}
+.field .hint { margin: 6px 0 0; font-size: 11px; color: var(--faint); }
+.choices { display: flex; gap: 10px; flex-wrap: wrap; }
+.choice {
+  flex: 1; min-width: 220px; display: flex; gap: 9px; align-items: flex-start;
+  padding: 11px 13px; border: 1px solid var(--hair-firm);
+  background: var(--surface); cursor: pointer;
+}
+.choice:hover { border-color: var(--focus); }
+.choice input { margin-top: 2px; accent-color: var(--amber); }
+.choice b { display: block; font-weight: 600; margin-bottom: 3px; }
+.choice em { font-style: normal; font-size: 11px; color: var(--dim); }
+.check { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 12px; }
+.check input { accent-color: var(--amber); }
+
 /* --- logs --------------------------------------------------------------- */
 .logs {
   background: var(--surface); border: 1px solid var(--hair);
@@ -307,6 +351,8 @@ button.act:disabled { opacity: .45; cursor: default; }
       <span><span data-i18n="bar.onfail"></span> <b id="r-fail">—</b></span>
     </div>
     <div class="gap"></div>
+    <span class="phase" id="phase"></span>
+    <button class="act primary" id="toggle" hidden></button>
     <button class="act" id="lang" data-i18n-title="bar.langTitle">中文</button>
     <button class="act" id="theme" data-i18n-title="bar.themeTitle">theme</button>
   </header>
@@ -316,12 +362,42 @@ button.act:disabled { opacity: .45; cursor: default; }
       <button data-pane="tunnels" aria-current="true"><span data-i18n="nav.tunnels"></span><span class="count" id="c-tunnels"></span></button>
       <button data-pane="rules"><span data-i18n="nav.rules"></span><span class="count" id="c-rules"></span></button>
       <button data-pane="logs" data-i18n="nav.logs"></button>
+      <button data-pane="settings" data-i18n="nav.settings"></button>
       <button data-pane="config" data-i18n="nav.config"></button>
       <div class="sep"></div>
       <div class="meta" id="railmeta"></div>
     </nav>
 
     <main>
+      <section class="pane" id="pane-setup" hidden>
+        <h2 data-i18n="setup.title"></h2>
+        <p class="sub" data-i18n="setup.sub"></p>
+
+        <ol class="steps">
+          <li>
+            <b data-i18n="setup.s1.t"></b>
+            <p data-i18n="setup.s1.b"></p>
+            <pre class="cmd">vgctl -config /etc/vpn-gateway/config.yaml client-config &gt; client.json</pre>
+          </li>
+          <li>
+            <b data-i18n="setup.s2.t"></b>
+            <p data-i18n="setup.s2.b"></p>
+            <div class="drop" id="drop">
+              <input type="file" id="bundle-file" accept=".json,application/json" hidden>
+              <button class="act" id="bundle-pick" data-i18n="setup.pick"></button>
+              <span class="or" data-i18n="setup.or"></span>
+            </div>
+            <textarea id="bundle-text" rows="7" spellcheck="false"
+                      data-i18n-ph="setup.paste"></textarea>
+          </li>
+        </ol>
+
+        <div class="toolbar">
+          <button class="act primary" id="bundle-save" data-i18n="setup.save"></button>
+          <span class="note" id="setup-note"></span>
+        </div>
+      </section>
+
       <section class="pane" id="pane-tunnels">
         <div class="offline" id="offline" hidden data-i18n="offline"></div>
         <h2 data-i18n="tunnels.title"></h2>
@@ -351,6 +427,53 @@ button.act:disabled { opacity: .45; cursor: default; }
           <span class="note" id="log-note"></span>
         </div>
         <pre class="logs" id="logs" data-i18n="logs.pick"></pre>
+      </section>
+
+      <section class="pane" id="pane-settings" hidden>
+        <h2 data-i18n="settings.title"></h2>
+        <p class="sub" data-i18n="settings.sub"></p>
+
+        <div class="field">
+          <label data-i18n="settings.ingress"></label>
+          <div class="choices">
+            <label class="choice"><input type="radio" name="ingress" value="proxy">
+              <span><b data-i18n="settings.proxy"></b><em data-i18n="settings.proxy.b"></em></span></label>
+            <label class="choice"><input type="radio" name="ingress" value="tun">
+              <span><b data-i18n="settings.tun"></b><em data-i18n="settings.tun.b"></em></span></label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label data-i18n="settings.proxyListen"></label>
+          <input type="text" id="set-proxy-listen" placeholder="127.0.0.1:1080">
+        </div>
+
+        <div class="field">
+          <label data-i18n="settings.onfail"></label>
+          <select id="set-onfail">
+            <option value="direct"></option>
+            <option value="block"></option>
+          </select>
+          <p class="hint" data-i18n="settings.onfail.b"></p>
+        </div>
+
+        <div class="field">
+          <label data-i18n="settings.dns"></label>
+          <input type="text" id="set-dns" placeholder="local">
+          <p class="hint" data-i18n="settings.dns.b"></p>
+        </div>
+
+        <div class="field">
+          <label class="check"><input type="checkbox" id="set-autoroutes">
+            <span data-i18n="settings.autoroutes"></span></label>
+          <label class="check"><input type="checkbox" id="set-autodomains">
+            <span data-i18n="settings.autodomains"></span></label>
+        </div>
+
+        <div class="toolbar">
+          <button class="act primary" id="settings-save" data-i18n="settings.save"></button>
+          <span class="note" id="settings-note"></span>
+        </div>
       </section>
 
       <section class="pane" id="pane-config" hidden>
@@ -431,6 +554,40 @@ const STRINGS = {
     "meta.proxy": "代理", "meta.dns": "DNS", "meta.dnsLocal": "系统解析器",
     "meta.autoroutes": "自动路由", "meta.autodomains": "自动域名",
     "on": "开", "off": "关",
+    "nav.settings": "设置",
+    "bar.phase": "状态",
+    "phase.setup": "尚未配置", "phase.idle": "未连接", "phase.connecting": "连接中…",
+    "phase.connected": "已连接", "phase.failed": "连接失败",
+    "act.connect": "连接", "act.disconnect": "断开", "act.retry": "重试",
+
+    "setup.title": "开始使用",
+    "setup.sub": "把服务端签发的 bundle 导入进来就可以连接了。bundle 里含有服务端地址、要信任的证书，以及每条隧道的密码。",
+    "setup.s1.t": "在服务端生成 bundle",
+    "setup.s1.b": "在跑 vpn-gateway-server 的那台机器上执行：",
+    "setup.s2.t": "把它导入这里",
+    "setup.s2.b": "选择文件，或直接把内容粘贴进来。",
+    "setup.pick": "选择文件…", "setup.or": "或粘贴内容",
+    "setup.paste": "{\n  \"version\": 1,\n  \"server\": { … },\n  \"tunnels\": [ … ]\n}",
+    "setup.save": "导入并保存",
+    "setup.empty": "请先选择文件或粘贴内容。",
+    "setup.done": "已导入，可以连接了。",
+
+    "settings.title": "设置",
+    "settings.sub": "改动会立即生效；已连接时会重建路由引擎，已建立的连接会短暂中断。",
+    "settings.ingress": "流量入口",
+    "settings.proxy": "本地代理端口", "settings.proxy.b": "无需任何权限。先用它把规则调对。",
+    "settings.tun": "TUN 网卡", "settings.tun.b": "接管整机流量，需要管理员权限。",
+    "settings.proxyListen": "代理监听地址",
+    "settings.onfail": "隧道故障时",
+    "settings.onfail.b": "直连：照常出网，但本该走内网的流量会离开内网。阻断：拒绝连接，涉密隧道更稳妥。",
+    "settings.dns": "默认 DNS",
+    "settings.dns.b": "local 表示用系统解析器，任何网络都可用。也可以填 https://1.1.1.1/dns-query 这样的地址。",
+    "settings.autoroutes": "自动把隧道上报的网段变成规则",
+    "settings.autodomains": "自动把隧道上报的搜索域变成规则",
+    "settings.save": "保存",
+    "settings.saved": "已保存",
+
+    "need.connect": "尚未连接。",
     "nav.tunnels": "隧道", "nav.rules": "分流规则", "nav.logs": "日志", "nav.config": "配置",
     "offline": "已断开与客户端的连接。",
     "loading": "加载中…",
@@ -486,6 +643,40 @@ const STRINGS = {
     "meta.proxy": "proxy", "meta.dns": "dns", "meta.dnsLocal": "system resolver",
     "meta.autoroutes": "auto routes", "meta.autodomains": "auto domains",
     "on": "on", "off": "off",
+    "nav.settings": "settings",
+    "bar.phase": "state",
+    "phase.setup": "not set up", "phase.idle": "not connected", "phase.connecting": "connecting…",
+    "phase.connected": "connected", "phase.failed": "could not connect",
+    "act.connect": "connect", "act.disconnect": "disconnect", "act.retry": "try again",
+
+    "setup.title": "Getting started",
+    "setup.sub": "Import the bundle your server issued and this can connect. It carries the server address, the certificate to trust, and one password per tunnel.",
+    "setup.s1.t": "Produce a bundle on the server",
+    "setup.s1.b": "On the machine running vpn-gateway-server:",
+    "setup.s2.t": "Bring it here",
+    "setup.s2.b": "Choose the file, or paste its contents.",
+    "setup.pick": "Choose a file…", "setup.or": "or paste it",
+    "setup.paste": "{\n  \"version\": 1,\n  \"server\": { … },\n  \"tunnels\": [ … ]\n}",
+    "setup.save": "Import",
+    "setup.empty": "Choose a file or paste the bundle first.",
+    "setup.done": "Imported. You can connect now.",
+
+    "settings.title": "Settings",
+    "settings.sub": "Changes take effect at once. While connected this rebuilds the routing engine and briefly interrupts open connections.",
+    "settings.ingress": "How traffic enters",
+    "settings.proxy": "Local proxy port", "settings.proxy.b": "Needs no privileges. Start here and get the rules right.",
+    "settings.tun": "TUN interface", "settings.tun.b": "Takes over the whole machine. Needs administrator rights.",
+    "settings.proxyListen": "Proxy listen address",
+    "settings.onfail": "When a tunnel is down",
+    "settings.onfail.b": "Direct keeps working but sends intranet traffic out of the network. Block refuses it, which is safer for anything sensitive.",
+    "settings.dns": "Default resolver",
+    "settings.dns.b": "local uses the system resolver and always works. A URL such as https://1.1.1.1/dns-query keeps these names off the local network.",
+    "settings.autoroutes": "Turn reported routes into rules",
+    "settings.autodomains": "Turn reported search domains into rules",
+    "settings.save": "Save",
+    "settings.saved": "Saved",
+
+    "need.connect": "Nothing is connected.",
     "nav.tunnels": "tunnels", "nav.rules": "rules", "nav.logs": "logs", "nav.config": "config",
     "offline": "Not receiving updates from the client.",
     "loading": "Loading…",
@@ -563,6 +754,9 @@ function applyLanguage() {
   document.querySelectorAll("[data-i18n-title]").forEach((n) => {
     n.title = t(n.dataset.i18nTitle);
   });
+  document.querySelectorAll("[data-i18n-ph]").forEach((n) => {
+    n.placeholder = t(n.dataset.i18nPh);
+  });
   $("lang").textContent = lang === "zh" ? "中文" : "EN";
 }
 
@@ -586,20 +780,12 @@ $("lang").addEventListener("click", () => {
   renderedRules = null;
   shownPrompt = null;
   render(state);
+  if (currentPane() === "settings") fillSettings();
 });
 
 /* --- panes --------------------------------------------------------------- */
 document.querySelectorAll(".rail button[data-pane]").forEach((b) => {
-  b.addEventListener("click", () => {
-    document.querySelectorAll(".rail button[data-pane]").forEach((o) =>
-      o.setAttribute("aria-current", String(o === b)));
-    document.querySelectorAll(".pane").forEach((p) =>
-      p.hidden = p.id !== "pane-" + b.dataset.pane);
-    if (b.dataset.pane === "config") loadGeneratedConfig();
-    // Showing "Pick a tunnel" next to a dropdown that already has one picked
-    // is just an extra click for no reason.
-    if (b.dataset.pane === "logs" && $("log-tunnel").value) loadLogs();
-  });
+  b.addEventListener("click", () => showPane(b.dataset.pane));
 });
 
 /* --- state --------------------------------------------------------------- */
@@ -614,6 +800,7 @@ let renderedRules = null;
 
 function render(s) {
   state = s;
+  renderPhase(s);
   renderReadout(s);
   renderTunnels(s.tunnels);
   renderLogTunnels(s.tunnels);
@@ -628,6 +815,154 @@ function render(s) {
   $("c-rules").textContent = (draft || s.rules).length || "";
   renderPrompt(s.prompts);
 }
+
+/* --- phase: what the whole application is doing ------------------------ */
+const PHASE_ACTION = {
+  setup: null, connecting: null,
+  idle: "act.connect", connected: "act.disconnect", failed: "act.retry",
+};
+
+function renderPhase(st) {
+  const phase = (st.session && st.session.phase) || "setup";
+  const box = $("phase");
+  box.className = "phase" + (phase === "connected" ? " live" : phase === "failed" ? " bad" : "");
+  box.innerHTML = "";
+  box.appendChild(el("span", null, t("bar.phase") + " "));
+  box.appendChild(el("b", null, t("phase." + phase)));
+
+  const btn = $("toggle");
+  const action = PHASE_ACTION[phase];
+  btn.hidden = !action;
+  if (action) btn.textContent = t(action);
+
+  // Setup is the only thing worth showing until there is something to
+  // connect to; the other panes would all be empty.
+  const ready = phase !== "setup";
+  document.querySelectorAll('.rail button[data-pane]').forEach((b) => {
+    b.hidden = !ready && b.dataset.pane !== "setup";
+  });
+  if (!ready) showPane("setup");
+  else if (currentPane() === "setup") showPane("tunnels");
+
+  if (phase === "failed" && st.session.last_error) {
+    $("offline").hidden = false;
+    $("offline").textContent = st.session.last_error;
+  }
+}
+
+function currentPane() {
+  const open = document.querySelector('.pane:not([hidden])');
+  return open ? open.id.replace("pane-", "") : "";
+}
+
+function showPane(name) {
+  document.querySelectorAll(".rail button[data-pane]").forEach((o) =>
+    o.setAttribute("aria-current", String(o.dataset.pane === name)));
+  document.querySelectorAll(".pane").forEach((p) => (p.hidden = p.id !== "pane-" + name));
+  if (name === "config") loadGeneratedConfig();
+  if (name === "logs" && $("log-tunnel").value) loadLogs();
+  if (name === "settings") fillSettings();
+}
+
+$("toggle").addEventListener("click", async () => {
+  const phase = state.session ? state.session.phase : "setup";
+  const path = phase === "connected" ? "/api/disconnect" : "/api/connect";
+  $("toggle").disabled = true;
+  try {
+    const res = await api(path, { method: "POST" });
+    render(await res.json());
+  } catch (e) {
+    $("offline").hidden = false;
+    $("offline").textContent = e.message;
+  } finally {
+    $("toggle").disabled = false;
+  }
+});
+
+/* --- setup -------------------------------------------------------------- */
+$("bundle-pick").addEventListener("click", () => $("bundle-file").click());
+$("bundle-file").addEventListener("change", async (ev) => {
+  const file = ev.target.files[0];
+  if (file) $("bundle-text").value = await file.text();
+});
+
+$("bundle-save").addEventListener("click", async () => {
+  const note = $("setup-note");
+  const raw = $("bundle-text").value.trim();
+  if (!raw) {
+    note.className = "note bad";
+    note.textContent = t("setup.empty");
+    return;
+  }
+  note.className = "note";
+  note.textContent = "…";
+  $("bundle-save").disabled = true;
+  try {
+    const res = await api("/api/bundle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: raw,
+    });
+    note.className = "note good";
+    note.textContent = t("setup.done");
+    $("bundle-text").value = "";
+    render(await res.json());
+  } catch (e) {
+    note.className = "note bad";
+    note.textContent = e.message;
+  } finally {
+    $("bundle-save").disabled = false;
+  }
+});
+
+/* --- settings ------------------------------------------------------------ */
+function fillSettings() {
+  const c = state.client || {};
+  document.querySelectorAll('input[name=ingress]').forEach((r) => {
+    r.checked = r.value === (c.tun ? "tun" : "proxy");
+  });
+  $("set-proxy-listen").value = c.proxy_listen || "";
+  $("set-onfail").value = c.on_failure || "direct";
+  $("set-dns").value = c.dns_default || "";
+  $("set-autoroutes").checked = !!c.auto_routes;
+  $("set-autodomains").checked = !!c.auto_domains;
+
+  // The two targets are values the client parses; only the labels translate.
+  const opts = $("set-onfail").options;
+  opts[0].textContent = t("t.direct");
+  opts[1].textContent = t("t.block");
+}
+
+$("settings-save").addEventListener("click", async () => {
+  const note = $("settings-note");
+  const tun = document.querySelector('input[name=ingress]:checked').value === "tun";
+  const body = {
+    tun: { enabled: tun, auto_route: true },
+    proxy: { enabled: !tun, listen: $("set-proxy-listen").value.trim() || "127.0.0.1:1080" },
+    dns_default: $("set-dns").value.trim() || "local",
+    on_failure: $("set-onfail").value,
+    auto_routes: $("set-autoroutes").checked,
+    auto_domains: $("set-autodomains").checked,
+  };
+  note.className = "note";
+  note.textContent = "…";
+  $("settings-save").disabled = true;
+  try {
+    const res = await api("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    note.className = "note good";
+    note.textContent = t("settings.saved");
+    render(await res.json());
+  } catch (e) {
+    note.className = "note bad";
+    note.textContent = e.message;
+  } finally {
+    $("settings-save").disabled = false;
+  }
+});
 
 function renderReadout(s) {
   const up = s.tunnels.filter((t) => t.up).length;

@@ -104,10 +104,12 @@ func run(configPath, logLevel, command string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	c, err := client.New(ctx, cfg, bundle, log)
-	if err != nil {
+	session := client.NewSession(configPath, log)
+	if err := session.Connect(ctx); err != nil {
 		return err
 	}
+	defer session.Close()
+	c := session.Client()
 
 	switch command {
 	case "config":
@@ -130,13 +132,6 @@ func run(configPath, logLevel, command string) error {
 		return err
 
 	case "run":
-		if err := c.Start(ctx); err != nil {
-			return err
-		}
-		defer c.Close()
-
-		go c.Watch(ctx)
-
 		// Challenges go to whichever is listening: the interface when it is
 		// running, the terminal otherwise. Either way a tunnel that needs a
 		// code after reconnecting does not require a second command.
@@ -146,7 +141,7 @@ func run(configPath, logLevel, command string) error {
 			if err != nil {
 				return err
 			}
-			srv := ui.New(c, configPath, token, log)
+			srv := ui.New(session, configPath, token, log)
 			addr, err := ui.Serve(ctx, cfg.UI.Listen, srv.Handler(), log)
 			if err != nil {
 				return err
@@ -173,7 +168,7 @@ func run(configPath, logLevel, command string) error {
 		log.Info("shutting down")
 		// Closing tears down the TUN interface and the system routes that
 		// point at it; leaving them behind would take the machine offline.
-		return c.Close()
+		return session.Close()
 
 	default:
 		return fmt.Errorf("unknown command %q", command)

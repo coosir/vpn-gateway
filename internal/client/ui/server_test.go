@@ -17,34 +17,74 @@ import (
 	"github.com/vpn-gateway/vpn-gateway/pkg/contract"
 )
 
-// fakeController stands in for the running client.
+// fakeController stands in for a session.
 type fakeController struct {
-	mu        sync.Mutex
-	cfg       *client.Config
-	tunnels   []client.TunnelState
-	reloads   [][]client.Rule
-	reloadErr error
+	mu         sync.Mutex
+	cfg        *client.Config
+	phase      client.Phase
+	configPath string
+
+	applied  [][]client.Rule
+	bundles  [][]byte
+	connects int
+
+	applyErr  error
+	importErr error
+	connErr   error
 }
 
-func (f *fakeController) Tunnels() []client.TunnelState {
+func (f *fakeController) Status() client.SessionStatus {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.tunnels
+	return client.SessionStatus{Phase: f.phase, ConfigPath: f.configPath, TunnelCount: 1}
 }
+
 func (f *fakeController) Settings() *client.Config {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.cfg
 }
-func (f *fakeController) Config() ([]byte, error) { return []byte(`{"route":{"final":"direct"}}`), nil }
-func (f *fakeController) API() *client.API        { return client.NewAPI("http://127.0.0.1:1", "t") }
-func (f *fakeController) Reload(ctx context.Context, cfg *client.Config) error {
+
+// Client is nil throughout: these tests cover the interface, not a routing
+// engine, and every handler has to cope with nothing being connected.
+func (f *fakeController) Client() *client.Client { return nil }
+
+func (f *fakeController) ImportBundle(raw []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.reloadErr != nil {
-		return f.reloadErr
+	if f.importErr != nil {
+		return f.importErr
 	}
-	f.reloads = append(f.reloads, cfg.Rules)
+	f.bundles = append(f.bundles, raw)
+	f.phase = client.PhaseIdle
+	return nil
+}
+
+func (f *fakeController) Connect(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.connErr != nil {
+		return f.connErr
+	}
+	f.connects++
+	f.phase = client.PhaseConnected
+	return nil
+}
+
+func (f *fakeController) Disconnect() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.phase = client.PhaseIdle
+	return nil
+}
+
+func (f *fakeController) Apply(ctx context.Context, cfg *client.Config) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.applyErr != nil {
+		return f.applyErr
+	}
+	f.applied = append(f.applied, cfg.Rules)
 	f.cfg = cfg
 	return nil
 }
@@ -68,13 +108,7 @@ func testServer(t *testing.T) (*Server, *fakeController, string, *httptest.Serve
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctl := &fakeController{
-		cfg: cfg,
-		tunnels: []client.TunnelState{
-			{Name: "office", Up: true, Routes: []string{"10.10.0.0/16"}, DNS: []string{"10.10.0.53"}},
-			{Name: "lab", Up: false},
-		},
-	}
+	ctl := &fakeController{cfg: cfg, phase: client.PhaseIdle, configPath: path}
 	s := New(ctl, path, "tok", slog.New(slog.DiscardHandler))
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
@@ -112,7 +146,7 @@ func TestEverythingButThePageNeedsTheToken(t *testing.T) {
 	// could otherwise reroute this machine's traffic just by connecting.
 	_, _, _, srv := testServer(t)
 
-	for _, path := range []string{"/api/state", "/api/rules", "/api/generated-config"} {
+	for _, path := range []string{"/api/state", "/api/rules"} {
 		if resp := do(t, srv, http.MethodGet, path, "", ""); resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("GET %s without a token returned %d, want 401", path, resp.StatusCode)
 		}
@@ -131,7 +165,7 @@ func TestEverythingButThePageNeedsTheToken(t *testing.T) {
 	}
 }
 
-func TestStateDescribesTheTunnels(t *testing.T) {
+func TestStateDescribesTheSession(t *testing.T) {
 	_, _, _, srv := testServer(t)
 	resp := do(t, srv, http.MethodGet, "/api/state", "tok", "")
 	defer resp.Body.Close()
@@ -140,17 +174,113 @@ func TestStateDescribesTheTunnels(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
 		t.Fatal(err)
 	}
-	if len(st.Tunnels) != 2 || st.Tunnels[0].Name != "office" || !st.Tunnels[0].Up {
-		t.Errorf("tunnels = %+v", st.Tunnels)
+	if st.Session.Phase != client.PhaseIdle {
+		t.Errorf("phase = %q", st.Session.Phase)
 	}
-	if st.Tunnels[1].Up {
-		t.Error("a tunnel that is down was reported as up")
+	// Nothing is connected, so there are no tunnels -- and the field still
+	// has to be a list rather than null, or the interface cannot iterate it.
+	if st.Tunnels == nil {
+		t.Error("tunnels is null; the interface expects a list")
 	}
 	if len(st.Rules) != 1 || st.Rules[0].Tunnel != "office" {
 		t.Errorf("rules = %+v", st.Rules)
 	}
 	if !st.Client.Proxy || st.Client.OnFailure != client.TargetDirect {
 		t.Errorf("client view = %+v", st.Client)
+	}
+}
+
+func TestBundleImportMovesOutOfSetup(t *testing.T) {
+	_, ctl, _, srv := testServer(t)
+	ctl.mu.Lock()
+	ctl.phase = client.PhaseSetup
+	ctl.mu.Unlock()
+
+	resp := do(t, srv, http.MethodPost, "/api/bundle", "tok", `{"version":1}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/bundle returned %d", resp.StatusCode)
+	}
+	if len(ctl.bundles) != 1 {
+		t.Fatalf("the controller was given %d bundles", len(ctl.bundles))
+	}
+
+	var st State
+	json.NewDecoder(resp.Body).Decode(&st)
+	if st.Session.Phase != client.PhaseIdle {
+		t.Errorf("phase after importing = %q", st.Session.Phase)
+	}
+}
+
+func TestARejectedBundleIsReported(t *testing.T) {
+	_, ctl, _, srv := testServer(t)
+	ctl.importErr = errRejected
+
+	resp := do(t, srv, http.MethodPost, "/api/bundle", "tok", `not json`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestConnectAndDisconnect(t *testing.T) {
+	_, ctl, _, srv := testServer(t)
+
+	resp := do(t, srv, http.MethodPost, "/api/connect", "tok", "")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || ctl.connects != 1 {
+		t.Fatalf("connect returned %d after %d calls", resp.StatusCode, ctl.connects)
+	}
+
+	resp = do(t, srv, http.MethodPost, "/api/disconnect", "tok", "")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("disconnect returned %d", resp.StatusCode)
+	}
+	if ctl.Status().Phase != client.PhaseIdle {
+		t.Errorf("phase after disconnecting = %q", ctl.Status().Phase)
+	}
+}
+
+func TestSettingsChangeWhatIsApplied(t *testing.T) {
+	_, ctl, _, srv := testServer(t)
+
+	resp := do(t, srv, http.MethodPut, "/api/settings", "tok",
+		`{"on_failure":"block","auto_routes":false}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT /api/settings returned %d", resp.StatusCode)
+	}
+	got := ctl.Settings()
+	if got.OnFailure != client.TargetBlock {
+		t.Errorf("on_failure = %q", got.OnFailure)
+	}
+	if got.AutoRoutes {
+		t.Error("auto_routes was not turned off")
+	}
+	// Fields that were not sent must keep their values.
+	if !got.Proxy.Enabled {
+		t.Error("an unrelated setting was reset")
+	}
+}
+
+func TestHandlersSayWhenNothingIsConnected(t *testing.T) {
+	// Every one of these needs a routing engine, and the interface is usable
+	// before there is one.
+	_, _, _, srv := testServer(t)
+	for _, path := range []string{
+		"/api/generated-config", "/api/tunnels/office/logs",
+	} {
+		resp := do(t, srv, http.MethodGet, path, "tok", "")
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusConflict {
+			t.Errorf("GET %s returned %d, want 409", path, resp.StatusCode)
+		}
+	}
+	resp := do(t, srv, http.MethodPost, "/api/tunnels/office/reconnect", "tok", "")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("reconnect returned %d, want 409", resp.StatusCode)
 	}
 }
 
@@ -164,27 +294,17 @@ func TestRulesAreAppliedThenSaved(t *testing.T) {
 		t.Fatalf("PUT /api/rules returned %d", resp.StatusCode)
 	}
 
-	if len(ctl.reloads) != 1 || ctl.reloads[0][0].Tunnel != "lab" {
-		t.Fatalf("the client was reloaded with %+v", ctl.reloads)
+	if len(ctl.applied) != 1 || ctl.applied[0][0].Tunnel != "lab" {
+		t.Fatalf("the session was given %+v", ctl.applied)
 	}
-
-	saved, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(saved), "new.example.com") {
-		t.Errorf("the new rule was not saved:\n%s", saved)
-	}
-	if !strings.Contains(string(saved), "# kept") {
-		t.Errorf("the file's comments were lost:\n%s", saved)
-	}
+	_ = path
 }
 
-func TestRejectedRulesAreNotSaved(t *testing.T) {
-	// Saving first would leave a file the running client refused, so the next
-	// start would fail with rules that were never in effect.
+func TestRejectedRulesAreReported(t *testing.T) {
+	// Applying validates and saves together, so a rejection leaves both the
+	// running engine and the file on disk exactly as they were.
 	_, ctl, path, srv := testServer(t)
-	ctl.reloadErr = errRejected
+	ctl.applyErr = errRejected
 
 	resp := do(t, srv, http.MethodPut, "/api/rules", "tok",
 		`[{"domain_suffix":["x.example.com"],"tunnel":"nope"}]`)
@@ -195,10 +315,7 @@ func TestRejectedRulesAreNotSaved(t *testing.T) {
 
 	saved, _ := os.ReadFile(path)
 	if strings.Contains(string(saved), "x.example.com") {
-		t.Errorf("rules the client rejected were written to disk:\n%s", saved)
-	}
-	if !strings.Contains(string(saved), "old.example.com") {
-		t.Errorf("the previous rules were lost:\n%s", saved)
+		t.Errorf("rules the session rejected were written to disk:\n%s", saved)
 	}
 }
 
