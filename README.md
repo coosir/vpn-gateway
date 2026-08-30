@@ -35,10 +35,33 @@ Phases 0 to 2 are complete and verified end to end. What works today:
 - interactive login: a gateway asking for an SMS code, a TOTP token, a
   captcha or a single sign-on address raises a challenge that reaches the
   client and is answered there
+- a local interface: live tunnel state, a rule editor that applies and saves
+  without a restart, container logs, and login prompts
 
 Not built yet: privilege separation on the client (it currently needs
-elevation itself, see below) and the GUI. The iNode image is written but
-cannot be built or tested without H3C's installer.
+elevation itself, see below). The iNode image is written but cannot be built
+or tested without H3C's installer.
+
+## The interface
+
+Set `ui.enabled` and the client prints a link when it starts:
+
+```
+$ sudo vpn-gateway -config client.yaml run
+interface: http://127.0.0.1:8645/?token=…
+```
+
+It shows which tunnels are up and what each one claims, edits routing rules
+and applies them without a restart, reads container logs from the server, and
+asks for verification codes when a gateway wants one.
+
+It listens on loopback and needs the token. Loopback alone is not enough:
+this interface can reroute traffic and answer authentication prompts, so any
+other process on the machine must not be able to drive it just by connecting.
+
+The page is one file with no build step and reaches out to nothing. That is
+deliberate: it is most needed when the tunnels are down, which is exactly when
+there is no network to fetch a stylesheet or a font from.
 
 ## Which image for which VPN
 

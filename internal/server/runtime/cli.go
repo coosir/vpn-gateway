@@ -55,6 +55,26 @@ func (c *CLI) run(ctx context.Context, args ...string) (string, error) {
 	return c.runNoTimeout(ctx, args...)
 }
 
+// runCombined returns both output streams interleaved, for commands whose
+// useful output is not all on stdout.
+func (c *CLI) runCombined(ctx context.Context, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, cliTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, c.bin, args...)
+	var both bytes.Buffer
+	cmd.Stdout = &both
+	cmd.Stderr = &both
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(both.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return both.String(), fmt.Errorf("%s %s: %s", c.bin, strings.Join(args, " "), msg)
+	}
+	return both.String(), nil
+}
+
 func (c *CLI) runNoTimeout(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, c.bin, args...)
 	var stdout, stderr bytes.Buffer
@@ -177,9 +197,11 @@ func (c *CLI) Remove(ctx context.Context, name string) error {
 }
 
 func (c *CLI) Logs(ctx context.Context, name string, tail int) (string, error) {
-	// Container logs carry both streams; the agent writes structured lines to
-	// stderr, so both are wanted.
-	out, err := c.run(ctx, "logs", "--tail", strconv.Itoa(tail), name)
+	// The engine relays a container's own stdout and stderr to the
+	// corresponding streams of this command, and the agent writes its
+	// structured log to stderr. Reading only stdout returns nothing at all,
+	// which looks exactly like a container that has logged nothing.
+	out, err := c.runCombined(ctx, "logs", "--tail", strconv.Itoa(tail), name)
 	if err != nil && isNotFound(err) {
 		return "", nil
 	}

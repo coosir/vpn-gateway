@@ -90,6 +90,25 @@ func (a *API) Answer(ctx context.Context, tunnel string, ans contract.AuthAnswer
 	return a.do(req, nil)
 }
 
+// Logs returns recent output from a tunnel's container.
+func (a *API) Logs(ctx context.Context, tunnel string, tail int) (string, error) {
+	req, err := a.request(ctx, http.MethodGet,
+		fmt.Sprintf("/api/v1/tunnels/%s/logs?tail=%d", tunnel, tail), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := a.HTTP.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GET tunnel logs: unexpected status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	return string(body), err
+}
+
 // Reconnect asks the server to redial a tunnel.
 func (a *API) Reconnect(ctx context.Context, tunnel string) error {
 	req, err := a.request(ctx, http.MethodPost, "/api/v1/tunnels/"+tunnel+"/reconnect", nil)

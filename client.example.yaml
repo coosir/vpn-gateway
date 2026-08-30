@@ -28,6 +28,18 @@ proxy:
   enabled: false
   listen: 127.0.0.1:1080
 
+# A local interface: tunnel state, the rule editor, container logs and login
+# prompts. The client prints a link with a token when it starts.
+ui:
+  enabled: true
+  # Loopback only. Anything reachable from the network would let a stranger
+  # reroute this machine's traffic.
+  listen: 127.0.0.1:8645
+  # Where the interface token is kept, so the link survives a restart.
+  state_dir: /var/lib/vpn-gateway
+  # Open a browser at it on start.
+  open: false
+
 dns:
   # Resolver for names no tunnel claims. Each tunnel's own resolver is
   # derived from what it reports, so it does not appear here.

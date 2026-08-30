@@ -44,7 +44,8 @@ type Client struct {
 	api    *API
 	log    *slog.Logger
 
-	instance *box.Box
+	instanceMu sync.Mutex
+	instance   *box.Box
 
 	mu      sync.RWMutex
 	tunnels []TunnelState
@@ -165,7 +166,9 @@ func (c *Client) Start(ctx context.Context) error {
 		instance.Close()
 		return startError(c.cfg, err)
 	}
+	c.instanceMu.Lock()
 	c.instance = instance
+	c.instanceMu.Unlock()
 
 	c.mu.Lock()
 	for _, t := range c.tunnels {
@@ -192,10 +195,92 @@ func startError(cfg *Config, err error) error {
 
 // Close stops the routing engine.
 func (c *Client) Close() error {
-	if c == nil || c.instance == nil {
+	if c == nil {
 		return nil
 	}
-	return c.instance.Close()
+	c.instanceMu.Lock()
+	defer c.instanceMu.Unlock()
+	if c.instance == nil {
+		return nil
+	}
+	err := c.instance.Close()
+	c.instance = nil
+	return err
+}
+
+// Reload applies a changed configuration.
+//
+// Routing rules are compiled into the engine, so unlike a tunnel going up or
+// down they cannot be swapped in place: the engine has to be rebuilt. That
+// interrupts every connection, so the new configuration is built and accepted
+// by sing-box before the running one is touched. A rule with a typo in it
+// leaves the client running exactly as it was.
+func (c *Client) Reload(ctx context.Context, cfg *Config) error {
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("the new configuration is not valid: %w", err)
+	}
+
+	c.mu.RLock()
+	tunnels := append([]TunnelState(nil), c.tunnels...)
+	c.mu.RUnlock()
+
+	raw, err := BuildConfig(cfg, c.bundle, tunnels)
+	if err != nil {
+		return fmt.Errorf("the new rules could not be compiled: %w", err)
+	}
+
+	boxCtx := registryContext(ctx)
+	var parsed option.Options
+	if err := singjson.UnmarshalContext(boxCtx, raw, &parsed); err != nil {
+		return fmt.Errorf("the new configuration was rejected: %w", err)
+	}
+	next, err := box.New(box.Options{Context: boxCtx, Options: parsed})
+	if err != nil {
+		return fmt.Errorf("the new configuration could not be built: %w", err)
+	}
+
+	// The listening ports are held by the running engine, so it has to let go
+	// before the replacement can take them.
+	c.instanceMu.Lock()
+	previous := c.instance
+	c.instance = nil
+	c.instanceMu.Unlock()
+
+	if previous != nil {
+		previous.Close()
+	}
+	if err := next.Start(); err != nil {
+		next.Close()
+		// Nothing is running now. Put the old configuration back rather than
+		// leaving the machine with no routing at all.
+		c.log.Error("the new configuration failed to start; restoring the previous one", "error", err)
+		if restoreErr := c.Start(ctx); restoreErr != nil {
+			return fmt.Errorf("the new configuration failed to start (%w) and the previous one could not be restored: %w", err, restoreErr)
+		}
+		return fmt.Errorf("the new configuration failed to start: %w", err)
+	}
+
+	c.instanceMu.Lock()
+	c.instance = next
+	c.instanceMu.Unlock()
+
+	c.mu.Lock()
+	c.cfg = cfg
+	c.selected = map[string]string{}
+	for _, t := range tunnels {
+		c.selected[t.RouteTag()] = c.wantedOutbound(t)
+	}
+	c.mu.Unlock()
+
+	c.log.Info("configuration reloaded", "rules", len(cfg.Rules), "tunnels", len(tunnels))
+	return nil
+}
+
+// Settings returns the configuration the client is running.
+func (c *Client) Settings() *Config {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.cfg
 }
 
 // Watch keeps the client in step with the server until ctx is cancelled.
@@ -234,10 +319,13 @@ func (c *Client) Watch(ctx context.Context) {
 // applySelection points each tunnel's selector at the tunnel or at the
 // fallback, depending on whether the server says it is up.
 func (c *Client) applySelection(tunnels []TunnelState) {
-	if c.instance == nil {
+	c.instanceMu.Lock()
+	instance := c.instance
+	c.instanceMu.Unlock()
+	if instance == nil {
 		return
 	}
-	manager := c.instance.Outbound()
+	manager := instance.Outbound()
 
 	for _, t := range tunnels {
 		want := c.wantedOutbound(t)

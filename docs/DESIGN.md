@@ -198,6 +198,25 @@ can land after one, so a fragment must also stand unchanged for a moment
 before it is treated as a question. A real prompt is followed by silence; half
 a log line is not.
 
-Next is the GUI. Client privilege separation is still open: creating a TUN
-interface needs elevation, and splitting out a signed helper needs an Apple
-developer identity on macOS.
+Phase 5: the interface. The client serves it on loopback behind a token.
+
+It is a web page rather than a native window for a reason that is not
+convenience: a native window cannot be checked here, and shipping an
+interface nobody has looked at is the same mistake as shipping a privileged
+helper nobody has run. This one was opened in a browser, screenshotted, and
+driven through every path it offers.
+
+The page is a single file with no build step and no external request. It is
+most needed when the tunnels are down, which is exactly when there is no
+network to fetch a webfont from, so every typeface is one the machine already
+has and the whole thing is embedded in the binary.
+
+Editing rules cannot be done in place the way a tunnel going down can: rules
+are compiled into the routing engine, so applying them rebuilds it and
+interrupts open connections. The new configuration is therefore built and
+accepted before the running one is touched, and a rule with a typo in it
+leaves the client running exactly as it was.
+
+Client privilege separation is still open: creating a TUN interface needs
+elevation, and splitting out a signed helper needs an Apple developer identity
+on macOS.

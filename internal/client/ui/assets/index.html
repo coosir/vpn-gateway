@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vpn-gateway</title>
+<style>
+/* ---------------------------------------------------------------------------
+   An instrument panel, not a dashboard.
+   Everything is monospace and every font is one the machine already has: this
+   interface is most needed when the tunnels are down, which is exactly when
+   there is no network to fetch a webfont from.
+--------------------------------------------------------------------------- */
+:root {
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo,
+          Consolas, "DejaVu Sans Mono", monospace;
+
+  --bg:        #f4f2ed;
+  --surface:   #fbfaf7;
+  --raised:    #ffffff;
+  --hair:      #e2ddd2;
+  --hair-firm: #cdc6b8;
+  --ink:       #17191d;
+  --dim:       #666b73;
+  --faint:     #9aa0a7;
+  --live:      #14795f;
+  --live-bg:   #e2f0eb;
+  --down:      #b04226;
+  --down-bg:   #f7e6e1;
+  --amber:     #9a6412;
+  --amber-bg:  #f6ecd9;
+  --focus:     #1a1c20;
+  --lamp-glow: none;
+}
+/* Dark palette, applied by the explicit choice or by the system default. */
+:root[data-theme="dark"] {
+  --bg:        #0d0f12;
+  --surface:   #14171c;
+  --raised:    #191d23;
+  --hair:      #232830;
+  --hair-firm: #333b45;
+  --ink:       #d7dce3;
+  --dim:       #7b838f;
+  --faint:     #565e69;
+  --live:      #45c9a3;
+  --live-bg:   #10241f;
+  --down:      #e3705a;
+  --down-bg:   #2a1512;
+  --amber:     #e0a458;
+  --amber-bg:  #2a2011;
+  --focus:     #d7dce3;
+  --lamp-glow: 0 0 7px currentColor;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] {
+    --bg:        #0d0f12;
+    --surface:   #14171c;
+    --raised:    #191d23;
+    --hair:      #232830;
+    --hair-firm: #333b45;
+    --ink:       #d7dce3;
+    --dim:       #7b838f;
+    --faint:     #565e69;
+    --live:      #45c9a3;
+    --live-bg:   #10241f;
+    --down:      #e3705a;
+    --down-bg:   #2a1512;
+    --amber:     #e0a458;
+    --amber-bg:  #2a2011;
+    --focus:     #d7dce3;
+    --lamp-glow: 0 0 7px currentColor;
+  }
+}
+
+* { box-sizing: border-box; }
+/* An author rule with a display value beats the user agent's [hidden] rule,
+   so anything toggled by the hidden attribute needs this to actually hide. */
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 13px/1.5 var(--mono);
+  font-variant-ligatures: none;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+
+/* --- shell ------------------------------------------------------------- */
+.shell { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+
+.bar {
+  display: flex; align-items: center; gap: 20px;
+  padding: 0 18px; height: 46px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--hair);
+  position: sticky; top: 0; z-index: 20;
+}
+.mark {
+  font-weight: 700; letter-spacing: .1em; font-size: 11px;
+  text-transform: uppercase;
+  display: flex; align-items: center; gap: 9px;
+}
+.mark .bug {
+  width: 9px; height: 9px; border-radius: 2px;
+  background: var(--live); color: var(--live);
+  box-shadow: var(--lamp-glow);
+}
+.bar .gap { flex: 1; }
+.readout { display: flex; gap: 18px; color: var(--dim); font-size: 11px; }
+.readout b { color: var(--ink); font-weight: 600; }
+
+.body { display: grid; grid-template-columns: 168px 1fr; min-height: 0; }
+
+.rail {
+  border-right: 1px solid var(--hair);
+  padding: 14px 0;
+  background: var(--surface);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.rail button {
+  appearance: none; border: 0; background: none; color: var(--dim);
+  font: inherit; text-align: left; cursor: pointer;
+  padding: 7px 18px; display: flex; align-items: center; gap: 10px;
+  border-left: 2px solid transparent;
+}
+.rail button:hover { color: var(--ink); background: var(--bg); }
+.rail button[aria-current="true"] {
+  color: var(--ink); border-left-color: var(--amber); background: var(--bg);
+}
+.rail .count {
+  margin-left: auto; font-size: 10px; color: var(--faint);
+}
+.rail .sep { height: 1px; background: var(--hair); margin: 12px 18px; }
+.rail .meta {
+  padding: 4px 18px; font-size: 10px; color: var(--faint); line-height: 1.7;
+  white-space: pre-line; overflow-wrap: anywhere;
+}
+
+.pane { overflow: auto; padding: 22px 26px 60px; min-width: 0; }
+
+h2 {
+  margin: 0 0 3px; font-size: 12px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase;
+}
+.sub { margin: 0 0 20px; color: var(--dim); font-size: 11px; max-width: 62ch; }
+
+/* --- tunnels: a wiring diagram ----------------------------------------- */
+.tunnels { position: relative; }
+/* The bus every lamp sits on. */
+.tunnels::before {
+  content: ""; position: absolute; left: 5.5px; top: 14px; bottom: 14px;
+  width: 1px; background: var(--hair-firm);
+}
+.tunnel {
+  display: grid;
+  grid-template-columns: 12px minmax(96px, 168px) 52px minmax(0, 1fr) auto;
+  gap: 18px; align-items: baseline;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--hair);
+  animation: rise .28s ease both;
+}
+@keyframes rise { from { opacity: 0; transform: translateY(3px); } }
+@media (prefers-reduced-motion: reduce) { .tunnel { animation: none; } }
+
+.lamp {
+  width: 11px; height: 11px; border-radius: 50%;
+  align-self: center; justify-self: center;
+  border: 1px solid var(--hair-firm);
+  background: var(--bg);
+  transition: background .2s, box-shadow .2s, border-color .2s;
+}
+.lamp.on {
+  background: var(--live); border-color: var(--live);
+  color: var(--live); box-shadow: var(--lamp-glow);
+}
+.lamp.off {
+  background: var(--down); border-color: var(--down);
+  color: var(--down); box-shadow: var(--lamp-glow);
+}
+.tname { font-weight: 600; overflow-wrap: anywhere; }
+.tstate { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.tstate.on { color: var(--live); }
+.tstate.off { color: var(--down); }
+.facts { color: var(--dim); font-size: 11px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.facts .k { color: var(--faint); }
+.facts code { color: var(--ink); }
+
+/* --- rules -------------------------------------------------------------- */
+.rule {
+  border: 1px solid var(--hair); background: var(--surface);
+  padding: 12px; margin-bottom: 10px;
+}
+.matcher { display: flex; gap: 8px; margin-bottom: 7px; align-items: center; }
+.matcher select { width: 148px; flex: none; }
+.matcher input { flex: 1; min-width: 0; }
+.rule-foot {
+  display: flex; gap: 10px; align-items: center;
+  margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--hair);
+}
+.rule-foot .arrow { color: var(--faint); }
+.rule-foot .grow { flex: 1; }
+
+select, input[type=text] {
+  appearance: none; font: inherit; color: var(--ink);
+  background: var(--raised);
+  border: 1px solid var(--hair-firm); border-radius: 0;
+  padding: 5px 8px; min-width: 0;
+}
+select { padding-right: 24px; background-image: none; }
+input[type=text]::placeholder { color: var(--faint); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+button.act {
+  appearance: none; font: inherit; cursor: pointer;
+  background: var(--raised); color: var(--ink);
+  border: 1px solid var(--hair-firm); padding: 5px 11px;
+}
+button.act:hover { border-color: var(--focus); }
+button.act.primary {
+  background: var(--ink); color: var(--bg); border-color: var(--ink);
+}
+button.act.primary:hover { opacity: .86; }
+button.act.quiet { border-color: transparent; color: var(--dim); background: none; }
+button.act.quiet:hover { color: var(--down); border-color: var(--hair-firm); }
+button.act:disabled { opacity: .45; cursor: default; }
+
+.toolbar { display: flex; gap: 9px; align-items: center; margin: 16px 0 0; }
+.note { font-size: 11px; color: var(--dim); }
+.note.bad { color: var(--down); }
+.note.good { color: var(--live); }
+
+/* --- logs --------------------------------------------------------------- */
+.logs {
+  background: var(--surface); border: 1px solid var(--hair);
+  padding: 12px 14px; margin: 0;
+  font-size: 11.5px; line-height: 1.65;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 62vh; overflow: auto; color: var(--dim);
+}
+.logs strong { color: var(--ink); font-weight: 500; }
+
+/* --- the prompt: the one moment that must interrupt --------------------- */
+.veil {
+  position: fixed; inset: 0; z-index: 60;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(3px);
+  display: grid; place-items: center; padding: 24px;
+}
+.prompt {
+  width: min(520px, 100%);
+  background: var(--raised);
+  border: 1px solid var(--hair-firm);
+  border-top: 2px solid var(--amber);
+  padding: 22px 24px 20px;
+  box-shadow: 0 24px 60px -24px rgba(0,0,0,.45);
+  animation: drop .22s cubic-bezier(.2,.8,.3,1) both;
+}
+@keyframes drop { from { opacity: 0; transform: translateY(-10px); } }
+@media (prefers-reduced-motion: reduce) { .prompt { animation: none; } }
+.prompt .kind {
+  font-size: 10px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--amber); margin-bottom: 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+.prompt .kind::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--amber); color: var(--amber); box-shadow: var(--lamp-glow);
+}
+.prompt h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.prompt .why { margin: 0 0 16px; color: var(--dim); font-size: 12px; }
+.prompt input[type=text] {
+  width: 100%; font-size: 19px; letter-spacing: .1em;
+  padding: 10px 12px; text-align: center;
+}
+.prompt .link {
+  display: block; margin: 0 0 14px; padding: 9px 11px;
+  background: var(--amber-bg); border: 1px solid var(--hair);
+  font-size: 11px; overflow-wrap: anywhere;
+}
+.prompt .foot {
+  display: flex; align-items: center; gap: 10px; margin-top: 16px;
+}
+.prompt .expiry { flex: 1; font-size: 11px; color: var(--dim); }
+.prompt .expiry.soon { color: var(--down); }
+
+.empty {
+  border: 1px dashed var(--hair-firm); padding: 22px;
+  color: var(--dim); font-size: 12px; text-align: center;
+}
+.offline {
+  background: var(--down-bg); color: var(--down);
+  border: 1px solid currentColor; padding: 7px 11px;
+  font-size: 11px; margin-bottom: 16px;
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="bar">
+    <div class="mark"><span class="bug" id="bug"></span>vpn-gateway</div>
+    <div class="readout">
+      <span><b id="r-up">0</b>/<span id="r-total">0</span> tunnels up</span>
+      <span>ingress <b id="r-ingress">—</b></span>
+      <span>on failure <b id="r-fail">—</b></span>
+    </div>
+    <div class="gap"></div>
+    <button class="act" id="theme" title="Switch theme">theme</button>
+  </header>
+
+  <div class="body">
+    <nav class="rail">
+      <button data-pane="tunnels" aria-current="true">tunnels<span class="count" id="c-tunnels"></span></button>
+      <button data-pane="rules">rules<span class="count" id="c-rules"></span></button>
+      <button data-pane="logs">logs</button>
+      <button data-pane="config">config</button>
+      <div class="sep"></div>
+      <div class="meta" id="railmeta"></div>
+    </nav>
+
+    <main>
+      <section class="pane" id="pane-tunnels">
+        <div class="offline" id="offline" hidden>Not receiving updates from the client.</div>
+        <h2>Tunnels</h2>
+        <p class="sub">What the server reports. Routes and resolvers come from the VPN itself and become routing rules automatically.</p>
+        <div class="tunnels" id="tunnels"></div>
+      </section>
+
+      <section class="pane" id="pane-rules" hidden>
+        <h2>Routing rules</h2>
+        <p class="sub">Matched in order, before anything derived from what a tunnel reports, so an explicit choice always wins. Applying rebuilds the routing engine and briefly interrupts open connections.</p>
+        <div id="rules"></div>
+        <div class="toolbar">
+          <button class="act" id="add-rule">add rule</button>
+          <button class="act primary" id="apply-rules">apply &amp; save</button>
+          <button class="act quiet" id="revert-rules">revert</button>
+          <span class="note" id="rules-note"></span>
+        </div>
+      </section>
+
+      <section class="pane" id="pane-logs" hidden>
+        <h2>Container logs</h2>
+        <p class="sub">Read from the tunnel's container on the server.</p>
+        <div class="toolbar" style="margin:0 0 14px">
+          <select id="log-tunnel"></select>
+          <button class="act" id="log-refresh">refresh</button>
+          <button class="act" id="log-reconnect">reconnect tunnel</button>
+          <span class="note" id="log-note"></span>
+        </div>
+        <pre class="logs" id="logs">Pick a tunnel.</pre>
+      </section>
+
+      <section class="pane" id="pane-config" hidden>
+        <h2>Generated configuration</h2>
+        <p class="sub">What the routing engine is actually running, rules and all. Useful when a request goes somewhere unexpected.</p>
+        <pre class="logs" id="genconfig">Loading…</pre>
+      </section>
+    </main>
+  </div>
+</div>
+
+<div class="veil" id="veil" hidden>
+  <div class="prompt" role="dialog" aria-modal="true" aria-labelledby="p-title">
+    <div class="kind" id="p-kind"></div>
+    <h3 id="p-title"></h3>
+    <p class="why" id="p-why"></p>
+    <a class="link" id="p-link" hidden target="_blank" rel="noreferrer"></a>
+    <input type="text" id="p-input" autocomplete="off" autocapitalize="off"
+           autocorrect="off" spellcheck="false" inputmode="text">
+    <div class="foot">
+      <span class="expiry" id="p-expiry"></span>
+      <button class="act" id="p-skip">not now</button>
+      <button class="act primary" id="p-send">send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* The token arrives in the address bar once and is kept for this tab only, so
+   a bookmark or a shared screenshot of the URL does not stay usable. */
+const TOKEN = (() => {
+  const p = new URLSearchParams(location.search);
+  const fromURL = p.get("token");
+  if (fromURL) {
+    sessionStorage.setItem("vg.token", fromURL);
+    history.replaceState(null, "", location.pathname);
+    return fromURL;
+  }
+  return sessionStorage.getItem("vg.token") || "";
+})();
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+};
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { ...(opts.headers || {}), Authorization: "Bearer " + TOKEN },
+  });
+  if (!res.ok) {
+    let msg = res.status + " " + res.statusText;
+    try { const b = await res.json(); if (b.error) msg = b.error; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res;
+}
+
+/* --- theme --------------------------------------------------------------- */
+const root = document.documentElement;
+root.dataset.theme = localStorage.getItem("vg.theme") || "auto";
+$("theme").addEventListener("click", () => {
+  const order = ["auto", "light", "dark"];
+  const next = order[(order.indexOf(root.dataset.theme) + 1) % order.length];
+  root.dataset.theme = next;
+  localStorage.setItem("vg.theme", next);
+  $("theme").textContent = next === "auto" ? "theme" : next;
+});
+$("theme").textContent = root.dataset.theme === "auto" ? "theme" : root.dataset.theme;
+
+/* --- panes --------------------------------------------------------------- */
+document.querySelectorAll(".rail button[data-pane]").forEach((b) => {
+  b.addEventListener("click", () => {
+    document.querySelectorAll(".rail button[data-pane]").forEach((o) =>
+      o.setAttribute("aria-current", String(o === b)));
+    document.querySelectorAll(".pane").forEach((p) =>
+      p.hidden = p.id !== "pane-" + b.dataset.pane);
+    if (b.dataset.pane === "config") loadGeneratedConfig();
+    // Showing "Pick a tunnel" next to a dropdown that already has one picked
+    // is just an extra click for no reason.
+    if (b.dataset.pane === "logs" && $("log-tunnel").value) loadLogs();
+  });
+});
+
+/* --- state --------------------------------------------------------------- */
+let state = { tunnels: [], prompts: [], rules: [], client: {}, server: {} };
+let draft = null;          // rules being edited; null means "showing live"
+let shownPrompt = null;
+/* What the rules editor is currently showing. Updates arrive every couple of
+   seconds, and rebuilding the editor for one that changed nothing would throw
+   away the field someone had just clicked into, along with anything they had
+   started typing. */
+let renderedRules = null;
+
+function render(s) {
+  state = s;
+  renderReadout(s);
+  renderTunnels(s.tunnels);
+  renderLogTunnels(s.tunnels);
+  if (draft === null) {
+    const fresh = JSON.stringify(s.rules);
+    if (fresh !== renderedRules) {
+      renderedRules = fresh;
+      renderRules(s.rules);
+    }
+  }
+  $("c-tunnels").textContent = s.tunnels.length || "";
+  $("c-rules").textContent = (draft || s.rules).length || "";
+  renderPrompt(s.prompts);
+}
+
+function renderReadout(s) {
+  const up = s.tunnels.filter((t) => t.up).length;
+  $("r-up").textContent = up;
+  $("r-total").textContent = s.tunnels.length;
+  const ingress = [s.client.tun && "tun", s.client.proxy && "proxy"].filter(Boolean);
+  $("r-ingress").textContent = ingress.join(" + ") || "none";
+  $("r-fail").textContent = s.client.on_failure || "—";
+  $("bug").style.background = up ? "" : "var(--down)";
+  $("bug").style.color = up ? "" : "var(--down)";
+
+  const bits = [];
+  if (s.client.proxy_listen) bits.push("proxy " + s.client.proxy_listen);
+  if (s.client.dns_default) bits.push("dns " + s.client.dns_default);
+  bits.push("auto routes " + (s.client.auto_routes ? "on" : "off"));
+  bits.push("auto domains " + (s.client.auto_domains ? "on" : "off"));
+  $("railmeta").textContent = bits.join("\n");
+}
+
+function renderTunnels(tunnels) {
+  const box = $("tunnels");
+  box.textContent = "";
+  if (!tunnels.length) {
+    box.appendChild(el("div", "empty", "No tunnels. The bundle names none the server has."));
+    return;
+  }
+  tunnels.forEach((t, i) => {
+    const row = el("div", "tunnel");
+    row.style.animationDelay = Math.min(i * 45, 400) + "ms";
+
+    row.appendChild(el("span", "lamp " + (t.up ? "on" : "off")));
+    row.appendChild(el("span", "tname", t.name));
+    row.appendChild(el("span", "tstate " + (t.up ? "on" : "off"), t.up ? "up" : "down"));
+
+    const facts = el("div", "facts");
+    const add = (k, v) => {
+      if (!v || !v.length) return;
+      const wrap = el("span");
+      wrap.appendChild(el("span", "k", k + " "));
+      wrap.appendChild(el("code", null, Array.isArray(v) ? v.join(" ") : v));
+      facts.appendChild(wrap);
+    };
+    add("routes", t.routes);
+    add("dns", t.dns);
+    add("search", t.search_domains);
+    if (!t.udp) facts.appendChild(el("span", "k", "dns over tcp"));
+    if (!facts.children.length) facts.appendChild(el("span", "k", "nothing reported yet"));
+    row.appendChild(facts);
+
+    const go = el("button", "act quiet", "logs");
+    go.addEventListener("click", () => {
+      document.querySelector('.rail button[data-pane="logs"]').click();
+      $("log-tunnel").value = t.name;
+      loadLogs();
+    });
+    row.appendChild(go);
+    box.appendChild(row);
+  });
+}
+
+/* --- rules --------------------------------------------------------------- */
+const MATCHERS = [
+  ["domain_suffix", "domain suffix"],
+  ["domain", "domain"],
+  ["domain_keyword", "domain keyword"],
+  ["ip_cidr", "ip cidr"],
+  ["port", "port"],
+];
+
+function currentRules() { return draft !== null ? draft : state.rules; }
+
+function markDirty() {
+  if (draft === null) draft = JSON.parse(JSON.stringify(state.rules));
+  $("rules-note").textContent = "unapplied changes";
+  $("rules-note").className = "note";
+  $("c-rules").textContent = draft.length || "";
+}
+
+function renderRules(rules) {
+  const box = $("rules");
+  box.textContent = "";
+  if (!rules.length) {
+    box.appendChild(el("div", "empty",
+      "No explicit rules. Traffic follows what each tunnel reports, and everything else goes direct."));
+    return;
+  }
+  rules.forEach((rule, ri) => {
+    const card = el("div", "rule");
+
+    const kinds = MATCHERS.filter(([k]) => rule[k] && rule[k].length);
+    if (!kinds.length) kinds.push(MATCHERS[0]);
+
+    kinds.forEach(([kind]) => {
+      const line = el("div", "matcher");
+      const sel = el("select");
+      MATCHERS.forEach(([k, label]) => {
+        const o = el("option", null, label);
+        o.value = k;
+        if (k === kind) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.addEventListener("change", () => {
+        markDirty();
+        const values = draft[ri][kind] || [];
+        delete draft[ri][kind];
+        draft[ri][sel.value] = values;
+        renderRules(draft);
+      });
+
+      const input = el("input");
+      input.type = "text";
+      input.placeholder = kind === "ip_cidr" ? "10.20.0.0/16, 192.168.1.0/24"
+                        : kind === "port" ? "443, 8443"
+                        : "corp.example.com, internal.corp";
+      input.value = (rule[kind] || []).join(", ");
+      input.addEventListener("input", () => {
+        markDirty();
+        const parts = input.value.split(",").map((v) => v.trim()).filter(Boolean);
+        draft[ri][kind] = kind === "port" ? parts.map(Number).filter((n) => !isNaN(n)) : parts;
+      });
+
+      const drop = el("button", "act quiet", "✕");
+      drop.title = "remove this matcher";
+      drop.addEventListener("click", () => {
+        markDirty();
+        delete draft[ri][kind];
+        renderRules(draft);
+      });
+
+      line.append(sel, input, drop);
+      card.appendChild(line);
+    });
+
+    const foot = el("div", "rule-foot");
+    const more = el("button", "act", "+ matcher");
+    more.addEventListener("click", () => {
+      markDirty();
+      const unused = MATCHERS.find(([k]) => !draft[ri][k] || !draft[ri][k].length);
+      if (unused) { draft[ri][unused[0]] = []; renderRules(draft); }
+    });
+
+    const target = el("select");
+    const targets = ["direct", "block", ...state.tunnels.map((t) => t.name)];
+    if (rule.tunnel && !targets.includes(rule.tunnel)) targets.push(rule.tunnel);
+    targets.forEach((name) => {
+      const o = el("option", null, name);
+      o.value = name;
+      if (name === rule.tunnel) o.selected = true;
+      target.appendChild(o);
+    });
+    target.addEventListener("change", () => { markDirty(); draft[ri].tunnel = target.value; });
+
+    const remove = el("button", "act quiet", "delete rule");
+    remove.addEventListener("click", () => {
+      markDirty();
+      draft.splice(ri, 1);
+      renderRules(draft);
+    });
+
+    foot.append(more, el("span", "grow"), remove, el("span", "arrow", "→"), target);
+    card.appendChild(foot);
+    box.appendChild(card);
+  });
+}
+
+$("add-rule").addEventListener("click", () => {
+  markDirty();
+  draft.push({ domain_suffix: [], tunnel: state.tunnels[0] ? state.tunnels[0].name : "direct" });
+  renderRules(draft);
+});
+
+$("revert-rules").addEventListener("click", () => {
+  draft = null;
+  renderedRules = JSON.stringify(state.rules);
+  $("rules-note").textContent = "";
+  renderRules(state.rules);
+});
+
+$("apply-rules").addEventListener("click", async () => {
+  const rules = (draft || state.rules).map((r) => {
+    const out = { tunnel: r.tunnel };
+    MATCHERS.forEach(([k]) => { if (r[k] && r[k].length) out[k] = r[k]; });
+    return out;
+  });
+  const note = $("rules-note");
+  note.className = "note";
+  note.textContent = "applying…";
+  $("apply-rules").disabled = true;
+  try {
+    await api("/api/rules", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rules),
+    });
+    draft = null;
+    // Force the editor to redraw from what the client accepted, rather than
+    // from what was typed: the two can differ, and the accepted one is true.
+    renderedRules = null;
+    note.className = "note good";
+    note.textContent = "applied and saved";
+  } catch (e) {
+    note.className = "note bad";
+    note.textContent = e.message;
+  } finally {
+    $("apply-rules").disabled = false;
+  }
+});
+
+/* --- logs ---------------------------------------------------------------- */
+function renderLogTunnels(tunnels) {
+  const sel = $("log-tunnel");
+  const keep = sel.value;
+  if (sel.children.length === tunnels.length &&
+      [...sel.children].every((o, i) => tunnels[i] && o.value === tunnels[i].name)) return;
+  sel.textContent = "";
+  tunnels.forEach((t) => {
+    const o = el("option", null, t.name);
+    o.value = t.name;
+    sel.appendChild(o);
+  });
+  if (keep) sel.value = keep;
+}
+
+async function loadLogs() {
+  const name = $("log-tunnel").value;
+  if (!name) return;
+  const out = $("logs");
+  $("log-note").textContent = "";
+  out.textContent = "Loading…";
+  try {
+    const res = await api("/api/tunnels/" + encodeURIComponent(name) + "/logs?tail=300");
+    const text = await res.text();
+    out.textContent = text.trim() || "Nothing logged yet.";
+    out.scrollTop = out.scrollHeight;
+  } catch (e) {
+    out.textContent = "";
+    $("log-note").className = "note bad";
+    $("log-note").textContent = e.message;
+  }
+}
+$("log-refresh").addEventListener("click", loadLogs);
+$("log-tunnel").addEventListener("change", loadLogs);
+$("log-reconnect").addEventListener("click", async () => {
+  const name = $("log-tunnel").value;
+  if (!name) return;
+  try {
+    await api("/api/tunnels/" + encodeURIComponent(name) + "/reconnect", { method: "POST" });
+    $("log-note").className = "note good";
+    $("log-note").textContent = "reconnecting " + name;
+  } catch (e) {
+    $("log-note").className = "note bad";
+    $("log-note").textContent = e.message;
+  }
+});
+
+async function loadGeneratedConfig() {
+  const out = $("genconfig");
+  out.textContent = "Loading…";
+  try {
+    const res = await api("/api/generated-config");
+    out.textContent = JSON.stringify(await res.json(), null, 2);
+  } catch (e) {
+    out.textContent = e.message;
+  }
+}
+
+/* --- prompts ------------------------------------------------------------- */
+const KIND_TEXT = {
+  sms: ["Verification code", "The gateway sent a code by SMS."],
+  totp: ["Authenticator code", "Enter the current code from your authenticator app."],
+  captcha: ["Characters from the image", "The gateway is showing an image to read."],
+  url: ["Sign-on address", "Sign in on the page below, then paste the address it sends you to."],
+  password: ["Password or token", "The gateway is asking for one more credential."],
+  vnc: ["Graphical login", "This client cannot log in without a screen."],
+};
+
+function renderPrompt(prompts) {
+  const p = prompts && prompts[0];
+  if (!p) {
+    $("veil").hidden = true;
+    shownPrompt = null;
+    return;
+  }
+  if (shownPrompt === p.id) return;
+  shownPrompt = p.id;
+
+  const [title, why] = KIND_TEXT[p.type] || ["Authentication", p.prompt];
+  $("p-kind").textContent = p.tunnel + " · " + p.type;
+  $("p-title").textContent = title;
+  $("p-why").textContent = p.prompt || why;
+
+  const link = $("p-link");
+  if (p.url) { link.hidden = false; link.href = p.url; link.textContent = p.url; }
+  else if (p.vnc_port) {
+    link.hidden = false; link.removeAttribute("href");
+    link.textContent = "Point a VNC viewer at the server, port " + p.vnc_port + ", and sign in there.";
+  } else link.hidden = true;
+
+  const input = $("p-input");
+  input.value = "";
+  input.placeholder = p.type === "url" ? "https://…" : "";
+  input.type = p.type === "password" ? "password" : "text";
+  $("veil").hidden = false;
+  input.focus();
+
+  clearInterval(renderPrompt.timer);
+  const tick = () => {
+    const left = Math.floor((new Date(p.expires_at) - Date.now()) / 1000);
+    const box = $("p-expiry");
+    if (!p.expires_at || isNaN(left)) { box.textContent = ""; return; }
+    if (left <= 0) { box.textContent = "expired"; box.className = "expiry soon"; return; }
+    box.textContent = "expires in " + Math.floor(left / 60) + "m " + (left % 60) + "s";
+    box.className = "expiry" + (left < 30 ? " soon" : "");
+  };
+  tick();
+  renderPrompt.timer = setInterval(tick, 1000);
+}
+
+async function sendPrompt() {
+  if (!shownPrompt) return;
+  const value = $("p-input").value.trim();
+  if (!value) { $("p-input").focus(); return; }
+  $("p-send").disabled = true;
+  try {
+    await api("/api/prompts/" + encodeURIComponent(shownPrompt), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value }),
+    });
+    $("veil").hidden = true;
+    shownPrompt = null;
+  } catch (e) {
+    $("p-why").textContent = e.message;
+  } finally {
+    $("p-send").disabled = false;
+  }
+}
+$("p-send").addEventListener("click", sendPrompt);
+$("p-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendPrompt(); });
+$("p-skip").addEventListener("click", () => { $("veil").hidden = true; });
+
+/* --- live updates -------------------------------------------------------- */
+function connect() {
+  const src = new EventSource("/api/events?token=" + encodeURIComponent(TOKEN));
+  src.onmessage = (ev) => {
+    $("offline").hidden = true;
+    try { render(JSON.parse(ev.data)); } catch (_) {}
+  };
+  src.onerror = () => {
+    $("offline").hidden = false;
+    src.close();
+    // The client may be restarting its routing engine; keep trying quietly.
+    setTimeout(connect, 2000);
+  };
+}
+
+if (!TOKEN) {
+  document.body.textContent =
+    "This page needs the token the client printed when it started. Open the link it gave you.";
+} else {
+  api("/api/state").then((r) => r.json()).then(render).catch(() => {});
+  connect();
+}
+</script>
+</body>
+</html>

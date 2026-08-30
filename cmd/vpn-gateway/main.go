@@ -10,12 +10,32 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"text/tabwriter"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/client"
+	"github.com/vpn-gateway/vpn-gateway/internal/client/ui"
 )
+
+// openBrowser opens the interface. Failing to is not worth stopping for: the
+// link has already been printed.
+func openBrowser(link string, log *slog.Logger) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", link)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", link)
+	default:
+		cmd = exec.Command("xdg-open", link)
+	}
+	if err := cmd.Start(); err != nil {
+		log.Warn("could not open a browser; use the printed link", "error", err)
+	}
+}
 
 const usage = `vpn-gateway routes traffic to several VPNs at once.
 
@@ -28,6 +48,9 @@ Commands:
   config   print the generated sing-box configuration and exit
   check    validate the configuration and the bundle, then exit
   auth     answer interactive login prompts as tunnels raise them
+
+Set ui.enabled to serve a local interface while the client runs: tunnel
+state, the rule editor, container logs and login prompts.
 
 Bringing up a TUN interface needs elevated privileges. Set proxy.enabled to
 use a local SOCKS5 and HTTP port instead, which does not.
@@ -113,9 +136,29 @@ func run(configPath, logLevel, command string) error {
 		defer c.Close()
 
 		go c.Watch(ctx)
-		// Answering prompts from the same process means a tunnel that needs a
-		// code after a reconnect does not require a second command.
-		go client.WatchChallenges(ctx, c.API(), &client.TerminalPrompter{In: os.Stdin, Out: os.Stdout})
+
+		// Challenges go to whichever is listening: the interface when it is
+		// running, the terminal otherwise. Either way a tunnel that needs a
+		// code after reconnecting does not require a second command.
+		prompter := client.Prompter(&client.TerminalPrompter{In: os.Stdin, Out: os.Stdout})
+		if cfg.UI.Enabled {
+			token, err := ui.LoadOrCreateToken(cfg.UI.StateDir)
+			if err != nil {
+				return err
+			}
+			srv := ui.New(c, configPath, token, log)
+			addr, err := ui.Serve(ctx, cfg.UI.Listen, srv.Handler(), log)
+			if err != nil {
+				return err
+			}
+			link := fmt.Sprintf("http://%s/?token=%s", addr, token)
+			fmt.Printf("interface: %s\n", link)
+			if cfg.UI.Open {
+				openBrowser(link, log)
+			}
+			prompter = srv.Prompter()
+		}
+		go client.WatchChallenges(ctx, c.API(), prompter)
 
 		<-ctx.Done()
 		log.Info("shutting down")

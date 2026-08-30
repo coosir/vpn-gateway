@@ -9,6 +9,7 @@ package client
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 
@@ -34,6 +35,7 @@ type Config struct {
 	TUN   TUNConfig   `yaml:"tun"`
 	Proxy ProxyConfig `yaml:"proxy"`
 	DNS   DNSConfig   `yaml:"dns"`
+	UI    UIConfig    `yaml:"ui"`
 
 	// OnFailure is what happens to traffic for a tunnel that is not up:
 	// "direct" or "block". A tunnel going down must never take the whole
@@ -95,17 +97,35 @@ type DNSConfig struct {
 	Strategy string `yaml:"strategy"`
 }
 
+// UIConfig controls the local interface.
+type UIConfig struct {
+	// Enabled serves the interface while the client is running.
+	Enabled bool `yaml:"enabled"`
+	// Listen must be a loopback address. Anything reachable from the network
+	// would let a stranger reroute this machine's traffic.
+	Listen string `yaml:"listen"`
+	// StateDir holds the interface token, so the link stays the same between
+	// restarts.
+	StateDir string `yaml:"state_dir"`
+	// Open launches a browser at the interface when the client starts.
+	Open bool `yaml:"open"`
+}
+
 // Rule routes matching traffic to a tunnel. Every matcher within one rule is
 // combined with OR, matching sing-box's own semantics.
+// The JSON names must match the YAML ones: the interface reads and writes
+// rules over JSON and saves them back to the YAML file, so a mismatch would
+// silently replace a person's rules with empty ones the first time they
+// pressed apply.
 type Rule struct {
-	Domain        []string `yaml:"domain"`
-	DomainSuffix  []string `yaml:"domain_suffix"`
-	DomainKeyword []string `yaml:"domain_keyword"`
-	IPCIDR        []string `yaml:"ip_cidr"`
-	Port          []int    `yaml:"port"`
+	Domain        []string `yaml:"domain,omitempty" json:"domain,omitempty"`
+	DomainSuffix  []string `yaml:"domain_suffix,omitempty" json:"domain_suffix,omitempty"`
+	DomainKeyword []string `yaml:"domain_keyword,omitempty" json:"domain_keyword,omitempty"`
+	IPCIDR        []string `yaml:"ip_cidr,omitempty" json:"ip_cidr,omitempty"`
+	Port          []int    `yaml:"port,omitempty" json:"port,omitempty"`
 
 	// Tunnel is a tunnel name, or "direct" or "block".
-	Tunnel string `yaml:"tunnel"`
+	Tunnel string `yaml:"tunnel" json:"tunnel"`
 }
 
 // hasMatcher reports whether the rule matches anything at all.
@@ -170,6 +190,12 @@ func (c *Config) applyDefaults() {
 	if c.Proxy.Enabled && c.Proxy.Listen == "" {
 		c.Proxy.Listen = "127.0.0.1:1080"
 	}
+	if c.UI.Listen == "" {
+		c.UI.Listen = "127.0.0.1:8645"
+	}
+	if c.UI.StateDir == "" {
+		c.UI.StateDir = "/var/lib/vpn-gateway"
+	}
 }
 
 // Validate reports every problem it finds, so a broken file can be fixed in
@@ -198,6 +224,15 @@ func (c *Config) Validate() error {
 		case "system", "gvisor", "mixed":
 		default:
 			errs = append(errs, fmt.Errorf("tun.stack: want system, gvisor or mixed, got %q", c.TUN.Stack))
+		}
+	}
+
+	if c.UI.Enabled {
+		host, _, err := net.SplitHostPort(c.UI.Listen)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("ui.listen: %q is not a host:port address", c.UI.Listen))
+		} else if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+			errs = append(errs, fmt.Errorf("ui.listen must be a loopback address, got %q", host))
 		}
 	}
 
