@@ -144,7 +144,8 @@ vpn-gateway-server -config /etc/vpn-gateway/config.yaml -check
 
 `-check` also resolves every tunnel's credentials, so a `password_env` that
 is not set is reported here rather than as a failed login against a real
-account later.
+account later. Nothing configured so far needs one; see [where the password
+goes](#where-the-password-goes) in step 6 for how to set them.
 
 ## 3. Run it
 
@@ -275,17 +276,97 @@ running as root). At that point all traffic goes through the routing engine.
 
 ## 6. Add a real VPN
 
-Now that the path is proven, add the gateway. Passwords never go in the
-configuration file:
+Now that the path is proven, add the gateway.
+
+### Where the password goes
+
+Not in `config.yaml`. A tunnel names *where to find* its password, and the
+server reads it at the moment it creates the container:
+
+```yaml
+password_env:  CORP_PASSWORD              # an environment variable
+password_file: /etc/vpn-gateway/corp.pw   # a file whose contents are the password
+password:      hunter2                    # plain text, for a throwaway test only
+```
+
+Set at most one of the three. Two is rejected when the configuration is
+checked rather than one of them silently winning:
+
+```
+tunnels["corp"]: set at most one of password, password_env, password_file
+```
+
+**With systemd** the unit already reads an environment file:
+
+```ini
+EnvironmentFile=-/etc/vpn-gateway/credentials.env
+```
+
+so the whole job is writing that file and restarting the service:
 
 ```sh
 sudo tee /etc/vpn-gateway/credentials.env >/dev/null <<'EOF'
-CORP_PASSWORD=…
+CORP_PASSWORD='…'
+SCHOOL_EC_PASSWORD='…'
 EOF
 sudo chmod 0600 /etc/vpn-gateway/credentials.env
+sudo systemctl restart vpn-gateway-server
 ```
 
-The unit already reads that file. Add the tunnel:
+Quote the values. That file is read by systemd, not by a shell, so `NAME=a b`
+is a perfectly good password with a space in it — but the same line breaks
+when *you* source the file to check something by hand, and `#` starts a
+comment. Single quotes are understood by both, which is what makes one file
+serve both purposes. Beyond that: one `NAME=value` per line, no `export`, and
+no `$OTHER` to interpolate.
+
+A password cannot contain a newline in any of the three forms. The container's
+environment is written as a file parsed line by line, so the server refuses
+rather than truncating the password and failing the login for a reason nobody
+could guess. `-check` does not catch this one — it looks at the value, not at
+the file that will carry it — so it surfaces as `VG_PASSWORD must not contain
+a newline` the first time the tunnel is dialled.
+
+The environment is read once, when the process starts. A changed password
+therefore needs `systemctl restart`, not just a save.
+
+**Without systemd**, put the variables into whatever starts the server, the
+same way — an `Environment=` line, a wrapper script, your container manager's
+env-file. The server reads its own process environment and nothing else; a
+variable exported in your login shell is not visible to a running service.
+
+**Checking it by hand.** `-check` resolves every credential, so it reports a
+missing variable here rather than as a failed login against a real account
+later. But it reads the environment *it* was given, and `sudo` clears the one
+you had, so source the file inside the elevated shell:
+
+```sh
+sudo sh -c '
+  set -a
+  . /etc/vpn-gateway/credentials.env
+  set +a
+  exec vpn-gateway-server -config /etc/vpn-gateway/config.yaml -check
+'
+```
+
+`tunnel "corp": environment variable CORP_PASSWORD is not set` from *that*
+command means the service will not find it either. The same message from a
+bare `vpn-gateway-server -check` usually just means the file was not sourced.
+
+**A file instead of a variable.** `password_file` holds the password as its
+entire contents; a trailing newline is trimmed, so `printf 'secret\n' | sudo
+tee …` is fine. Keep it under `/etc/vpn-gateway/` at mode 0600: the unit sets
+`ProtectHome=true`, so a file under `/home` or `/root` is invisible to the
+service even though your shell can read it.
+
+**Where it ends up.** Whichever form you use, the password is written to
+`{state_dir}/env/<tunnel>.env` at mode 0600 and handed to the container engine
+as an env-file. It never appears on a command line, so it is not in `ps`
+output and not in `docker inspect`.
+
+### The tunnel itself
+
+Add it:
 
 ```yaml
   # Sangfor EasyConnect or aTrust. Change provider to atrust for the other.
@@ -329,7 +410,12 @@ authentications in a row is what locks a corporate account.
 Then:
 
 ```sh
-sudo vpn-gateway-server -config /etc/vpn-gateway/config.yaml -check
+sudo sh -c '
+  set -a
+  . /etc/vpn-gateway/credentials.env
+  set +a
+  exec vpn-gateway-server -config /etc/vpn-gateway/config.yaml -check
+'
 sudo systemctl restart vpn-gateway-server
 sudo vgctl -config /etc/vpn-gateway/config.yaml -host 127.0.0.1 verify
 ```
@@ -386,6 +472,17 @@ curl --socks5-hostname 127.0.0.1:1080 https://intranet.corp.example/
 vgctl -config /etc/vpn-gateway/config.yaml tunnels     # find it
 docker logs --tail 50 vpngw-corp
 ```
+
+**A tunnel fails at once with `environment variable … is not set`.** The
+server process does not have the variable, whatever your shell has. Check that
+the name in `password_env` matches the one in
+`/etc/vpn-gateway/credentials.env` exactly, and that the service was restarted
+after the file was written — the environment is only read at startup.
+`systemctl show -p Environment vpn-gateway-server` shows what it actually got.
+
+**A tunnel is rejected with a password you are sure is right.** If it contains
+a space, a `#`, or a quote, look at how it is written in
+`credentials.env`. Wrap it in single quotes.
 
 **A tunnel keeps reconnecting.** It should not: after `max_attempts` failures
 it stops and waits, and wrong credentials stop it at once. If you are watching

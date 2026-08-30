@@ -79,7 +79,9 @@ tunnels:
     server: vpn.example.edu.cn
     username: alice
     # Never put a password in this file. Point at an environment variable on
-    # the server, or a 0600 file.
+    # the server, or a 0600 file. With the shipped systemd unit the variable
+    # goes in /etc/vpn-gateway/credentials.env, single-quoted; see "Where the
+    # password goes" in docs/DEPLOY.md.
     password_env: SCHOOL_EC_PASSWORD
     extra:
       # zju-connect does not report pushed routes in a stable machine-readable
