@@ -819,6 +819,12 @@ let renderedRules = null;
 let renderedTunnels = null;
 
 function render(s) {
+  // Lists the client has nothing to put in can arrive as null rather than as
+  // an empty list. Everything below iterates them, so they are made into
+  // lists once, here, rather than guarded at each reader.
+  s.tunnels = s.tunnels || [];
+  s.rules = s.rules || [];
+  s.prompts = s.prompts || [];
   state = s;
   renderPhase(s);
   renderReadout(s);
@@ -1129,15 +1135,17 @@ const MATCHER_KINDS = ["domain_suffix", "domain", "domain_keyword", "ip_cidr", "
 function currentRules() { return draft !== null ? draft : state.rules; }
 
 function markDirty() {
-  if (draft === null) draft = JSON.parse(JSON.stringify(state.rules));
+  if (draft === null) draft = JSON.parse(JSON.stringify(state.rules || []));
   $("rules-note").textContent = t("rules.dirty");
   $("rules-note").className = "note";
-  $("c-rules").textContent = draft.length || "";
 }
 
 function renderRules(rules) {
   const box = $("rules");
   box.textContent = "";
+  // Counted here rather than by whoever made the change, so the badge always
+  // matches the rules on screen.
+  $("c-rules").textContent = rules.length || "";
   if (!rules.length) {
     box.appendChild(el("div", "empty", t("rules.empty")));
     return;

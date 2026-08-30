@@ -189,11 +189,19 @@ func (s *Server) state() State {
 		}
 	}
 
+	// A configuration with no rules in it holds a nil slice, which is null on
+	// the wire. The interface iterates this list, so null breaks the rules
+	// editor the same way a null tunnel list would break the tunnel list.
+	rules := cfg.Rules
+	if rules == nil {
+		rules = []client.Rule{}
+	}
+
 	return State{
 		Session: s.ctl.Status(),
 		Tunnels: views,
 		Prompts: s.prompts.pending(),
-		Rules:   cfg.Rules,
+		Rules:   rules,
 		Client: ClientView{
 			TUN:         cfg.TUN.Enabled,
 			Proxy:       cfg.Proxy.Enabled,
@@ -261,7 +269,11 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getRules(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.ctl.Settings().Rules)
+	rules := s.ctl.Settings().Rules
+	if rules == nil {
+		rules = []client.Rule{}
+	}
+	writeJSON(w, http.StatusOK, rules)
 }
 
 // putRules validates, applies and only then saves.

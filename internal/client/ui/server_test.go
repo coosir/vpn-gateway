@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -187,6 +189,28 @@ func TestStateDescribesTheSession(t *testing.T) {
 	}
 	if !st.Client.Proxy || st.Client.OnFailure != client.TargetDirect {
 		t.Errorf("client view = %+v", st.Client)
+	}
+}
+
+func TestRulesAreNeverNullOnTheWire(t *testing.T) {
+	// A configuration with no rules holds a nil slice. Sent as null, it broke
+	// the rules editor outright: "add rule" threw before it could add one, so
+	// the button did nothing on exactly the fresh install that needs it most.
+	_, ctl, _, srv := testServer(t)
+	ctl.mu.Lock()
+	ctl.cfg.Rules = nil
+	ctl.mu.Unlock()
+
+	for _, path := range []string{"/api/state", "/api/rules"} {
+		resp := do(t, srv, http.MethodGet, path, "tok", "")
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(body, []byte(`"rules":null`)) || bytes.Equal(bytes.TrimSpace(body), []byte("null")) {
+			t.Errorf("%s sent null rules; the interface iterates them: %s", path, body)
+		}
 	}
 }
 
