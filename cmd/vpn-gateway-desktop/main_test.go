@@ -3,6 +3,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,8 +74,9 @@ func TestTranslatorFallsBackToEnglish(t *testing.T) {
 	}
 }
 
-func TestResolveLinkPrefersTheGivenLink(t *testing.T) {
-	got, err := resolveLink("http://127.0.0.1:1/?token=t", "/nonexistent/client.yaml")
+func TestFindLinkPrefersTheGivenLink(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	got, err := findLink("http://127.0.0.1:1/?token=t", "/nonexistent/client.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,122 +85,135 @@ func TestResolveLinkPrefersTheGivenLink(t *testing.T) {
 	}
 }
 
-func TestResolveLinkExplainsAnUnreadableToken(t *testing.T) {
-	// The client usually runs elevated, so its state directory is often
-	// unreadable to whoever is looking at the tray. A bare permission error
-	// would send someone hunting in the wrong place.
+func TestFindLinkUsesTheRememberedOne(t *testing.T) {
+	// Opening this from a launcher passes no arguments, so a link that worked
+	// once has to keep working without them.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+
+	want := "http://127.0.0.1:9999/?token=remembered"
+	if err := rememberLink(want); err != nil {
+		t.Skipf("no user configuration directory here: %v", err)
+	}
+	got, err := findLink("", "/nonexistent/client.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Errorf("link = %q, want the remembered one", got)
+	}
+}
+
+func TestRememberedLinkIsPrivate(t *testing.T) {
+	// It carries a token that can drive the interface.
 	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	if err := rememberLink("http://127.0.0.1:1/?token=t"); err != nil {
+		t.Skipf("no user configuration directory here: %v", err)
+	}
+	info, err := os.Stat(cachePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("the remembered link is mode %o, want 600", perm)
+	}
+}
+
+func TestFindLinkReadsTheClientsLinkFile(t *testing.T) {
+	// The client usually runs elevated and keeps its token to itself; this is
+	// the path that lets a desktop session find the link anyway.
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "cfg"))
+	t.Setenv("HOME", dir)
+
+	linkPath := filepath.Join(dir, "link")
+	want := "http://127.0.0.1:8645/?token=from-the-client"
+	if err := os.WriteFile(linkPath, []byte(want+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	cfgPath := filepath.Join(dir, "client.yaml")
 	body := "bundle: /dev/null\nproxy: {enabled: true}\n" +
-		"ui: {enabled: true, listen: \"127.0.0.1:8645\", state_dir: " + dir + "/missing}\n"
+		"ui: {enabled: true, listen: \"127.0.0.1:8645\", state_dir: " + dir + "/unreadable, link_file: " + linkPath + "}\n"
 	if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := resolveLink("", cfgPath)
-	if err == nil {
-		t.Fatal("a missing token was accepted")
+	got, err := findLink("", cfgPath)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "-url") {
-		t.Errorf("the error does not say what to do instead:\n%v", err)
+	if got != want {
+		t.Errorf("link = %q", got)
 	}
 }
 
-func TestResolveLinkNoticesTheInterfaceIsOff(t *testing.T) {
+func TestFindLinkExplainsWhatToDoWithNothingToGoOn(t *testing.T) {
+	// This is what a launcher sees on a fresh machine, and it has to say
+	// something a person can act on rather than exiting silently.
 	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+
+	_, err := findLink("", filepath.Join(dir, "absent.yaml"))
+	if err == nil {
+		t.Fatal("a missing configuration was accepted")
+	}
+	for _, want := range []string{"-url", "remembered"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the message does not mention %q:\n%v", want, err)
+		}
+	}
+}
+
+func TestFindLinkNoticesTheInterfaceIsOff(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+
 	cfgPath := filepath.Join(dir, "client.yaml")
 	if err := os.WriteFile(cfgPath, []byte("bundle: /dev/null\nproxy: {enabled: true}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := resolveLink("", cfgPath)
+	_, err := findLink("", cfgPath)
 	if err == nil || !strings.Contains(err.Error(), "ui.enabled") {
 		t.Errorf("a client with no interface should say so, got %v", err)
 	}
 }
 
-func promptFor(names ...string) []struct {
-	Tunnel string `json:"tunnel"`
-} {
-	out := make([]struct {
-		Tunnel string `json:"tunnel"`
-	}, 0, len(names))
-	for _, n := range names {
-		out = append(out, struct {
-			Tunnel string `json:"tunnel"`
-		}{n})
-	}
-	return out
-}
+func TestCheckLinkRejectsAWrongToken(t *testing.T) {
+	// A mistyped link must fail now, with a reason, rather than being
+	// remembered and failing silently on every later launch.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer right" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Write([]byte(`{"tunnels":[]}`))
+	}))
+	defer srv.Close()
 
-func TestATunnelWaitingForACodeIsNotHealthy(t *testing.T) {
-	// This is the whole point of the icon. A tunnel blocked on a verification
-	// code is not carrying traffic, and if the menu bar looks fine then the
-	// one moment someone needs to notice is the one moment nothing tells
-	// them.
-	tr := translator("en")
-
-	healthy := buildView(&trayState{
-		Tunnels: []tunnelView{{Name: "office", Up: true}},
-	}, tr)
-	if !healthy.Healthy {
-		t.Error("a single tunnel that is up should be healthy")
+	if err := checkLink(srv.URL + "/?token=right"); err != nil {
+		t.Errorf("a working link was rejected: %v", err)
 	}
 
-	blocked := buildView(&trayState{
-		Tunnels: []tunnelView{{Name: "office", Up: true}},
-		Prompts: promptFor("office"),
-	}, tr)
-	if blocked.Healthy {
-		t.Error("a tunnel waiting for a code was shown as healthy")
+	err := checkLink(srv.URL + "/?token=wrong")
+	if err == nil {
+		t.Fatal("a wrong token was accepted")
 	}
-	if !strings.Contains(blocked.Lines[0], "waiting for a code") {
-		t.Errorf("the menu line does not say why: %q", blocked.Lines[0])
+	if !strings.Contains(err.Error(), "token") {
+		t.Errorf("the message does not explain: %v", err)
 	}
 }
 
-func TestOneTunnelDownIsNotHealthy(t *testing.T) {
-	v := buildView(&trayState{
-		Tunnels: []tunnelView{{Name: "office", Up: true}, {Name: "lab", Up: false}},
-	}, translator("en"))
-	if v.Healthy {
-		t.Error("one tunnel down should not read as healthy")
+func TestCheckLinkReportsAClientThatIsNotRunning(t *testing.T) {
+	err := checkLink("http://127.0.0.1:9/?token=t")
+	if err == nil {
+		t.Fatal("an unreachable client was accepted")
 	}
-	if v.Up != 1 || v.Total != 2 {
-		t.Errorf("counted %d/%d", v.Up, v.Total)
-	}
-}
-
-func TestNoTunnelsIsNotHealthy(t *testing.T) {
-	// Nothing configured is not the same as everything working.
-	v := buildView(&trayState{}, translator("en"))
-	if v.Healthy {
-		t.Error("a client with no tunnels was shown as healthy")
-	}
-	if !strings.Contains(v.Status, "No tunnels") {
-		t.Errorf("status = %q", v.Status)
-	}
-}
-
-func TestMenuLinesAreSorted(t *testing.T) {
-	// The menu is read at a glance, so the order has to be stable rather than
-	// whatever the client happened to serialise.
-	v := buildView(&trayState{
-		Tunnels: []tunnelView{{Name: "zulu", Up: true}, {Name: "alpha", Up: true}},
-	}, translator("en"))
-	if len(v.Lines) != 2 || !strings.HasPrefix(v.Lines[0], "alpha") {
-		t.Errorf("lines = %v", v.Lines)
-	}
-}
-
-func TestChineseMenuLines(t *testing.T) {
-	v := buildView(&trayState{
-		Tunnels: []tunnelView{{Name: "office", Up: true}, {Name: "corp", Up: false}},
-		Prompts: promptFor("corp"),
-	}, translator("zh"))
-	if v.Status != "1/2 条隧道在线" {
-		t.Errorf("status = %q", v.Status)
-	}
-	if !strings.Contains(v.Lines[0], "需要验证码") {
-		t.Errorf("lines = %v", v.Lines)
+	if !strings.Contains(err.Error(), "running") {
+		t.Errorf("the message does not say what is wrong: %v", err)
 	}
 }

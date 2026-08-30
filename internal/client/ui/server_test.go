@@ -351,3 +351,40 @@ type rejected struct{}
 func (rejected) Error() string { return "rules reference unknown tunnels: nope" }
 
 var errRejected = rejected{}
+
+func TestLinkFileRoundTrip(t *testing.T) {
+	// The tray reads this to find a client whose own state directory it
+	// cannot open.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "link")
+
+	if err := WriteLink(path, "127.0.0.1:8645", "tok123"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadLink(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "http://127.0.0.1:8645/?token=tok123" {
+		t.Errorf("link = %q", got)
+	}
+
+	// It carries a token that can reroute this machine's traffic.
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("the link file is mode %o, want 600", perm)
+	}
+}
+
+func TestReadLinkRejectsAnEmptyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "link")
+	if err := os.WriteFile(path, []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadLink(path); err == nil {
+		t.Fatal("an empty link file was accepted")
+	}
+}

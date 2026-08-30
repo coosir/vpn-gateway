@@ -112,6 +112,16 @@ type UIConfig struct {
 	StateDir string `yaml:"state_dir"`
 	// Open launches a browser at the interface when the client starts.
 	Open bool `yaml:"open"`
+
+	// LinkFile is where the client writes the full interface link, including
+	// the token, so the tray application can find it without anyone copying
+	// it by hand.
+	//
+	// The client usually runs elevated and keeps its state directory to
+	// itself, which a desktop session cannot read. Naming the path here lets
+	// the operator put the link somewhere their own user can, and decide who
+	// that is: whoever can read this file can drive the interface.
+	LinkFile string `yaml:"link_file"`
 }
 
 // Rule routes matching traffic to a tunnel. Every matcher within one rule is

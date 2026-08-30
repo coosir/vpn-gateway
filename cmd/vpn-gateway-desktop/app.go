@@ -9,11 +9,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 // pollInterval is how often the tray asks the client what it is doing. The
@@ -47,13 +49,13 @@ type trayState struct {
 }
 
 // run builds the application and blocks until it quits.
-func run(link, lang string) error {
+//
+// Anything that goes wrong before the tray exists is reported in a dialog and
+// not on standard error. Opening this from a launcher passes no arguments and
+// shows no terminal, so a message printed to stderr is a message nobody ever
+// sees: the application would simply appear not to start.
+func run(explicit, configPath, lang string) error {
 	t := translator(lang)
-
-	base, token, err := splitLink(link)
-	if err != nil {
-		return err
-	}
 
 	app := application.New(application.Options{
 		Name:        t("title"),
@@ -69,6 +71,34 @@ func run(link, lang string) error {
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
 	})
+
+	// Not finding a link at all is the only thing worth refusing to start
+	// for. A client that is merely down is the case the tray exists to show,
+	// so it starts anyway and says so until the client comes back.
+	link, err := findLink(explicit, configPath)
+	if err != nil {
+		fail(app, t, err)
+		return nil
+	}
+	base, token, err := splitLink(link)
+	if err != nil {
+		fail(app, t, err)
+		return nil
+	}
+
+	if reachable := checkLink(link); reachable != nil {
+		// Remembering a link that has never worked would make every later
+		// launch fail the same way with no clue as to why, so it is only
+		// recorded once it has answered.
+		if explicit != "" {
+			// It was just typed, so say what is wrong with it rather than
+			// leaving the tray to sit there reporting nothing.
+			warn(app, t, reachable)
+		}
+	} else if remembered := rememberLink(link); remembered != nil {
+		// Not fatal: the link works, it just will not be there next time.
+		fmt.Fprintln(os.Stderr, "vpn-gateway-desktop: could not remember the link:", remembered)
+	}
 
 	// Created hidden and reused. Rebuilding the window on every open would
 	// reload the interface and lose whatever was being typed into it.
@@ -108,9 +138,45 @@ func run(link, lang string) error {
 	// reaches for far more often than the menu.
 	tray.OnClick(func() { showWindow(window) })
 
-	go poll(base, token, t, tray, status, items, menu)
+	// Anything that touches the tray or a dialog is dispatched to the main
+	// thread, and that dispatch does not exist until the application is
+	// running. Starting the poll loop from here rather than before Run keeps
+	// the first update from racing the thing it updates.
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		go poll(base, token, t, tray, status, items, menu)
+	})
 
 	return app.Run()
+}
+
+// fail shows why the application cannot start and quits when it is dismissed.
+//
+// The dialog is raised from the started event rather than straight away: it
+// has to be shown on the main thread, and there is no main thread to dispatch
+// to until the application is running.
+func fail(app *application.App, t func(string, ...any) string, cause error) {
+	// Also to standard error, for anyone who did start this from a terminal.
+	fmt.Fprintln(os.Stderr, "vpn-gateway-desktop:", cause)
+
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		dialog := app.Dialog.Error()
+		dialog.SetTitle(t("fail.title"))
+		dialog.SetMessage(cause.Error())
+		dialog.Show()
+		app.Quit()
+	})
+	app.Run()
+}
+
+// warn reports a problem without stopping: the tray is still worth having.
+func warn(app *application.App, t func(string, ...any) string, cause error) {
+	fmt.Fprintln(os.Stderr, "vpn-gateway-desktop:", cause)
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		dialog := app.Dialog.Warning()
+		dialog.SetTitle(t("warn.title"))
+		dialog.SetMessage(cause.Error())
+		dialog.Show()
+	})
 }
 
 func showWindow(w *application.WebviewWindow) {

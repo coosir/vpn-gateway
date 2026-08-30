@@ -87,7 +87,8 @@ app: desktop
 	iconutil -c icns "$(APPDIR)/icon.iconset" -o "$(APP)/Contents/Resources/icon.icns"
 	@rm -rf "$(APPDIR)/icon.iconset"
 	@echo "built $(APP)"
-	@echo "unsigned, so the first launch needs right-click then Open"
+	@echo "run it once with -url to point it at your client; after that,"
+	@echo "opening it is enough"
 
 # Binaries for the server, built for whatever the server runs. The images are
 # built on the server itself, where the engine supplies the Go toolchain, so

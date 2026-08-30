@@ -10,6 +10,7 @@ var strings_ = map[string]map[string]string{
 	"zh": {
 		"title":        "vpn-gateway",
 		"description":  "多 VPN 分流网关",
+		"fail.title":   "无法连接到 vpn-gateway 客户端",
 		"open":         "打开控制台",
 		"quit":         "退出",
 		"status.up":    "%d/%d 条隧道在线",
@@ -25,6 +26,7 @@ var strings_ = map[string]map[string]string{
 	"en": {
 		"title":        "vpn-gateway",
 		"description":  "多 VPN 分流网关",
+		"fail.title":   "无法连接到 vpn-gateway 客户端",
 		"open":         "Open console",
 		"quit":         "Quit",
 		"status.up":    "%d/%d tunnels up",

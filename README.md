@@ -89,8 +89,26 @@ tunnels are up, goes to a broken ring the moment one is not — including when
 one is waiting for a verification code — and opens the console in a native
 window.
 
-On macOS it lives in the menu bar and takes no Dock slot. The bundle is
-unsigned, so the first launch needs right-click then Open.
+On macOS it lives in the menu bar and takes no Dock slot.
+
+Opening it from a launcher passes no arguments, so it has to be told where the
+client is once. Either run it with `-url` a single time — the link is
+remembered afterwards — or set `ui.link_file` in the client configuration to a
+path your own user can read, and it will find it there:
+
+```yaml
+ui:
+  enabled: true
+  link_file: /Users/you/.config/vpn-gateway/link
+```
+
+That second option exists because the client usually runs elevated and keeps
+its token in a directory a desktop session cannot read. Whoever can read that
+file can drive the interface, so put it somewhere only you can.
+
+It starts whether or not the client is running: a client that is down is the
+case the tray exists to show. Only having no link at all stops it, and then it
+says so in a dialog rather than exiting silently.
 
 Pass `-url` when the client runs elevated and keeps its token somewhere your
 desktop session cannot read.

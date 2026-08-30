@@ -20,9 +20,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/vpn-gateway/vpn-gateway/internal/client"
-	"github.com/vpn-gateway/vpn-gateway/internal/client/ui"
 )
 
 const usage = `vpn-gateway-desktop shows a running vpn-gateway client in the tray.
@@ -56,42 +53,10 @@ func main() {
 		return
 	}
 
-	target, err := resolveLink(*link, *configPath)
-	if err != nil {
+	if err := run(*link, *configPath, pickLanguage(*lang)); err != nil {
 		fmt.Fprintln(os.Stderr, "vpn-gateway-desktop:", err)
 		os.Exit(1)
 	}
-	if err := run(target, pickLanguage(*lang)); err != nil {
-		fmt.Fprintln(os.Stderr, "vpn-gateway-desktop:", err)
-		os.Exit(1)
-	}
-}
-
-// resolveLink works out where the interface is and how to authenticate to it.
-func resolveLink(link, configPath string) (string, error) {
-	if link != "" {
-		return link, nil
-	}
-
-	cfg, err := client.LoadConfig(configPath)
-	if err != nil {
-		return "", fmt.Errorf("%w\n\nEither start the client and pass the link it prints with -url, "+
-			"or point -config at the file it is using", err)
-	}
-	if !cfg.UI.Enabled {
-		return "", fmt.Errorf("the interface is turned off in %s; set ui.enabled and restart the client", configPath)
-	}
-
-	token, err := ui.ReadToken(cfg.UI.StateDir)
-	if err != nil {
-		// The client usually runs elevated, so its state directory is often
-		// unreadable to whoever is looking at the tray. Say so rather than
-		// reporting a bare permission error.
-		return "", fmt.Errorf("cannot read the interface token from %s: %w\n\n"+
-			"The client keeps it private, so pass the link it printed instead:\n"+
-			"  vpn-gateway-desktop -url 'http://127.0.0.1:8645/?token=…'", cfg.UI.StateDir, err)
-	}
-	return fmt.Sprintf("http://%s/?token=%s", cfg.UI.Listen, token), nil
 }
 
 // writeIconset writes the sizes macOS asks for in an .iconset directory.

@@ -361,6 +361,32 @@ func Serve(ctx context.Context, addr string, h http.Handler, log *slog.Logger) (
 	return ln.Addr().String(), nil
 }
 
+// WriteLink records the full interface link so a tray application can find
+// it. The file is written 0600: whoever can read it can drive the interface.
+func WriteLink(path, addr, token string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("prepare the directory for %s: %w", path, err)
+	}
+	link := fmt.Sprintf("http://%s/?token=%s\n", addr, token)
+	if err := os.WriteFile(path, []byte(link), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// ReadLink returns a link written by WriteLink.
+func ReadLink(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	link := strings.TrimSpace(string(b))
+	if link == "" {
+		return "", fmt.Errorf("%s is empty", path)
+	}
+	return link, nil
+}
+
 // ReadToken returns the interface token without creating one. It is for
 // anything attaching to a client that is already running, which must not
 // invent a token the client is not using.
