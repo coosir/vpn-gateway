@@ -146,6 +146,9 @@ Rejected credentials stop it immediately, without using up the attempts. In
 every case a reconnect from the client starts it again, so a corrected
 password does not mean recreating anything.
 
+Pressing connect on something already connected does nothing, and a burst of
+requests -- two clients, or one impatient person -- comes to a single dial.
+
 ### Two-factor
 
 Gateways ask for a one-time code in one of two shapes, and nothing in the

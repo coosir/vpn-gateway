@@ -32,6 +32,14 @@ const (
 // like anything else.
 const DefaultMaxAttempts = 3
 
+// reconnectCoalesce is how long after a dial begins that further requests are
+// folded into it rather than starting another.
+//
+// Two clients pressing the same button, or one person pressing it twice, are
+// asking for one thing. Without a window they race the state they are checking
+// and each become a separate authentication.
+const reconnectCoalesce = 2 * time.Second
+
 // Agent owns the state of one tunnel: it supervises the Provider, tracks
 // uptime and traffic, and serves the control plane. It is the only writer of
 // contract.Status.
@@ -45,6 +53,13 @@ type Agent struct {
 	// maxAttempts bounds how many times a failing tunnel dials before it
 	// waits to be told to try again.
 	maxAttempts int
+	// redialPending records a reconnect asked for while one was already in
+	// flight, so the request survives that attempt failing.
+	redialPending atomic.Bool
+	// lastDial is when the current attempt began, in Unix nanoseconds. It is
+	// what folds a burst of requests into one dial without depending on a
+	// state that the burst is racing.
+	lastDial atomic.Int64
 
 	mu          sync.RWMutex
 	state       contract.State
@@ -160,10 +175,28 @@ func (a *Agent) Answer(ans contract.AuthAnswer) error {
 }
 
 // Reconnect asks the supervisor to tear down and redial immediately.
+//
+// It is deliberately hard to make this dial twice. Every dial authenticates
+// against a corporate gateway, and enough of those in a row is what locks an
+// account, so two people pressing the same button -- or one person pressing
+// it repeatedly -- has to come to one attempt.
 func (a *Agent) Reconnect() {
+	// Deliberately simple: whether a request is worth acting on depends on
+	// how long the current dial has been running, and only the supervisor
+	// knows that. Deciding here would race the very state it was reading.
 	select {
 	case a.redial <- struct{}{}:
-	default: // a redial is already queued
+	default: // one is already queued
+	}
+}
+
+// drainRedial discards a request that arrived while a fresh attempt was
+// already being set up. That attempt is the one it was asking for, so acting
+// on it again would dial twice for a single request.
+func (a *Agent) drainRedial() {
+	select {
+	case <-a.redial:
+	default:
 	}
 }
 
@@ -194,6 +227,9 @@ func (a *Agent) SetState(s contract.State, err error) {
 	if s == contract.StateUp {
 		now := a.since
 		a.connectedAt = &now
+		// Whatever was asked for has happened; a request left over from
+		// getting here must not redial the tunnel later on.
+		a.redialPending.Store(false)
 	}
 	status := a.statusLocked()
 	a.mu.Unlock()
@@ -287,26 +323,51 @@ func (a *Agent) Supervise(ctx context.Context) {
 	attempts := 0
 	for {
 		attempts++
+		a.drainRedial()
+		dialStarted := time.Now()
+
 		runCtx, cancel := context.WithCancel(ctx)
 		done := make(chan error, 1)
 		go func() { done <- a.provider.Run(runCtx, a.cfg, a) }()
 
 		var err error
-		select {
-		case <-ctx.Done():
-			cancel()
-			<-done
-			return
-		case <-a.redial:
-			a.Log("reconnect requested")
+		restart := false
+	running:
+		for {
+			select {
+			case <-ctx.Done():
+				cancel()
+				<-done
+				return
+
+			case <-a.redial:
+				// A request arriving moments after this dial began is part of
+				// the same burst that started it: two people pressing the
+				// same button are asking for one thing, and honouring both
+				// would authenticate twice. It is remembered rather than
+				// dropped, so if this attempt fails it still counts as
+				// someone asking for another go.
+				if time.Since(dialStarted) < reconnectCoalesce {
+					a.redialPending.Store(true)
+					continue
+				}
+				a.Log("reconnect requested")
+				restart = true
+				break running
+
+			case err = <-done:
+				break running
+			}
+		}
+
+		if restart {
 			cancel()
 			<-done
 			backoff = retryMin
 			attempts = 0
 			continue
-		case err = <-done:
-			cancel()
 		}
+		cancel()
 
 		switch {
 		case ctx.Err() != nil:
@@ -328,6 +389,15 @@ func (a *Agent) Supervise(ctx context.Context) {
 		}
 
 		a.SetState(contract.StateError, err)
+
+		// Someone asked for a reconnect while this attempt was running. It
+		// was not worth restarting the dial for, but it does mean a person is
+		// watching and wants another go.
+		if a.redialPending.Swap(false) {
+			a.Log("reconnect was requested during that attempt; trying again")
+			backoff, attempts = retryMin, 0
+			continue
+		}
 
 		if attempts >= a.maxAttempts {
 			a.log.Warn("giving up after repeated failures; waiting to be told to try again",

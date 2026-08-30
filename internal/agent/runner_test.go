@@ -608,12 +608,15 @@ func TestReconnectRevivesAGivenUpTunnel(t *testing.T) {
 	defer cancel()
 	go a.Supervise(ctx)
 
+	// Wait for it to have given up, not merely to have started: reconnecting
+	// mid-attempt is a different case with its own test.
 	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) && p.runs.Load() < 1 {
+	for time.Now().Before(deadline) &&
+		!(p.runs.Load() == 1 && a.Status().State == contract.StateError) {
 		time.Sleep(50 * time.Millisecond)
 	}
-	if p.runs.Load() != 1 {
-		t.Fatalf("dialled %d times before giving up", p.runs.Load())
+	if p.runs.Load() != 1 || a.Status().State != contract.StateError {
+		t.Fatalf("dialled %d times, state %q", p.runs.Load(), a.Status().State)
 	}
 
 	a.Reconnect()
@@ -696,3 +699,141 @@ func TestMaxAttemptsComesFromTheConfiguration(t *testing.T) {
 		t.Errorf("maxAttempts = %d, which would never dial", a.maxAttempts)
 	}
 }
+
+// TestConcurrentReconnectsCollapseIntoOne answers what happens when two
+// clients press the same button, or one person presses it repeatedly: every
+// redial is a full authentication against a corporate gateway, so a burst of
+// requests must not become a burst of logins.
+func TestConcurrentReconnectsCollapseIntoOne(t *testing.T) {
+	p := &scriptedProvider{}
+	a := newTestAgent(t, p)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go a.Supervise(ctx)
+
+	// Let it settle into a working tunnel first.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && a.Status().State != contract.StateUp {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if a.Status().State != contract.StateUp {
+		t.Fatalf("state = %q, want up", a.Status().State)
+	}
+	before := p.calls.Load()
+
+	// Twenty at once.
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() { defer wg.Done(); a.Reconnect() }()
+	}
+	wg.Wait()
+
+	// Back up, and only one extra dial for the whole burst.
+	deadline = time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) && a.Status().State != contract.StateUp {
+		time.Sleep(20 * time.Millisecond)
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	if got := p.calls.Load() - before; got > 1 {
+		t.Errorf("twenty reconnect requests caused %d dials, want at most 1", got)
+	}
+	if a.Status().State != contract.StateUp {
+		t.Errorf("state after the burst = %q", a.Status().State)
+	}
+}
+
+// TestAnswersAreNotAcceptedTwice covers the other duplicate: two clients both
+// answering the same verification prompt.
+func TestAnswersAreNotAcceptedTwice(t *testing.T) {
+	a := newTestAgent(t, &scriptedProvider{})
+	a.SetChallenge(&contract.Challenge{ID: "sms-1", Type: contract.ChallengeSMS})
+
+	var wg sync.WaitGroup
+	var accepted atomic.Int32
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := a.Answer(contract.AuthAnswer{ID: "sms-1", Value: "482915"}); err == nil {
+				accepted.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	// The provider under test accepts anything, so this is about the agent
+	// clearing the challenge once rather than about the answer itself.
+	if a.Challenge() != nil {
+		t.Error("the challenge is still pending after being answered")
+	}
+	if n := accepted.Load(); n < 1 {
+		t.Error("no answer was accepted at all")
+	}
+}
+
+// TestReconnectDuringAnAttemptIsNotLost covers pressing the button while a
+// dial is already running. Restarting it would spend an attempt to arrive
+// where it is already heading, but throwing the request away would mean a
+// tunnel that gives up despite someone asking for another go.
+func TestReconnectDuringAnAttemptIsNotLost(t *testing.T) {
+	// A dial that takes a moment, so the request genuinely lands while one is
+	// in flight rather than before it starts.
+	p := &slowFailingProvider{delay: 1200 * time.Millisecond}
+	a := &Agent{
+		cfg:         Config{Provider: "failing"},
+		provider:    p,
+		log:         slog.New(slog.DiscardHandler),
+		maxAttempts: 1, // so a lost request would show as giving up
+		state:       contract.StateConnecting,
+		since:       time.Now(),
+		subs:        map[int]chan contract.Event{},
+		redial:      make(chan struct{}, 1),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	go a.Supervise(ctx)
+
+	// Ask once a dial is genuinely under way. A request arriving before one
+	// starts is satisfied by that dial, which is a different case.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && p.runs.Load() < 1 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(300 * time.Millisecond)
+	a.Reconnect()
+
+	// With a budget of one, a lost request would leave it at a single dial.
+	deadline = time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) && p.runs.Load() < 2 {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if p.runs.Load() < 2 {
+		t.Errorf("dialled %d times; the request made during the attempt was lost", p.runs.Load())
+	}
+}
+
+// slowFailingProvider dials for a while and then fails, so a test can act
+// while an attempt is genuinely in flight.
+type slowFailingProvider struct {
+	delay time.Duration
+	runs  atomic.Int32
+}
+
+func (p *slowFailingProvider) Capabilities() []string { return []string{contract.CapTCP} }
+func (p *slowFailingProvider) Run(ctx context.Context, cfg Config, rep Reporter) error {
+	p.runs.Add(1)
+	rep.SetState(contract.StateConnecting, nil)
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-time.After(p.delay):
+		return errors.New("the gateway did not answer")
+	}
+}
+func (p *slowFailingProvider) Dial(context.Context, string, string) (net.Conn, error) {
+	return nil, errNotDialable
+}
+func (p *slowFailingProvider) Answer(contract.AuthAnswer) error { return nil }

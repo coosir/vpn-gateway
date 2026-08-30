@@ -378,11 +378,11 @@ func (t *Tunnel) supervise(ctx context.Context) {
 		backoff = restartMin
 
 		// Poll until the container needs attention again.
-		if !t.pollUntilUnhealthy(ctx) {
+		switch t.pollUntilUnhealthy(ctx) {
+		case pollShuttingDown:
 			return
-		}
-		if !t.wanted.Load() {
-			continue // asked to stop; the top of the loop takes it down
+		case pollAskedToStop:
+			continue // the top of the loop takes it down
 		}
 		t.log.Warn("container is unresponsive, recreating")
 		if err := t.engine.Remove(ctx, t.cfg.ContainerName()); err != nil {
@@ -407,13 +407,16 @@ func (t *Tunnel) stopContainer(ctx context.Context) {
 // the server is shutting down instead.
 func (t *Tunnel) awaitWish(ctx context.Context) bool {
 	for {
+		// Checked before waiting as well as after: a start can arrive between
+		// the supervisor deciding to wait and it actually doing so, and the
+		// wish is the truth rather than the signal.
+		if t.wanted.Load() {
+			return true
+		}
 		select {
 		case <-ctx.Done():
 			return false
 		case <-t.wake:
-			if t.wanted.Load() {
-				return true
-			}
 		}
 	}
 }
@@ -532,23 +535,46 @@ func (t *Tunnel) ensureImage(ctx context.Context) error {
 	return nil
 }
 
-// pollUntilUnhealthy refreshes status until the container stops answering.
-// It returns false when ctx is cancelled and true when a restart is needed.
-func (t *Tunnel) pollUntilUnhealthy(ctx context.Context) bool {
+// pollOutcome says why polling stopped, because the three reasons call for
+// three different things and telling them apart is what keeps a container
+// from being recreated for no reason.
+type pollOutcome int
+
+const (
+	// pollShuttingDown: the server is stopping.
+	pollShuttingDown pollOutcome = iota
+	// pollAskedToStop: someone asked for this tunnel to come down.
+	pollAskedToStop
+	// pollUnhealthy: the container stopped answering and needs recreating.
+	pollUnhealthy
+)
+
+// pollUntilUnhealthy refreshes status until something needs doing.
+func (t *Tunnel) pollUntilUnhealthy(ctx context.Context) pollOutcome {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			return false
+			return pollShuttingDown
+
 		case <-t.wake:
-			// Asked to stop; the supervisor takes it down.
-			return true
+			// A wake means the wish may have changed, not that anything is
+			// wrong. It can also be stale: a start that arrived before this
+			// loop began still leaves one buffered. Treating that as a fault
+			// would tear the container down and dial the gateway again for
+			// nothing, which is the opposite of what waiting to be asked is
+			// for. So the wish is what decides.
+			if !t.wanted.Load() {
+				return pollAskedToStop
+			}
+			continue
+
 		case <-ticker.C:
 		}
 
 		if !t.wanted.Load() {
-			return true
+			return pollAskedToStop
 		}
 		if t.poll(ctx) {
 			continue
@@ -558,7 +584,7 @@ func (t *Tunnel) pollUntilUnhealthy(ctx context.Context) bool {
 		n := t.unreachable
 		t.mu.Unlock()
 		if n >= unreachableLimit {
-			return true
+			return pollUnhealthy
 		}
 	}
 }

@@ -120,6 +120,17 @@ refusing it, and enough failed authentications in a row is what locks an
 account -- while nobody is watching, on a machine at home. Retrying forever is
 the wrong default for something holding credentials it can get taken away.
 
+Duplicates are folded in rather than honoured. Two clients pressing connect,
+or one person pressing it twice, are asking for one thing; acting on both
+would authenticate twice. A request arriving moments after a dial began is
+remembered rather than acted on, so it still counts as someone wanting
+another go if that attempt fails, but it does not become a second login.
+
+Where that decision lives matters. It began at the caller, which had to read a
+state the burst was racing and let two dials through. It belongs at the
+supervisor, which is the only thing that knows how long the current attempt
+has been running.
+
 So the retry budget is small, exhausting it parks the tunnel rather than
 ending it, and an explicit reconnect revives it. A corrected password does not
 mean recreating anything. What each tunnel was asked to do is written down, so
