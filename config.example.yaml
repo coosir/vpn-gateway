@@ -80,6 +80,18 @@ tunnels:
       dns: "192.168.1.1"
       search_domains: "lan.internal"
 
+  # Upstream Trojan Tunnel (no container required).
+  # Forwards traffic to an external Trojan proxy/VPN node (e.g. Hong Kong, Tokyo, etc.).
+  - name: hk-trojan
+    provider: trojan
+    server: hk.node.example.com:443
+    # sni: hk.node.example.com    # optional SNI override
+    password: "your-trojan-password" # or use password_env: HK_TROJAN_PASS
+    # insecure: true              # optional: skip TLS cert verification
+    extra:
+      domains: "google.com,github.com"
+      routes: "1.0.0.1/32"
+
   # A credential-free tunnel that dials straight out. Useful for verifying
   # routing, the GUI and failover without touching a real VPN.
   - name: mock

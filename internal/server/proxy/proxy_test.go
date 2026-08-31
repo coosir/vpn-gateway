@@ -602,3 +602,82 @@ func TestBuildConfigDirectRoute(t *testing.T) {
 	}
 }
 
+func TestBuildConfigTrojanRoute(t *testing.T) {
+	raw, err := BuildConfig(Options{
+		Listen:   ":1443",
+		CertPath: "/tmp/cert.pem",
+		KeyPath:  "/tmp/key.pem",
+		Routes: []Route{
+			{
+				Name:           "hk-node",
+				TrojanPassword: "client-trojan-pass",
+				TrojanOutbound: &TrojanOutboundConfig{
+					Server:     "hk.example.com",
+					ServerPort: 443,
+					Password:   "upstream-trojan-pass",
+					ServerName: "hk.example.com",
+					Insecure:   true,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var parsed struct {
+		Outbounds []struct {
+			Tag        string `json:"tag"`
+			Type       string `json:"type"`
+			Server     string `json:"server"`
+			ServerPort int    `json:"server_port"`
+			Password   string `json:"password"`
+			TLS        struct {
+				Enabled    bool   `json:"enabled"`
+				ServerName string `json:"server_name"`
+				Insecure   bool   `json:"insecure"`
+			} `json:"tls"`
+		} `json:"outbounds"`
+		Route struct {
+			Rules []struct {
+				AuthUser []string `json:"auth_user"`
+				Outbound string   `json:"outbound"`
+			} `json:"rules"`
+		} `json:"route"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatal(err)
+	}
+
+	var trOb *struct {
+		Tag        string `json:"tag"`
+		Type       string `json:"type"`
+		Server     string `json:"server"`
+		ServerPort int    `json:"server_port"`
+		Password   string `json:"password"`
+		TLS        struct {
+			Enabled    bool   `json:"enabled"`
+			ServerName string `json:"server_name"`
+			Insecure   bool   `json:"insecure"`
+		} `json:"tls"`
+	}
+	for i := range parsed.Outbounds {
+		if parsed.Outbounds[i].Tag == "tunnel-hk-node" {
+			trOb = &parsed.Outbounds[i]
+			break
+		}
+	}
+	if trOb == nil {
+		t.Fatal("outbound tunnel-hk-node not found")
+	}
+	if trOb.Type != "trojan" {
+		t.Errorf("type = %q, want trojan", trOb.Type)
+	}
+	if trOb.Server != "hk.example.com" || trOb.ServerPort != 443 || trOb.Password != "upstream-trojan-pass" {
+		t.Errorf("trojan outbound fields = %+v", trOb)
+	}
+	if !trOb.TLS.Enabled || trOb.TLS.ServerName != "hk.example.com" || !trOb.TLS.Insecure {
+		t.Errorf("trojan TLS fields = %+v", trOb.TLS)
+	}
+}
+

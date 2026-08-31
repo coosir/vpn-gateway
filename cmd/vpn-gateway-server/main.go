@@ -89,6 +89,9 @@ func run(configPath string, check bool, logLevel string) error {
 			if t.IsDirect() {
 				fmt.Printf("  %-20s %-14s %-9s host routing\n",
 					t.Name, t.Provider, state)
+			} else if t.IsTrojan() {
+				fmt.Printf("  %-20s %-14s %-9s trojan -> %s\n",
+					t.Name, t.Provider, state, t.Server)
 			} else {
 				fmt.Printf("  %-20s %-14s %-9s data=%d control=%d\n",
 					t.Name, t.Provider, state, t.DataPort, t.ControlPort)

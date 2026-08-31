@@ -378,3 +378,46 @@ tunnels:
 	}
 }
 
+func TestLoadConfigTrojanTunnel(t *testing.T) {
+	path := writeConfig(t, `
+port_base: 30000
+trojan: {server_name: vpn.test}
+tunnels:
+  - name: hk-node
+    provider: trojan
+    server: hk.example.com:443
+    sni: hk.example.com
+    password: my-trojan-password
+    insecure: true
+    extra:
+      domains: "google.com,github.com"
+  - name: mock
+    provider: mock
+    image: img
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(cfg.Tunnels) != 2 {
+		t.Fatalf("len(tunnels) = %d, want 2", len(cfg.Tunnels))
+	}
+	tr := cfg.Tunnels[0]
+	if !tr.IsTrojan() {
+		t.Errorf("tr.IsTrojan() = false, want true")
+	}
+	if tr.NeedsContainer() {
+		t.Errorf("tr.NeedsContainer() = true, want false")
+	}
+	if tr.DataPort != 0 || tr.ControlPort != 0 {
+		t.Errorf("tr got ports %d/%d, want 0/0", tr.DataPort, tr.ControlPort)
+	}
+	host, port, err := tr.UpstreamHostPort()
+	if err != nil || host != "hk.example.com" || port != 443 {
+		t.Errorf("UpstreamHostPort = (%q, %d, %v), want (hk.example.com, 443, nil)", host, port, err)
+	}
+	if tr.UpstreamServerName() != "hk.example.com" {
+		t.Errorf("UpstreamServerName = %q, want hk.example.com", tr.UpstreamServerName())
+	}
+}
+

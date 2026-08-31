@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
@@ -136,6 +137,12 @@ type TunnelConfig struct {
 	// PasswordFile names a file whose entire contents are the password.
 	PasswordFile string `yaml:"password_file"`
 
+	// SNI or ServerName overrides the TLS SNI when connecting to an upstream trojan node.
+	SNI        string `yaml:"sni"`
+	ServerName string `yaml:"server_name"`
+	// Insecure skips certificate validation when connecting to an upstream trojan node.
+	Insecure bool `yaml:"insecure"`
+
 	// Extra is passed through as VG_EXTRA_JSON. Provider-specific; see each
 	// provider's package documentation.
 	Extra map[string]string `yaml:"extra"`
@@ -184,6 +191,52 @@ func (t TunnelConfig) IsDirect() bool {
 	default:
 		return false
 	}
+}
+
+// IsTrojan reports whether this tunnel routes out to an upstream Trojan node.
+func (t TunnelConfig) IsTrojan() bool {
+	switch strings.ToLower(t.Provider) {
+	case "trojan", "upstream_trojan", "proxy_trojan":
+		return true
+	default:
+		return false
+	}
+}
+
+// NeedsContainer reports whether this tunnel requires running a container runtime.
+func (t TunnelConfig) NeedsContainer() bool {
+	return !t.IsDirect() && !t.IsTrojan()
+}
+
+// UpstreamHostPort returns the target host and port for an upstream trojan tunnel.
+func (t TunnelConfig) UpstreamHostPort() (string, int, error) {
+	if t.Server == "" {
+		return "", 0, errors.New("server address is required")
+	}
+	host, portStr, err := net.SplitHostPort(t.Server)
+	if err != nil {
+		return t.Server, 443, nil
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return "", 0, fmt.Errorf("invalid server port in %q", t.Server)
+	}
+	return host, port, nil
+}
+
+// UpstreamServerName returns the TLS SNI to present to an upstream trojan node.
+func (t TunnelConfig) UpstreamServerName() string {
+	if t.SNI != "" {
+		return t.SNI
+	}
+	if t.ServerName != "" {
+		return t.ServerName
+	}
+	host, _, err := net.SplitHostPort(t.Server)
+	if err == nil {
+		return host
+	}
+	return t.Server
 }
 
 // nameRE matches names safe to use as a container name, a trojan user and a
@@ -292,7 +345,16 @@ func (c *Config) Validate() error {
 		if t.Provider == "" {
 			errs = append(errs, fmt.Errorf("%s: provider is required", where))
 		}
-		if !t.IsDirect() && t.Image == "" {
+		if t.IsTrojan() {
+			if t.Server == "" {
+				errs = append(errs, fmt.Errorf("%s: server is required for trojan provider", where))
+			} else if _, _, err := t.UpstreamHostPort(); err != nil {
+				errs = append(errs, fmt.Errorf("%s: invalid server address %q: %w", where, t.Server, err))
+			}
+			if t.Password == "" && t.PasswordEnv == "" && t.PasswordFile == "" {
+				errs = append(errs, fmt.Errorf("%s: password, password_env, or password_file is required for trojan provider", where))
+			}
+		} else if t.NeedsContainer() && t.Image == "" {
 			errs = append(errs, fmt.Errorf("%s: image is required", where))
 		}
 		n := 0
@@ -339,7 +401,7 @@ func (t TrojanConfig) validate() []error {
 func (c *Config) assignPorts() {
 	idx := make([]int, 0, len(c.Tunnels))
 	for i := range c.Tunnels {
-		if c.Tunnels[i].IsDirect() {
+		if !c.Tunnels[i].NeedsContainer() {
 			continue
 		}
 		idx = append(idx, i)

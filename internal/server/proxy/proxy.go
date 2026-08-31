@@ -48,12 +48,23 @@ type Route struct {
 	// Direct routes this tunnel directly through the server host's network
 	// (e.g. for accessing the server's LAN or intranet) without a container proxy.
 	Direct bool
+	// TrojanOutbound forwards this tunnel's traffic to an upstream Trojan node.
+	TrojanOutbound *TrojanOutboundConfig
 	// DataHost and DataPort address the container's SOCKS5 data plane.
 	DataHost string
 	DataPort int
 	// SOCKSUser and SOCKSPassword authenticate to that data plane.
 	SOCKSUser     string
 	SOCKSPassword string
+}
+
+// TrojanOutboundConfig configures an upstream Trojan server outbound.
+type TrojanOutboundConfig struct {
+	Server     string `json:"server"`
+	ServerPort int    `json:"server_port"`
+	Password   string `json:"password"`
+	ServerName string `json:"server_name,omitempty"`
+	Insecure   bool   `json:"insecure,omitempty"`
 }
 
 // Options configures the listener.
@@ -116,6 +127,32 @@ func BuildConfig(opts Options) ([]byte, error) {
 			outbounds = append(outbounds, map[string]any{
 				"type": "direct",
 				"tag":  tag,
+			})
+			rules = append(rules, map[string]any{
+				"inbound":   []string{inboundTag},
+				"auth_user": []string{r.Name},
+				"outbound":  tag,
+			})
+			continue
+		}
+
+		if r.TrojanOutbound != nil {
+			tls := map[string]any{
+				"enabled": true,
+			}
+			if r.TrojanOutbound.ServerName != "" {
+				tls["server_name"] = r.TrojanOutbound.ServerName
+			}
+			if r.TrojanOutbound.Insecure {
+				tls["insecure"] = true
+			}
+			outbounds = append(outbounds, map[string]any{
+				"type":        "trojan",
+				"tag":         tag,
+				"server":      r.TrojanOutbound.Server,
+				"server_port": r.TrojanOutbound.ServerPort,
+				"password":    r.TrojanOutbound.Password,
+				"tls":         tls,
 			})
 			rules = append(rules, map[string]any{
 				"inbound":   []string{inboundTag},

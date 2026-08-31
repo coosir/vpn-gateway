@@ -139,6 +139,8 @@ func listTunnels(cfg *server.Config) error {
 		}
 		if t.IsDirect() {
 			fmt.Printf("%-20s %-14s %-9s %-8s %s\n", t.Name, t.Provider, state, "-", "-")
+		} else if t.IsTrojan() {
+			fmt.Printf("%-20s %-14s %-9s %-8s %s\n", t.Name, t.Provider, state, "trojan", t.Server)
 		} else {
 			fmt.Printf("%-20s %-14s %-9s %-8d %d\n", t.Name, t.Provider, state, t.DataPort, t.ControlPort)
 		}

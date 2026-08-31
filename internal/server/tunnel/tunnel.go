@@ -166,7 +166,7 @@ func NewManager(cfg *server.Config, engine runtime.Engine, log *slog.Logger) (*M
 		}
 		var secret string
 		var client *contract.Client
-		if !tc.IsDirect() {
+		if tc.NeedsContainer() {
 			secret, err = loadOrCreateSecret(cfg.StateDir, tc.Name+".secret")
 			if err != nil {
 				return nil, err
@@ -197,10 +197,18 @@ func NewManager(cfg *server.Config, engine runtime.Engine, log *slog.Logger) (*M
 					}
 				}
 			}
+			if s := tc.Extra["domains"]; s != "" {
+				for _, p := range strings.Split(s, ",") {
+					if s := strings.TrimSpace(p); s != "" {
+						searchDomains = append(searchDomains, s)
+					}
+				}
+			}
 		}
 
 		initialState := contract.StateDown
-		if tc.IsDirect() {
+		isNoContainer := !tc.NeedsContainer()
+		if isNoContainer {
 			initialState = contract.StateUp
 		}
 
@@ -219,9 +227,9 @@ func NewManager(cfg *server.Config, engine runtime.Engine, log *slog.Logger) (*M
 				Name:            tc.Name,
 				Provider:        tc.Provider,
 				Disabled:        tc.Disabled,
-				Reachable:       tc.IsDirect(),
+				Reachable:       isNoContainer,
 				ContainerExists: false,
-				ContainerUp:     tc.IsDirect(),
+				ContainerUp:     isNoContainer,
 				Status: contract.Status{
 					Contract: contract.Version,
 					Provider: tc.Provider,
@@ -254,7 +262,7 @@ func (t *Tunnel) wishPath() string {
 func (t *Tunnel) restoreWish() bool {
 	b, err := os.ReadFile(t.wishPath())
 	if err != nil {
-		if t.cfg.IsDirect() {
+		if !t.cfg.NeedsContainer() {
 			return !t.cfg.Disabled
 		}
 		// Never asked either way: dial only if the configuration says to.
@@ -313,7 +321,7 @@ func (t *Tunnel) setWanted(want bool) {
 		t.snap.ContainerUp = false
 		t.snap.Status.State = contract.StateDown
 		t.snap.LastError = ""
-	} else if t.cfg.IsDirect() {
+	} else if !t.cfg.NeedsContainer() {
 		t.snap.Reachable = true
 		t.snap.ContainerUp = true
 		t.snap.Status.State = contract.StateUp
@@ -369,7 +377,7 @@ func (m *Manager) Lookup(name string) (*Tunnel, bool) {
 // reauthenticate.
 func (m *Manager) Shutdown(ctx context.Context) {
 	for _, t := range m.tunnels {
-		if t.cfg.IsDirect() {
+		if !t.cfg.NeedsContainer() {
 			continue
 		}
 		if err := t.engine.Stop(ctx, t.cfg.ContainerName(), stopGraceSeconds); err != nil {
@@ -394,6 +402,9 @@ func (t *Tunnel) Logs(ctx context.Context, tail int) (string, error) {
 	if t.cfg.IsDirect() {
 		return fmt.Sprintf("tunnel %q is a direct host tunnel routing through the server's network without a container", t.cfg.Name), nil
 	}
+	if t.cfg.IsTrojan() {
+		return fmt.Sprintf("tunnel %q is an upstream Trojan tunnel forwarding traffic to %s (sni: %s)", t.cfg.Name, t.cfg.Server, t.cfg.UpstreamServerName()), nil
+	}
 	return t.engine.Logs(ctx, t.cfg.ContainerName(), tail)
 }
 
@@ -401,7 +412,7 @@ func (t *Tunnel) supervise(ctx context.Context) {
 	if t.cfg.Disabled {
 		t.log.Info("tunnel is disabled, not starting")
 		// A disabled tunnel must not keep a container from a previous run.
-		if !t.cfg.IsDirect() {
+		if t.cfg.NeedsContainer() {
 			if err := t.engine.Remove(ctx, t.cfg.ContainerName()); err != nil {
 				t.log.Warn("removing disabled tunnel's container failed", "error", err)
 			}
@@ -409,7 +420,7 @@ func (t *Tunnel) supervise(ctx context.Context) {
 		return
 	}
 
-	if t.cfg.IsDirect() {
+	if !t.cfg.NeedsContainer() {
 		start := time.Now()
 		for {
 			wanted := t.wanted.Load()
@@ -841,6 +852,21 @@ func (t *Tunnel) Route() proxy.Route {
 			Name:           t.cfg.Name,
 			TrojanPassword: t.trojanPassword,
 			Direct:         true,
+		}
+	}
+	if t.cfg.IsTrojan() {
+		host, port, _ := t.cfg.UpstreamHostPort()
+		pass, _ := t.cfg.ResolvePassword()
+		return proxy.Route{
+			Name:           t.cfg.Name,
+			TrojanPassword: t.trojanPassword,
+			TrojanOutbound: &proxy.TrojanOutboundConfig{
+				Server:     host,
+				ServerPort: port,
+				Password:   pass,
+				ServerName: t.cfg.UpstreamServerName(),
+				Insecure:   t.cfg.Insecure,
+			},
 		}
 	}
 	return proxy.Route{
