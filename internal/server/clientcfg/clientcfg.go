@@ -20,8 +20,9 @@ type Bundle struct {
 	Server ServerRef `json:"server"`
 	// APIToken authenticates against the server's control API, which is how a
 	// client learns tunnel state, routes and DNS.
-	APIToken string   `json:"api_token"`
-	Tunnels  []Tunnel `json:"tunnels"`
+	APIToken     string   `json:"api_token"`
+	RequiresAuth bool     `json:"requires_auth,omitempty"`
+	Tunnels      []Tunnel `json:"tunnels"`
 }
 
 // ServerRef locates and authenticates the server.

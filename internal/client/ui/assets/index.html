@@ -198,8 +198,35 @@ h2 {
 .rule {
   border: 1px solid var(--hair); background: var(--surface);
   padding: 12px; margin-bottom: 10px;
+  transition: opacity .15s ease;
+}
+.rule.disabled {
+  opacity: .52;
+  background: var(--bg);
+  border-style: dashed;
+}
+.rule-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--hair);
+}
+.rule-badges { display: flex; gap: 6px; align-items: center; }
+.badge {
+  font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 2px;
+  background: var(--hair-firm); color: var(--ink);
+}
+.badge.auto {
+  background: var(--live-bg); color: var(--live); border: 1px solid currentColor;
+}
+.badge.custom {
+  background: var(--hair); color: var(--dim);
+}
+.badge.disabled-tag {
+  background: var(--down-bg); color: var(--down); border: 1px solid currentColor;
 }
 .matcher { display: flex; gap: 8px; margin-bottom: 7px; align-items: center; }
+.matcher.readonly { color: var(--dim); padding: 4px 0; font-size: 12px; }
+.matcher.readonly code { color: var(--ink); font-weight: 600; }
 .matcher select { width: 148px; flex: none; }
 .matcher input { flex: 1; min-width: 0; }
 .rule-foot {
@@ -401,6 +428,14 @@ textarea::placeholder { color: var(--faint); }
             <textarea id="bundle-text" rows="7" spellcheck="false"
                       data-i18n-ph="setup.paste"></textarea>
           </li>
+          <li>
+            <b data-i18n="setup.s3.t"></b>
+            <p data-i18n="setup.s3.b"></p>
+            <div style="display:flex;gap:8px;margin-top:6px">
+              <input type="text" id="bundle-user" data-i18n-ph="auth.username" style="flex:1" autocomplete="username">
+              <input type="password" id="bundle-pass" data-i18n-ph="auth.password" style="flex:1" autocomplete="current-password">
+            </div>
+          </li>
         </ol>
 
         <div class="toolbar">
@@ -457,6 +492,15 @@ textarea::placeholder { color: var(--faint); }
             <button class="act quiet" id="service-uninstall" data-i18n="service.uninstall" hidden></button>
             <span class="note" id="service-note"></span>
           </div>
+        </div>
+
+        <div class="field">
+          <label data-i18n="settings.auth"></label>
+          <div style="display:flex;gap:8px;margin-top:6px">
+            <input type="text" id="set-username" data-i18n-ph="auth.username" style="flex:1" autocomplete="username">
+            <input type="password" id="set-password" data-i18n-ph="auth.password" style="flex:1" autocomplete="current-password">
+          </div>
+          <p class="hint" data-i18n="settings.auth.b"></p>
         </div>
 
         <div class="field">
@@ -592,6 +636,8 @@ const STRINGS = {
     "setup.s1.b": "在跑 vpn-gateway-server 的那台机器上执行：",
     "setup.s2.t": "把它导入这里",
     "setup.s2.b": "选择文件，或直接把内容粘贴进来。",
+    "setup.s3.t": "用户认证（可选）",
+    "setup.s3.b": "如果服务端配置了用户，请在此输入用户名和密码：",
     "setup.pick": "选择文件…", "setup.or": "或粘贴内容",
     "setup.paste": "{\n  \"version\": 1,\n  \"server\": { … },\n  \"tunnels\": [ … ]\n}",
     "setup.save": "导入并保存",
@@ -600,6 +646,8 @@ const STRINGS = {
 
     "settings.title": "设置",
     "settings.sub": "改动会立即生效；已连接时会重建路由引擎，已建立的连接会短暂中断。",
+    "settings.auth": "用户认证",
+    "settings.auth.b": "连接服务端所需的用户名与密码。",
     "settings.ingress": "流量入口",
     "settings.proxy": "本地代理端口", "settings.proxy.b": "无需任何权限。先用它把规则调对。",
     "settings.tun": "TUN 网卡", "settings.tun.b": "接管整机流量，需要管理员权限。",
@@ -651,6 +699,10 @@ const STRINGS = {
     "rules.matcher": "+ 匹配条件", "rules.delete": "删除规则",
     "rules.dropMatcher": "移除这个匹配条件",
     "rules.dirty": "有未应用的改动", "rules.applying": "应用中…", "rules.saved": "已应用并保存",
+    "rules.auto": "自动", "rules.custom": "自定义",
+    "rules.enable": "启用", "rules.disable": "禁用",
+    "rules.disabled": "已禁用",
+    "rules.autoHint": "由隧道自动上报，优先级低于自定义规则，不可编辑或删除。",
     "m.domain_suffix": "域名后缀", "m.domain": "域名", "m.domain_keyword": "域名关键词",
     "m.ip_cidr": "IP 网段", "m.port": "端口",
     "ph.domain": "corp.example.com, internal.corp", "ph.ip_cidr": "10.20.0.0/16, 192.168.1.0/24",
@@ -677,6 +729,7 @@ const STRINGS = {
     "k.password.t": "密码或令牌", "k.password.w": "网关还需要一项凭据。",
     "k.vnc.t": "图形界面登录", "k.vnc.w": "这个客户端没有屏幕就无法登录。",
     "auth.generic": "需要认证",
+    "auth.username": "用户名", "auth.password": "密码",
 
     "notoken": "这个页面需要客户端启动时打印的 token。请使用它给出的链接打开。"
   },
@@ -699,6 +752,8 @@ const STRINGS = {
     "setup.s1.b": "On the machine running vpn-gateway-server:",
     "setup.s2.t": "Bring it here",
     "setup.s2.b": "Choose the file, or paste its contents.",
+    "setup.s3.t": "User authentication (optional)",
+    "setup.s3.b": "If the server requires authentication, enter your credentials:",
     "setup.pick": "Choose a file…", "setup.or": "or paste it",
     "setup.paste": "{\n  \"version\": 1,\n  \"server\": { … },\n  \"tunnels\": [ … ]\n}",
     "setup.save": "Import",
@@ -707,6 +762,8 @@ const STRINGS = {
 
     "settings.title": "Settings",
     "settings.sub": "Changes take effect at once. While connected this rebuilds the routing engine and briefly interrupts open connections.",
+    "settings.auth": "User authentication",
+    "settings.auth.b": "Username and password to authenticate with the server.",
     "settings.ingress": "How traffic enters",
     "settings.proxy": "Local proxy port", "settings.proxy.b": "Needs no privileges. Start here and get the rules right.",
     "settings.tun": "TUN interface", "settings.tun.b": "Takes over the whole machine. Needs administrator rights.",
@@ -758,6 +815,10 @@ const STRINGS = {
     "rules.matcher": "+ matcher", "rules.delete": "delete rule",
     "rules.dropMatcher": "remove this matcher",
     "rules.dirty": "unapplied changes", "rules.applying": "applying…", "rules.saved": "applied and saved",
+    "rules.auto": "Auto", "rules.custom": "Custom",
+    "rules.enable": "Enable", "rules.disable": "Disable",
+    "rules.disabled": "Disabled",
+    "rules.autoHint": "Reported automatically by tunnel with lower priority; cannot be edited or deleted.",
     "m.domain_suffix": "domain suffix", "m.domain": "domain", "m.domain_keyword": "domain keyword",
     "m.ip_cidr": "ip cidr", "m.port": "port",
     "ph.domain": "corp.example.com, internal.corp", "ph.ip_cidr": "10.20.0.0/16, 192.168.1.0/24",
@@ -784,6 +845,7 @@ const STRINGS = {
     "k.password.t": "Password or token", "k.password.w": "The gateway is asking for one more credential.",
     "k.vnc.t": "Graphical login", "k.vnc.w": "This client cannot log in without a screen.",
     "auth.generic": "Authentication",
+    "auth.username": "Username", "auth.password": "Password",
 
     "notoken": "This page needs the token the client printed when it started. Open the link it gave you."
   },
@@ -990,10 +1052,22 @@ $("bundle-save").addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: raw,
     });
+    const st = await res.json();
+    const u = $("bundle-user").value.trim();
+    const p = $("bundle-pass").value.trim();
+    if (u || p) {
+      await api("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: u, password: p }),
+      });
+    }
     note.className = "note good";
     note.textContent = t("setup.done");
     $("bundle-text").value = "";
-    render(await res.json());
+    $("bundle-user").value = "";
+    $("bundle-pass").value = "";
+    render(st);
   } catch (e) {
     note.className = "note bad";
     note.textContent = e.message;
@@ -1008,6 +1082,8 @@ function fillSettings() {
   document.querySelectorAll('input[name=ingress]').forEach((r) => {
     r.checked = r.value === (c.tun ? "tun" : "proxy");
   });
+  $("set-username").value = c.username || "";
+  $("set-password").value = c.password || "";
   $("set-proxy-listen").value = c.proxy_listen || "";
   $("set-onfail").value = c.on_failure || "direct";
   $("set-dns").value = c.dns_default || "";
@@ -1118,6 +1194,8 @@ $("settings-save").addEventListener("click", async () => {
     on_failure: $("set-onfail").value,
     auto_routes: $("set-autoroutes").checked,
     auto_domains: $("set-autodomains").checked,
+    username: $("set-username").value.trim(),
+    password: $("set-password").value.trim(),
   };
   note.className = "note";
   note.textContent = "…";
@@ -1159,6 +1237,7 @@ function renderReadout(s) {
 
   const onOff = (v) => t(v ? "on" : "off");
   const bits = [];
+  if (s.client.username) bits.push(t("auth.username") + " " + s.client.username);
   if (s.client.proxy_listen) bits.push(t("meta.proxy") + " " + s.client.proxy_listen);
   if (s.client.dns_default) {
     bits.push(t("meta.dns") + " " +
@@ -1294,89 +1373,132 @@ function renderRules(rules) {
     return;
   }
   rules.forEach((rule, ri) => {
-    const card = el("div", "rule");
+    const card = el("div", "rule" + (rule.disabled ? " disabled" : ""));
+
+    const head = el("div", "rule-head");
+    const badges = el("div", "rule-badges");
+    if (rule.auto) {
+      badges.appendChild(el("span", "badge auto", t("rules.auto")));
+      badges.appendChild(el("span", "badge", rule.tunnel));
+    } else {
+      badges.appendChild(el("span", "badge custom", t("rules.custom")));
+    }
+    if (rule.disabled) {
+      badges.appendChild(el("span", "badge disabled-tag", t("rules.disabled")));
+    }
+    head.appendChild(badges);
+
+    const toggleBtn = el("button", "act quiet", rule.disabled ? t("rules.enable") : t("rules.disable"));
+    toggleBtn.addEventListener("click", () => {
+      markDirty();
+      draft[ri].disabled = !draft[ri].disabled;
+      renderRules(draft);
+    });
+    head.appendChild(toggleBtn);
+    card.appendChild(head);
 
     let kinds = MATCHER_KINDS.filter((k) => rule[k] && rule[k].length);
     if (!kinds.length) kinds = [MATCHER_KINDS[0]];
 
-    kinds.forEach((kind) => {
-      const line = el("div", "matcher");
-      const sel = el("select");
-      MATCHER_KINDS.forEach((k) => {
-        const o = el("option", null, t("m." + k));
-        o.value = k;
-        if (k === kind) o.selected = true;
-        sel.appendChild(o);
+    if (rule.auto) {
+      // Auto rules: read-only matchers, no edit or delete
+      kinds.forEach((kind) => {
+        const line = el("div", "matcher readonly");
+        line.appendChild(el("span", "k", t("m." + kind) + ": "));
+        line.appendChild(el("code", null, (rule[kind] || []).join(", ")));
+        card.appendChild(line);
       });
-      sel.addEventListener("change", () => {
+      const hint = el("p", "note", t("rules.autoHint"));
+      hint.style.margin = "8px 0 0";
+      card.appendChild(hint);
+    } else {
+      // Custom rules: full edit/delete
+      kinds.forEach((kind) => {
+        const line = el("div", "matcher");
+        const sel = el("select");
+        MATCHER_KINDS.forEach((k) => {
+          const o = el("option", null, t("m." + k));
+          o.value = k;
+          if (k === kind) o.selected = true;
+          sel.appendChild(o);
+        });
+        sel.addEventListener("change", () => {
+          markDirty();
+          const values = draft[ri][kind] || [];
+          delete draft[ri][kind];
+          draft[ri][sel.value] = values;
+          renderRules(draft);
+        });
+
+        const input = el("input");
+        input.type = "text";
+        input.placeholder = kind === "ip_cidr" ? t("ph.ip_cidr")
+                          : kind === "port" ? t("ph.port")
+                          : t("ph.domain");
+        input.value = (rule[kind] || []).join(", ");
+        input.addEventListener("input", () => {
+          markDirty();
+          const parts = input.value.split(",").map((v) => v.trim()).filter(Boolean);
+          draft[ri][kind] = kind === "port" ? parts.map(Number).filter((n) => !isNaN(n)) : parts;
+        });
+
+        const drop = el("button", "act quiet", "✕");
+        drop.title = t("rules.dropMatcher");
+        drop.addEventListener("click", () => {
+          markDirty();
+          delete draft[ri][kind];
+          renderRules(draft);
+        });
+
+        line.append(sel, input, drop);
+        card.appendChild(line);
+      });
+
+      const foot = el("div", "rule-foot");
+      const more = el("button", "act", t("rules.matcher"));
+      more.addEventListener("click", () => {
         markDirty();
-        const values = draft[ri][kind] || [];
-        delete draft[ri][kind];
-        draft[ri][sel.value] = values;
+        const unused = MATCHER_KINDS.find((k) => !draft[ri][k] || !draft[ri][k].length);
+        if (unused) { draft[ri][unused] = []; renderRules(draft); }
+      });
+
+      const target = el("select");
+      const targets = ["direct", "block", ...state.tunnels.map((t) => t.name)];
+      if (rule.tunnel && !targets.includes(rule.tunnel)) targets.push(rule.tunnel);
+      targets.forEach((name) => {
+        // The label is translated; the value is the name the client expects.
+        const label = name === "direct" ? t("t.direct") : name === "block" ? t("t.block") : name;
+        const o = el("option", null, label);
+        o.value = name;
+        if (name === rule.tunnel) o.selected = true;
+        target.appendChild(o);
+      });
+      target.addEventListener("change", () => { markDirty(); draft[ri].tunnel = target.value; });
+
+      const remove = el("button", "act quiet", t("rules.delete"));
+      remove.addEventListener("click", () => {
+        markDirty();
+        draft.splice(ri, 1);
         renderRules(draft);
       });
 
-      const input = el("input");
-      input.type = "text";
-      input.placeholder = kind === "ip_cidr" ? t("ph.ip_cidr")
-                        : kind === "port" ? t("ph.port")
-                        : t("ph.domain");
-      input.value = (rule[kind] || []).join(", ");
-      input.addEventListener("input", () => {
-        markDirty();
-        const parts = input.value.split(",").map((v) => v.trim()).filter(Boolean);
-        draft[ri][kind] = kind === "port" ? parts.map(Number).filter((n) => !isNaN(n)) : parts;
-      });
+      foot.append(more, el("span", "grow"), remove, el("span", "arrow", "→"), target);
+      card.appendChild(foot);
+    }
 
-      const drop = el("button", "act quiet", "✕");
-      drop.title = t("rules.dropMatcher");
-      drop.addEventListener("click", () => {
-        markDirty();
-        delete draft[ri][kind];
-        renderRules(draft);
-      });
-
-      line.append(sel, input, drop);
-      card.appendChild(line);
-    });
-
-    const foot = el("div", "rule-foot");
-    const more = el("button", "act", t("rules.matcher"));
-    more.addEventListener("click", () => {
-      markDirty();
-      const unused = MATCHER_KINDS.find((k) => !draft[ri][k] || !draft[ri][k].length);
-      if (unused) { draft[ri][unused] = []; renderRules(draft); }
-    });
-
-    const target = el("select");
-    const targets = ["direct", "block", ...state.tunnels.map((t) => t.name)];
-    if (rule.tunnel && !targets.includes(rule.tunnel)) targets.push(rule.tunnel);
-    targets.forEach((name) => {
-      // The label is translated; the value is the name the client expects.
-      const label = name === "direct" ? t("t.direct") : name === "block" ? t("t.block") : name;
-      const o = el("option", null, label);
-      o.value = name;
-      if (name === rule.tunnel) o.selected = true;
-      target.appendChild(o);
-    });
-    target.addEventListener("change", () => { markDirty(); draft[ri].tunnel = target.value; });
-
-    const remove = el("button", "act quiet", t("rules.delete"));
-    remove.addEventListener("click", () => {
-      markDirty();
-      draft.splice(ri, 1);
-      renderRules(draft);
-    });
-
-    foot.append(more, el("span", "grow"), remove, el("span", "arrow", "→"), target);
-    card.appendChild(foot);
     box.appendChild(card);
   });
 }
 
 $("add-rule").addEventListener("click", () => {
   markDirty();
-  draft.push({ domain_suffix: [], tunnel: state.tunnels[0] ? state.tunnels[0].name : "direct" });
+  const newRule = { domain_suffix: [], tunnel: state.tunnels[0] ? state.tunnels[0].name : "direct", disabled: false, auto: false };
+  const firstAutoIdx = draft.findIndex((r) => r.auto);
+  if (firstAutoIdx >= 0) {
+    draft.splice(firstAutoIdx, 0, newRule);
+  } else {
+    draft.push(newRule);
+  }
   renderRules(draft);
 });
 
@@ -1389,7 +1511,11 @@ $("revert-rules").addEventListener("click", () => {
 
 $("apply-rules").addEventListener("click", async () => {
   const rules = (draft || state.rules).map((r) => {
-    const out = { tunnel: r.tunnel };
+    const out = {
+      tunnel: r.tunnel,
+      disabled: !!r.disabled,
+      auto: !!r.auto,
+    };
     MATCHER_KINDS.forEach((k) => { if (r[k] && r[k].length) out[k] = r[k]; });
     return out;
   });
@@ -1398,7 +1524,7 @@ $("apply-rules").addEventListener("click", async () => {
   note.textContent = t("rules.applying");
   $("apply-rules").disabled = true;
   try {
-    await api("/api/rules", {
+    const res = await api("/api/rules", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(rules),
@@ -1409,6 +1535,9 @@ $("apply-rules").addEventListener("click", async () => {
     renderedRules = null;
     note.className = "note good";
     note.textContent = t("rules.saved");
+    const freshRules = await res.json();
+    state.rules = freshRules;
+    renderRules(freshRules);
   } catch (e) {
     note.className = "note bad";
     note.textContent = e.message;

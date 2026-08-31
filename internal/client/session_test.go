@@ -32,11 +32,8 @@ func TestSessionStartsInSetupWithNothingConfigured(t *testing.T) {
 	}
 	// And it still has usable defaults, so the interface has something to show.
 	cfg := s.Settings()
-	if !cfg.Proxy.Enabled {
-		t.Error("the default has no way for traffic to enter")
-	}
-	if cfg.TUN.Enabled {
-		t.Error("the default takes over the machine; it should need no privileges")
+	if !cfg.TUN.Enabled {
+		t.Error("the default should have TUN enabled")
 	}
 }
 

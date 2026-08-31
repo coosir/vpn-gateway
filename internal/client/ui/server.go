@@ -177,14 +177,18 @@ type ClientView struct {
 	AutoRoutes  bool   `json:"auto_routes"`
 	AutoDomains bool   `json:"auto_domains"`
 	DNSDefault  string `json:"dns_default"`
+	Username    string `json:"username,omitempty"`
+	Password    string `json:"password,omitempty"`
 }
 
 func (s *Server) state() State {
 	cfg := s.ctl.Settings()
 
+	var tunnels []client.TunnelState
 	views := []TunnelView{}
 	if c := s.ctl.Client(); c != nil {
-		for _, t := range c.Tunnels() {
+		tunnels = c.Tunnels()
+		for _, t := range tunnels {
 			views = append(views, TunnelView{
 				Name: t.Name, Up: t.Up, Wanted: t.Wanted,
 				Routes: t.Routes, DNS: t.DNS,
@@ -193,19 +197,20 @@ func (s *Server) state() State {
 		}
 	}
 
-	// A configuration with no rules in it holds a nil slice, which is null on
-	// the wire. The interface iterates this list, so null breaks the rules
-	// editor the same way a null tunnel list would break the tunnel list.
-	rules := cfg.Rules
-	if rules == nil {
-		rules = []client.Rule{}
+	userRules := cfg.Rules
+	if userRules == nil {
+		userRules = []client.Rule{}
 	}
+	autoRules := client.AutoRules(cfg, tunnels)
+	allRules := make([]client.Rule, 0, len(userRules)+len(autoRules))
+	allRules = append(allRules, userRules...)
+	allRules = append(allRules, autoRules...)
 
 	return State{
 		Session: s.ctl.Status(),
 		Tunnels: views,
 		Prompts: s.prompts.pending(),
-		Rules:   rules,
+		Rules:   allRules,
 		Client: ClientView{
 			TUN:         cfg.TUN.Enabled,
 			Proxy:       cfg.Proxy.Enabled,
@@ -214,6 +219,8 @@ func (s *Server) state() State {
 			AutoRoutes:  cfg.AutoRoutes,
 			AutoDomains: cfg.AutoDomains,
 			DNSDefault:  cfg.DNS.Default,
+			Username:    cfg.Auth.Username,
+			Password:    cfg.Auth.Password,
 		},
 		At: time.Now(),
 	}
@@ -273,11 +280,20 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getRules(w http.ResponseWriter, r *http.Request) {
-	rules := s.ctl.Settings().Rules
-	if rules == nil {
-		rules = []client.Rule{}
+	cfg := s.ctl.Settings()
+	var tunnels []client.TunnelState
+	if c := s.ctl.Client(); c != nil {
+		tunnels = c.Tunnels()
 	}
-	writeJSON(w, http.StatusOK, rules)
+	userRules := cfg.Rules
+	if userRules == nil {
+		userRules = []client.Rule{}
+	}
+	autoRules := client.AutoRules(cfg, tunnels)
+	allRules := make([]client.Rule, 0, len(userRules)+len(autoRules))
+	allRules = append(allRules, userRules...)
+	allRules = append(allRules, autoRules...)
+	writeJSON(w, http.StatusOK, allRules)
 }
 
 // putRules validates, applies and only then saves.
@@ -291,8 +307,26 @@ func (s *Server) putRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var userRules []client.Rule
+	var disabledAutoKeys []string
+	for _, r := range rules {
+		if r.Auto {
+			if r.Disabled {
+				for _, d := range r.DomainSuffix {
+					disabledAutoKeys = append(disabledAutoKeys, client.AutoRuleKey(r.Tunnel, "domain_suffix", d))
+				}
+				for _, cidr := range r.IPCIDR {
+					disabledAutoKeys = append(disabledAutoKeys, client.AutoRuleKey(r.Tunnel, "ip_cidr", cidr))
+				}
+			}
+		} else {
+			userRules = append(userRules, r)
+		}
+	}
+
 	next := *s.ctl.Settings()
-	next.Rules = rules
+	next.Rules = userRules
+	next.DisabledAutoRules = disabledAutoKeys
 	// Apply validates, reconfigures a running engine, and only then saves.
 	// Saving first would leave a file the client rejected, so the next start
 	// would fail with rules that were never in effect.
@@ -300,8 +334,8 @@ func (s *Server) putRules(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.log.Info("rules updated from the interface", "count", len(rules))
-	writeJSON(w, http.StatusOK, rules)
+	s.log.Info("rules updated from the interface", "user_rules", len(userRules), "disabled_auto", len(disabledAutoKeys))
+	writeJSON(w, http.StatusOK, s.state().Rules)
 }
 
 // Settings are the parts of the configuration the interface can change.
@@ -313,6 +347,8 @@ type Settings struct {
 	OnFailure   *string             `json:"on_failure,omitempty"`
 	AutoRoutes  *bool               `json:"auto_routes,omitempty"`
 	AutoDomains *bool               `json:"auto_domains,omitempty"`
+	Username    *string             `json:"username,omitempty"`
+	Password    *string             `json:"password,omitempty"`
 }
 
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
@@ -340,6 +376,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.AutoDomains != nil {
 		next.AutoDomains = *in.AutoDomains
+	}
+	if in.Username != nil {
+		next.Auth.Username = *in.Username
+	}
+	if in.Password != nil {
+		next.Auth.Password = *in.Password
 	}
 
 	if err := s.ctl.Apply(r.Context(), &next); err != nil {

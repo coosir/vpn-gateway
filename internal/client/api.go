@@ -58,6 +58,43 @@ func NewAPI(baseURL, token string) *API {
 	}
 }
 
+// Login authenticates with username and password against the server.
+func (a *API) Login(ctx context.Context, username, password string) error {
+	body, err := json.Marshal(map[string]string{
+		"username": username,
+		"password": password,
+	})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.BaseURL+"/api/v1/auth/login", strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := a.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode == http.StatusUnauthorized {
+		return errors.New("authentication failed: invalid username or password")
+	}
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("login failed (status %d): %s", res.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var reply struct {
+		OK    bool   `json:"ok"`
+		Token string `json:"token"`
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&reply); err == nil && reply.Token != "" {
+		a.Token = reply.Token
+	}
+	return nil
+}
+
 // Tunnels fetches every tunnel the server manages.
 func (a *API) Tunnels(ctx context.Context) ([]Snapshot, error) {
 	var out []Snapshot

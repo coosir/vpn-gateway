@@ -10,12 +10,12 @@ import (
 
 // SaveRules writes rules back into the configuration file, replacing the
 // rules section and leaving everything else exactly as it was.
-//
-// The file is edited as a YAML document tree rather than re-encoded from the
-// Config struct. Re-encoding would throw away every comment the person wrote,
-// and a configuration file whose comments vanish the first time someone
-// touches the interface is a file nobody will annotate again.
 func SaveRules(path string, rules []Rule) error {
+	return SaveRulesAndDisabledAuto(path, rules, nil)
+}
+
+// SaveRulesAndDisabledAuto writes rules and disabled auto-rule keys back into the configuration file.
+func SaveRulesAndDisabledAuto(path string, rules []Rule, disabledAuto []string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read the configuration: %w", err)
@@ -33,30 +33,26 @@ func SaveRules(path string, rules []Rule) error {
 		return fmt.Errorf("%s does not contain a mapping at the top level", path)
 	}
 
-	// Encode the new rules on their own, then graft the resulting sequence in.
-	var encoded yaml.Node
-	if err := encoded.Encode(rules); err != nil {
+	// 1. Rules
+	var encodedRules yaml.Node
+	if err := encodedRules.Encode(rules); err != nil {
 		return fmt.Errorf("encode the rules: %w", err)
 	}
 	if len(rules) == 0 {
-		// An empty sequence, so the key stays present and obvious rather than
-		// disappearing and looking like it was never there.
-		encoded = yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+		encodedRules = yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
 	}
+	replaceOrAppendNode(root, "rules", &encodedRules)
 
-	replaced := false
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == "rules" {
-			// Keep the key node, and with it any comment written above it.
-			root.Content[i+1] = &encoded
-			replaced = true
-			break
+	// 2. DisabledAutoRules
+	if disabledAuto != nil {
+		var encodedDisabled yaml.Node
+		if err := encodedDisabled.Encode(disabledAuto); err != nil {
+			return fmt.Errorf("encode disabled auto rules: %w", err)
 		}
-	}
-	if !replaced {
-		root.Content = append(root.Content,
-			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "rules"},
-			&encoded)
+		if len(disabledAuto) == 0 {
+			encodedDisabled = yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+		}
+		replaceOrAppendNode(root, "disabled_auto_rules", &encodedDisabled)
 	}
 
 	out, err := yaml.Marshal(&doc)
@@ -64,6 +60,18 @@ func SaveRules(path string, rules []Rule) error {
 		return fmt.Errorf("render the configuration: %w", err)
 	}
 	return writeAtomically(path, out)
+}
+
+func replaceOrAppendNode(root *yaml.Node, key string, val *yaml.Node) {
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == key {
+			root.Content[i+1] = val
+			return
+		}
+	}
+	root.Content = append(root.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		val)
 }
 
 // writeAtomically replaces path in one step, so an interrupted write cannot

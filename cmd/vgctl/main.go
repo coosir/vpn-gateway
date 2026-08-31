@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/vpn-gateway/vpn-gateway/internal/clientbox"
 	"github.com/vpn-gateway/vpn-gateway/internal/server"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/certs"
@@ -27,7 +29,7 @@ import (
 const usage = `vgctl inspects a vpn-gateway server and emits client configuration.
 
 Usage:
-  vgctl [-config path] <command>
+  vgctl [-config path] <command> [args]
 
 Commands:
   client-config   print the bundle a client needs, as JSON
@@ -35,6 +37,7 @@ Commands:
   fingerprint     print the TLS certificate fingerprint to verify out of band
   tunnels         list configured tunnels and their ports
   verify          connect through every tunnel and report what works
+  hash-password   hash a plaintext password with bcrypt for server config
 
 verify sends one request through each tunnel and reports the address it came
 out of. -probe names where: the default is unreachable from some countries,
@@ -48,17 +51,29 @@ func main() {
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 
-	if flag.NArg() != 1 {
+	if flag.NArg() < 1 {
 		flag.Usage()
 		os.Exit(2)
 	}
-	if err := run(*configPath, *host, *probe, flag.Arg(0)); err != nil {
+	if err := run(*configPath, *host, *probe, flag.Arg(0), flag.Args()[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "vgctl:", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath, host, probe, command string) error {
+func run(configPath, host, probe, command string, args []string) error {
+	if command == "hash-password" || command == "password-hash" {
+		if len(args) == 0 {
+			return errors.New("usage: vgctl hash-password <password>")
+		}
+		hash, err := bcrypt.GenerateFromPassword([]byte(args[0]), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(hash))
+		return nil
+	}
+
 	cfg, err := server.LoadConfig(configPath)
 	if err != nil {
 		return err
@@ -162,8 +177,11 @@ func buildBundle(cfg *server.Config, host string) (*clientcfg.Bundle, error) {
 	// decision, not something to assume here.
 	_, apiPort, _ := strings.Cut(cfg.APIListen, ":")
 	apiURL := fmt.Sprintf("http://%s:%s", host, apiPort)
-
-	return clientcfg.Build(host+":"+port, apiURL, mat, token, tunnels), nil
+	bundle := clientcfg.Build(host+":"+port, apiURL, mat, token, tunnels)
+	if len(cfg.Users) > 0 {
+		bundle.RequiresAuth = true
+	}
+	return bundle, nil
 }
 
 // verify connects through every tunnel the way a real client would, so a

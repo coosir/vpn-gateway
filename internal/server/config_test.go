@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func writeConfig(t *testing.T, body string) string {
@@ -255,5 +257,86 @@ tunnels:
 	}
 	if _, err := cfg.Tunnels[0].ResolvePassword(); err == nil {
 		t.Fatal("an unset password_env resolved without an error")
+	}
+}
+
+func TestLoadConfigWithUsers(t *testing.T) {
+	path := writeConfig(t, `
+trojan: {server_name: vpn.test}
+users:
+  - username: alice
+    password_hash: "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+tunnels:
+  - {name: corp, provider: mock, image: img}
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(cfg.Users) != 1 {
+		t.Fatalf("len(cfg.Users) = %d, want 1", len(cfg.Users))
+	}
+	if cfg.Users[0].Username != "alice" {
+		t.Errorf("username = %q, want alice", cfg.Users[0].Username)
+	}
+}
+
+func TestUserAuthenticate(t *testing.T) {
+	pwHash, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bcryptUser := UserConfig{
+		Username:     "alice",
+		PasswordHash: string(pwHash),
+	}
+	if !bcryptUser.Authenticate("secret123") {
+		t.Error("bcrypt authenticate failed for valid password")
+	}
+	if bcryptUser.Authenticate("wrongpassword") {
+		t.Error("bcrypt authenticate succeeded for wrong password")
+	}
+
+	// sha256 for "secret123": fcf730b6d95236ecd3c9fc2d92d7b6b2bb061514961aec041d6c7a7192f592e4
+	shaUser := UserConfig{
+		Username:     "bob",
+		PasswordHash: "sha256:fcf730b6d95236ecd3c9fc2d92d7b6b2bb061514961aec041d6c7a7192f592e4",
+	}
+	if !shaUser.Authenticate("secret123") {
+		t.Error("sha256 authenticate failed for valid password")
+	}
+	if shaUser.Authenticate("wrongpassword") {
+		t.Error("sha256 authenticate succeeded for wrong password")
+	}
+}
+
+func TestValidateRejectsInvalidUsers(t *testing.T) {
+	path := writeConfig(t, `
+trojan: {server_name: vpn.test}
+users:
+  - username: ""
+    password_hash: "hash"
+  - username: "dup"
+    password_hash: "hash"
+  - username: "dup"
+    password_hash: "hash"
+  - username: "nopass"
+    password_hash: ""
+tunnels:
+  - {name: corp, provider: mock, image: img}
+`)
+	_, err := LoadConfig(path)
+	if err == nil {
+		t.Fatal("expected validation error for invalid users")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "username is required") {
+		t.Errorf("error %q does not mention missing username", msg)
+	}
+	if !strings.Contains(msg, "duplicate username") {
+		t.Errorf("error %q does not mention duplicate username", msg)
+	}
+	if !strings.Contains(msg, "password_hash is required") {
+		t.Errorf("error %q does not mention missing password_hash", msg)
 	}
 }

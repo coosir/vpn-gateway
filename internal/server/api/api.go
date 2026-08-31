@@ -16,22 +16,36 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vpn-gateway/vpn-gateway/internal/server"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/tunnel"
 	"github.com/vpn-gateway/vpn-gateway/pkg/contract"
 )
 
 // Server exposes the control API.
 type Server struct {
-	mgr *tunnel.Manager
-	log *slog.Logger
-	// token authenticates clients. It is required: this API can reveal
-	// corporate network topology and accept authentication answers.
+	mgr   *tunnel.Manager
+	log   *slog.Logger
 	token string
+	users []server.UserConfig
 }
 
 // New builds the API server.
-func New(mgr *tunnel.Manager, token string, log *slog.Logger) *Server {
-	return &Server{mgr: mgr, log: log, token: token}
+func New(mgr *tunnel.Manager, token string, users []server.UserConfig, log *slog.Logger) *Server {
+	return &Server{mgr: mgr, log: log, token: token, users: users}
+}
+
+// LoginRequest is the body for POST /api/v1/auth/login.
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// LoginResponse is the reply for POST /api/v1/auth/login.
+type LoginResponse struct {
+	OK       bool   `json:"ok"`
+	Username string `json:"username,omitempty"`
+	Token    string `json:"token,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 // Handler returns the routed, authenticated handler.
@@ -41,8 +55,16 @@ func (s *Server) Handler() http.Handler {
 	// Health is deliberately unauthenticated so a reverse proxy or the
 	// systemd unit can probe it. It reveals nothing.
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "contract": contract.Version})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":            true,
+			"contract":      contract.Version,
+			"requires_auth": len(s.users) > 0,
+		})
 	})
+
+	// Login is unauthenticated so a client can verify credentials and obtain a token.
+	mux.HandleFunc("POST /api/v1/auth/login", s.postLogin)
+	mux.HandleFunc("POST /api/v1/login", s.postLogin)
 
 	mux.HandleFunc("GET /api/v1/tunnels", s.auth(s.listTunnels))
 	mux.HandleFunc("GET /api/v1/events", s.auth(s.streamEvents))
@@ -57,17 +79,62 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
+func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
+	if len(s.users) == 0 {
+		writeJSON(w, http.StatusOK, LoginResponse{OK: true, Token: s.token})
+		return
+	}
+
+	var req LoginRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
+		return
+	}
+
+	for _, u := range s.users {
+		if u.Username == req.Username && u.Authenticate(req.Password) {
+			s.log.Info("user authenticated successfully", "username", req.Username)
+			writeJSON(w, http.StatusOK, LoginResponse{
+				OK:       true,
+				Username: u.Username,
+				Token:    s.token,
+			})
+			return
+		}
+	}
+
+	s.log.Warn("user authentication failed", "username", req.Username)
+	writeJSON(w, http.StatusUnauthorized, LoginResponse{
+		OK:    false,
+		Error: "invalid username or password",
+	})
+}
+
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// CutPrefix returns the input unchanged when the prefix is absent, so
 		// the ok result must be checked: without it a bare token with no
 		// scheme would be accepted.
 		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
-			writeErr(w, http.StatusUnauthorized, "invalid or missing bearer token")
+		if ok && subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) == 1 {
+			next(w, r)
 			return
 		}
-		next(w, r)
+
+		// Also check Basic Auth when users are configured.
+		if len(s.users) > 0 {
+			username, password, ok := r.BasicAuth()
+			if ok {
+				for _, u := range s.users {
+					if u.Username == username && u.Authenticate(password) {
+						next(w, r)
+						return
+					}
+				}
+			}
+		}
+
+		writeErr(w, http.StatusUnauthorized, "invalid or missing authorization")
 	}
 }
 

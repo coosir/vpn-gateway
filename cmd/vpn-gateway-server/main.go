@@ -146,7 +146,7 @@ func run(configPath string, check bool, logLevel string) error {
 
 	apiErr := make(chan error, 1)
 	go func() {
-		apiErr <- api.Serve(ctx, cfg.APIListen, api.New(mgr, token, log).Handler(), log)
+		apiErr <- api.Serve(ctx, cfg.APIListen, api.New(mgr, token, cfg.Users, log).Handler(), log)
 	}()
 
 	select {

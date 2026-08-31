@@ -80,6 +80,14 @@ func New(ctx context.Context, cfg *Config, bundle *clientcfg.Bundle, log *slog.L
 		log:      log,
 		selected: map[string]string{},
 	}
+	if bundle.RequiresAuth && cfg.Auth.Username == "" {
+		return nil, errors.New("server requires authentication: please configure username and password")
+	}
+	if cfg.Auth.Username != "" || cfg.Auth.Password != "" {
+		if err := c.api.Login(ctx, cfg.Auth.Username, cfg.Auth.Password); err != nil {
+			return nil, err
+		}
+	}
 	tunnels, err := c.fetch(ctx)
 	if err != nil {
 		return nil, err

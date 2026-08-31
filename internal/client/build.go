@@ -231,6 +231,36 @@ func buildOutbounds(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState
 	return outbounds, nil
 }
 
+// AutoRules generates Rule objects representing automatic tunnel routing and domain rules.
+func AutoRules(cfg *Config, tunnels []TunnelState) []Rule {
+	var auto []Rule
+	for _, t := range tunnels {
+		if len(t.SearchDomains) > 0 {
+			for _, d := range t.SearchDomains {
+				disabled := !cfg.AutoDomains || cfg.IsAutoRuleDisabled(t.Name, "domain_suffix", d)
+				auto = append(auto, Rule{
+					DomainSuffix: []string{d},
+					Tunnel:       t.Name,
+					Disabled:     disabled,
+					Auto:         true,
+				})
+			}
+		}
+		if len(t.Routes) > 0 {
+			for _, r := range t.Routes {
+				disabled := !cfg.AutoRoutes || cfg.IsAutoRuleDisabled(t.Name, "ip_cidr", r)
+				auto = append(auto, Rule{
+					IPCIDR:   []string{r},
+					Tunnel:   t.Name,
+					Disabled: disabled,
+					Auto:     true,
+				})
+			}
+		}
+	}
+	return auto
+}
+
 func buildRouteRules(cfg *Config, tunnels []TunnelState, byName map[string]TunnelState) []map[string]any {
 	rules := []map[string]any{
 		// Sniffing must come first: without a name extracted from the TLS
@@ -246,6 +276,9 @@ func buildRouteRules(cfg *Config, tunnels []TunnelState, byName map[string]Tunne
 	// Explicit rules come before derived ones so a specific choice always
 	// beats an inferred one.
 	for _, r := range cfg.Rules {
+		if r.Disabled {
+			continue
+		}
 		if rule := compileRule(r, r.Tunnel, byName); rule != nil {
 			rules = append(rules, rule)
 		}
@@ -253,16 +286,32 @@ func buildRouteRules(cfg *Config, tunnels []TunnelState, byName map[string]Tunne
 
 	for _, t := range tunnels {
 		if cfg.AutoDomains && len(t.SearchDomains) > 0 {
-			rules = append(rules, map[string]any{
-				"domain_suffix": t.SearchDomains,
-				"outbound":      t.RouteTag(),
-			})
+			var enabledDomains []string
+			for _, d := range t.SearchDomains {
+				if !cfg.IsAutoRuleDisabled(t.Name, "domain_suffix", d) {
+					enabledDomains = append(enabledDomains, d)
+				}
+			}
+			if len(enabledDomains) > 0 {
+				rules = append(rules, map[string]any{
+					"domain_suffix": enabledDomains,
+					"outbound":      t.RouteTag(),
+				})
+			}
 		}
 		if cfg.AutoRoutes && len(t.Routes) > 0 {
-			rules = append(rules, map[string]any{
-				"ip_cidr":  t.Routes,
-				"outbound": t.RouteTag(),
-			})
+			var enabledRoutes []string
+			for _, r := range t.Routes {
+				if !cfg.IsAutoRuleDisabled(t.Name, "ip_cidr", r) {
+					enabledRoutes = append(enabledRoutes, r)
+				}
+			}
+			if len(enabledRoutes) > 0 {
+				rules = append(rules, map[string]any{
+					"ip_cidr":  enabledRoutes,
+					"outbound": t.RouteTag(),
+				})
+			}
 		}
 	}
 	return rules
@@ -315,7 +364,7 @@ func buildDNSRules(cfg *Config, tunnels []TunnelState, byName map[string]TunnelS
 	rules := []map[string]any{}
 
 	for _, r := range cfg.Rules {
-		if !r.hasDomainMatcher() {
+		if r.Disabled || !r.hasDomainMatcher() {
 			continue
 		}
 		switch r.Tunnel {
@@ -344,10 +393,18 @@ func buildDNSRules(cfg *Config, tunnels []TunnelState, byName map[string]TunnelS
 			if t.DNSTag() == "" || len(t.SearchDomains) == 0 {
 				continue
 			}
-			rules = append(rules, map[string]any{
-				"domain_suffix": t.SearchDomains,
-				"server":        t.DNSTag(),
-			})
+			var enabledDomains []string
+			for _, d := range t.SearchDomains {
+				if !cfg.IsAutoRuleDisabled(t.Name, "domain_suffix", d) {
+					enabledDomains = append(enabledDomains, d)
+				}
+			}
+			if len(enabledDomains) > 0 {
+				rules = append(rules, map[string]any{
+					"domain_suffix": enabledDomains,
+					"server":        t.DNSTag(),
+				})
+			}
 		}
 	}
 	return rules

@@ -135,3 +135,54 @@ func TestSaveRulesPreservesFileMode(t *testing.T) {
 		t.Errorf("mode is %o after saving, want 600", perm)
 	}
 }
+
+func TestSaveRulesAndDisabledAuto(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "client.yaml")
+	if err := os.WriteFile(path, []byte(annotated), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := SaveRulesAndDisabledAuto(path,
+		[]Rule{{DomainSuffix: []string{"new.corp"}, Tunnel: "office", Disabled: true}},
+		[]string{"office:ip_cidr:10.10.0.0/16"},
+	)
+	if err != nil {
+		t.Fatalf("SaveRulesAndDisabledAuto: %v", err)
+	}
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(cfg.Rules) != 1 || !cfg.Rules[0].Disabled {
+		t.Errorf("rules = %+v", cfg.Rules)
+	}
+	if len(cfg.DisabledAutoRules) != 1 || cfg.DisabledAutoRules[0] != "office:ip_cidr:10.10.0.0/16" {
+		t.Errorf("disabled_auto_rules = %+v", cfg.DisabledAutoRules)
+	}
+}
+
+func TestSaveSettingsWithAuth(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "client.yaml")
+	if err := os.WriteFile(path, []byte(annotated), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Auth = AuthConfig{Username: "alice", Password: "secretpassword"}
+
+	if err := SaveSettings(path, cfg); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
+	}
+
+	reloaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if reloaded.Auth.Username != "alice" || reloaded.Auth.Password != "secretpassword" {
+		t.Errorf("auth = %+v", reloaded.Auth)
+	}
+}

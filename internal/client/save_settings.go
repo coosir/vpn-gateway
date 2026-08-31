@@ -10,8 +10,8 @@ import (
 // settingsKeys are the fields the interface owns. Anything else in the file
 // is left exactly as written, comments included.
 var settingsKeys = []string{
-	"bundle", "tun", "proxy", "dns", "on_failure",
-	"auto_routes", "auto_domains", "rules", "ui", "log_level",
+	"bundle", "tun", "proxy", "dns", "auth", "on_failure",
+	"auto_routes", "auto_domains", "rules", "disabled_auto_rules", "ui", "log_level",
 }
 
 // SaveSettings writes a configuration back, replacing only the keys the

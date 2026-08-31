@@ -1,6 +1,9 @@
 package server
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -10,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
 
@@ -42,7 +46,42 @@ type Config struct {
 	// Trojan configures the listener clients connect to.
 	Trojan TrojanConfig `yaml:"trojan"`
 
+	// Users defines authorized clients that must authenticate to connect.
+	Users []UserConfig `yaml:"users,omitempty"`
+
 	Tunnels []TunnelConfig `yaml:"tunnels"`
+}
+
+// UserConfig describes an authorized user on the server.
+type UserConfig struct {
+	Username     string `yaml:"username" json:"username"`
+	PasswordHash string `yaml:"password_hash" json:"password_hash"`
+}
+
+// Authenticate verifies the plaintext password against the configured password hash.
+func (u UserConfig) Authenticate(password string) bool {
+	if u.PasswordHash == "" {
+		return false
+	}
+	// bcrypt hash ($2a$, $2b$, $2y$)
+	if strings.HasPrefix(u.PasswordHash, "$2a$") ||
+		strings.HasPrefix(u.PasswordHash, "$2b$") ||
+		strings.HasPrefix(u.PasswordHash, "$2y$") {
+		return bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) == nil
+	}
+	// sha256 prefix
+	if strings.HasPrefix(u.PasswordHash, "sha256:") {
+		h := sha256.Sum256([]byte(password))
+		expected := strings.TrimPrefix(u.PasswordHash, "sha256:")
+		return subtle.ConstantTimeCompare([]byte(hex.EncodeToString(h[:])), []byte(expected)) == 1
+	}
+	// raw 64-char sha256 hex
+	if len(u.PasswordHash) == 64 {
+		h := sha256.Sum256([]byte(password))
+		return subtle.ConstantTimeCompare([]byte(hex.EncodeToString(h[:])), []byte(u.PasswordHash)) == 1
+	}
+	// direct constant-time match
+	return subtle.ConstantTimeCompare([]byte(u.PasswordHash), []byte(password)) == 1
 }
 
 // TrojanConfig describes the single TLS port that carries every tunnel.
@@ -209,6 +248,21 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("tunnels: at least one tunnel is required"))
 	}
 	errs = append(errs, c.Trojan.validate()...)
+
+	seenUsers := map[string]bool{}
+	for i, u := range c.Users {
+		where := fmt.Sprintf("users[%d]", i)
+		if u.Username == "" {
+			errs = append(errs, fmt.Errorf("%s: username is required", where))
+		} else if seenUsers[u.Username] {
+			errs = append(errs, fmt.Errorf("%s: duplicate username %q", where, u.Username))
+		} else {
+			seenUsers[u.Username] = true
+		}
+		if u.PasswordHash == "" {
+			errs = append(errs, fmt.Errorf("%s (user %q): password_hash is required", where, u.Username))
+		}
+	}
 
 	seen := map[string]bool{}
 	for i, t := range c.Tunnels {

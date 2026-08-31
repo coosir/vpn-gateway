@@ -106,10 +106,11 @@ func (s *Session) load() {
 }
 
 // defaultConfig is what a session starts with before anything is configured:
-// a local proxy, which needs no privileges, and the system resolver.
+// a TUN interface and the system resolver.
 func defaultConfig(bundlePath string) *Config {
 	cfg := &Config{
 		Bundle:      bundlePath,
+		TUN:         TUNConfig{Enabled: true, AutoRoute: true},
 		Proxy:       ProxyConfig{Enabled: true, Listen: "127.0.0.1:1080"},
 		AutoRoutes:  true,
 		AutoDomains: true,

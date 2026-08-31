@@ -386,3 +386,77 @@ func TestParseDNSURL(t *testing.T) {
 		}
 	}
 }
+
+func TestDisabledRuleIsSkipped(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Rules = []Rule{
+		{DomainSuffix: []string{"enabled.example.com"}, Tunnel: "office", Disabled: false},
+		{DomainSuffix: []string{"disabled.example.com"}, Tunnel: "office", Disabled: true},
+	}
+	rules := routeRules(t, build(t, cfg, testTunnels()))
+
+	for _, r := range rules {
+		if suffixes, ok := r["domain_suffix"].([]any); ok {
+			for _, s := range suffixes {
+				if s == "disabled.example.com" {
+					t.Errorf("disabled rule %s was included in route rules", s)
+				}
+			}
+		}
+	}
+}
+
+func TestAutoRulesGeneratedAndDisabled(t *testing.T) {
+	cfg := baseConfig()
+	cfg.AutoRoutes = true
+	cfg.AutoDomains = true
+	cfg.DisabledAutoRules = []string{
+		AutoRuleKey("office", "ip_cidr", "10.10.0.0/16"),
+		AutoRuleKey("lab", "domain_suffix", "lab.example.com"),
+	}
+
+	auto := AutoRules(cfg, testTunnels())
+	if len(auto) != 4 {
+		t.Fatalf("len(AutoRules) = %d, want 4", len(auto))
+	}
+
+	for _, r := range auto {
+		if !r.Auto {
+			t.Errorf("auto rule %+v does not have Auto=true", r)
+		}
+		if len(r.IPCIDR) > 0 && r.IPCIDR[0] == "10.10.0.0/16" && !r.Disabled {
+			t.Error("office 10.10.0.0/16 auto rule should be disabled")
+		}
+		if len(r.DomainSuffix) > 0 && r.DomainSuffix[0] == "lab.example.com" && !r.Disabled {
+			t.Error("lab.example.com auto rule should be disabled")
+		}
+	}
+
+	// Verify route rules exclude disabled auto rules
+	built := routeRules(t, build(t, cfg, testTunnels()))
+	for _, r := range built {
+		if cidrs, ok := r["ip_cidr"].([]any); ok {
+			for _, c := range cidrs {
+				if c == "10.10.0.0/16" {
+					t.Error("disabled auto route 10.10.0.0/16 was included in sing-box route rules")
+				}
+			}
+		}
+	}
+}
+
+func TestUserRulesPrecedeAutoRules(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Rules = []Rule{
+		{DomainSuffix: []string{"custom.example.com"}, Tunnel: "office"},
+	}
+	auto := AutoRules(cfg, testTunnels())
+	all := append(cfg.Rules, auto...)
+
+	if all[0].Auto {
+		t.Error("user rule should come first, not auto rule")
+	}
+	if !all[len(all)-1].Auto {
+		t.Error("auto rule should be at the bottom")
+	}
+}
