@@ -80,6 +80,16 @@ func run(configPath, host, probe, command string, args []string) error {
 	}
 
 	switch command {
+	case "user", "users":
+		return handleUserCommand(cfg, args)
+	case "user-list":
+		return handleUserCommand(cfg, []string{"list"})
+	case "user-add":
+		return handleUserCommand(cfg, append([]string{"add"}, args...))
+	case "user-del", "user-delete":
+		return handleUserCommand(cfg, append([]string{"del"}, args...))
+	case "user-passwd", "user-update":
+		return handleUserCommand(cfg, append([]string{"passwd"}, args...))
 	case "tunnels":
 		return listTunnels(cfg)
 	case "fingerprint":
@@ -182,9 +192,7 @@ func buildBundle(cfg *server.Config, host string) (*clientcfg.Bundle, error) {
 	_, apiPort, _ := strings.Cut(cfg.APIListen, ":")
 	apiURL := fmt.Sprintf("http://%s:%s", host, apiPort)
 	bundle := clientcfg.Build(host+":"+port, apiURL, mat, token, tunnels)
-	if len(cfg.Users) > 0 {
-		bundle.RequiresAuth = true
-	}
+	bundle.RequiresAuth = true
 	return bundle, nil
 }
 

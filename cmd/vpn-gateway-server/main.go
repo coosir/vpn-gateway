@@ -27,6 +27,7 @@ import (
 	"github.com/vpn-gateway/vpn-gateway/internal/server/proxy"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/runtime"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/tunnel"
+	"github.com/vpn-gateway/vpn-gateway/internal/server/users"
 )
 
 func main() {
@@ -112,6 +113,11 @@ func run(configPath string, check bool, logLevel string) error {
 		return err
 	}
 
+	usersMgr, err := users.NewManager(cfg.StateDir, cfg.Users, log)
+	if err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -151,7 +157,7 @@ func run(configPath string, check bool, logLevel string) error {
 
 	apiErr := make(chan error, 1)
 	go func() {
-		apiErr <- api.Serve(ctx, cfg.APIListen, api.New(mgr, token, cfg.Users, log).Handler(), log)
+		apiErr <- api.Serve(ctx, cfg.APIListen, api.New(mgr, token, usersMgr, log).Handler(), log)
 	}()
 
 	select {

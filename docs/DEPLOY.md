@@ -136,18 +136,28 @@ tunnels:
       dns: "10.99.0.53"
 ```
 
-### Server user authentication (optional)
+### User authentication & dynamic user management
 
-If you want to restrict access so only authorised users can connect, add `users` to `config.yaml`:
+Clients must authenticate with a valid username and password before connecting.
+
+You can manage users dynamically in real-time via `vgctl user` without restarting the server:
 
 ```sh
-# Generate a bcrypt hash for a user password
-vgctl hash-password "your-secure-password"
+# List all registered users
+vgctl -config /etc/vpn-gateway/config.yaml user list
+
+# Add a new user
+vgctl -config /etc/vpn-gateway/config.yaml user add alice "secure-password-123"
+
+# Update a user password (immediately disconnects active sessions for this user)
+vgctl -config /etc/vpn-gateway/config.yaml user passwd alice "new-secure-password"
+
+# Delete a user (immediately terminates all active connections for this user)
+vgctl -config /etc/vpn-gateway/config.yaml user delete alice
 ```
 
-Then add the username and generated hash under `users:`. When configured:
-- `vgctl client-config` marks `requires_auth: true` in the exported `client.json`.
-- Clients connecting to the server must supply the correct username and password.
+Initial users can also be placed in `config.yaml` or generated via `vgctl hash-password`.
+When a user is deleted or their password is changed on the server, any active client connection for that user is automatically terminated and disconnected in real time.
 
 `server_name` is baked into the certificate your clients will pin, so set it
 now. Changing it later means re-pinning every device.

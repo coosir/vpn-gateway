@@ -244,6 +244,15 @@ func (s *Session) Connect(ctx context.Context) error {
 		return err
 	}
 
+	c.SetOnAuthFailed(func(err error) {
+		s.mu.Lock()
+		s.client = nil
+		s.cancel = nil
+		s.setPhase(PhaseFailed, fmt.Errorf("user authentication revoked by server: %w", err))
+		s.mu.Unlock()
+		cancel()
+	})
+
 	go c.Watch(runCtx)
 
 	s.mu.Lock()

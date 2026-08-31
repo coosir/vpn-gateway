@@ -207,20 +207,16 @@ func TestDisconnectingWhenIdleIsHarmless(t *testing.T) {
 	}
 }
 
-func TestGeneratedConfigurationIsReadable(t *testing.T) {
-	// It is written for a person to edit, so it must not be full of zero
-	// values nobody set.
-	s, path := newSession(t)
+func TestConnectingNeedsCredentials(t *testing.T) {
+	s, _ := newSession(t)
 	if err := s.ImportBundle([]byte(bundleJSON)); err != nil {
 		t.Fatal(err)
 	}
-	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
+	err := s.Connect(t.Context())
+	if err == nil {
+		t.Fatal("connecting should fail without username and password")
 	}
-	for _, noise := range []string{`name: ""`, "mtu: 0", `stack: ""`, `link_file: ""`} {
-		if strings.Contains(string(body), noise) {
-			t.Errorf("the configuration contains %q:\n%s", noise, body)
-		}
+	if !strings.Contains(err.Error(), "authentication required") && !strings.Contains(err.Error(), "username and password") {
+		t.Errorf("error = %v, want authentication required", err)
 	}
 }

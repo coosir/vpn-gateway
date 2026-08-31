@@ -43,6 +43,7 @@ func testTunnels() []TunnelState {
 func baseConfig() *Config {
 	c := &Config{
 		Bundle:      "/dev/null",
+		Auth:        AuthConfig{Username: "testuser", Password: "testpassword"},
 		Proxy:       ProxyConfig{Enabled: true, Listen: "127.0.0.1:1080"},
 		AutoRoutes:  true,
 		AutoDomains: true,

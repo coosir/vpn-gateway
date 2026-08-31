@@ -194,6 +194,9 @@ func (a *API) request(ctx context.Context, method, path string, body io.Reader) 
 	return req, nil
 }
 
+// ErrUnauthorized is returned when the server rejects authentication (invalid or revoked session).
+var ErrUnauthorized = errors.New("the server rejected the authorization: session expired or revoked")
+
 func (a *API) do(req *http.Request, out any) error {
 	resp, err := a.HTTP.Do(req)
 	if err != nil {
@@ -202,7 +205,7 @@ func (a *API) do(req *http.Request, out any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("%s %s: the server rejected the API token", req.Method, req.URL.Path)
+		return fmt.Errorf("%s %s: %w", req.Method, req.URL.Path, ErrUnauthorized)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var apiErr contract.APIError
@@ -245,7 +248,7 @@ func (a *API) Events(ctx context.Context, fn func(Event)) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		return errors.New("the server rejected the API token")
+		return fmt.Errorf("GET /api/v1/events: %w", ErrUnauthorized)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET /api/v1/events: unexpected status %d", resp.StatusCode)

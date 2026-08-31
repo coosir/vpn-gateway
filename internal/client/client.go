@@ -47,8 +47,9 @@ type Client struct {
 	instanceMu sync.Mutex
 	instance   *box.Box
 
-	mu      sync.RWMutex
-	tunnels []TunnelState
+	mu           sync.RWMutex
+	tunnels      []TunnelState
+	onAuthFailed func(error)
 	// selected records which outbound each selector currently points at, so
 	// a switch is only issued when something actually changed.
 	selected map[string]string
@@ -80,13 +81,11 @@ func New(ctx context.Context, cfg *Config, bundle *clientcfg.Bundle, log *slog.L
 		log:      log,
 		selected: map[string]string{},
 	}
-	if bundle.RequiresAuth && cfg.Auth.Username == "" {
-		return nil, errors.New("server requires authentication: please configure username and password")
+	if cfg.Auth.Username == "" || cfg.Auth.Password == "" {
+		return nil, errors.New("authentication required: username and password must be configured")
 	}
-	if cfg.Auth.Username != "" || cfg.Auth.Password != "" {
-		if err := c.api.Login(ctx, cfg.Auth.Username, cfg.Auth.Password); err != nil {
-			return nil, err
-		}
+	if err := c.api.Login(ctx, cfg.Auth.Username, cfg.Auth.Password); err != nil {
+		return nil, err
 	}
 	tunnels, err := c.fetch(ctx)
 	if err != nil {
@@ -94,6 +93,13 @@ func New(ctx context.Context, cfg *Config, bundle *clientcfg.Bundle, log *slog.L
 	}
 	c.tunnels = tunnels
 	return c, nil
+}
+
+// SetOnAuthFailed registers a callback invoked when authentication is revoked by the server.
+func (c *Client) SetOnAuthFailed(fn func(error)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onAuthFailed = fn
 }
 
 // Config renders the sing-box configuration the client would run. It is
@@ -311,6 +317,17 @@ func (c *Client) Watch(ctx context.Context) {
 		fetched, err := c.fetch(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
+				return
+			}
+			if errors.Is(err, ErrUnauthorized) || strings.Contains(err.Error(), "rejected the authorization") || strings.Contains(err.Error(), "unauthorized") {
+				c.log.Error("user authentication revoked by server, shutting down connection", "error", err)
+				c.Close()
+				c.mu.RLock()
+				onFailed := c.onAuthFailed
+				c.mu.RUnlock()
+				if onFailed != nil {
+					onFailed(err)
+				}
 				return
 			}
 			c.log.Warn("could not refresh tunnel state; keeping the current routing", "error", err)

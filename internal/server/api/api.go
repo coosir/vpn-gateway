@@ -16,22 +16,26 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vpn-gateway/vpn-gateway/internal/server"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/tunnel"
+	"github.com/vpn-gateway/vpn-gateway/internal/server/users"
 	"github.com/vpn-gateway/vpn-gateway/pkg/contract"
 )
 
+type contextKey string
+
+const userContextKey contextKey = "username"
+
 // Server exposes the control API.
 type Server struct {
-	mgr   *tunnel.Manager
-	log   *slog.Logger
-	token string
-	users []server.UserConfig
+	mgr      *tunnel.Manager
+	log      *slog.Logger
+	token    string
+	usersMgr *users.Manager
 }
 
 // New builds the API server.
-func New(mgr *tunnel.Manager, token string, users []server.UserConfig, log *slog.Logger) *Server {
-	return &Server{mgr: mgr, log: log, token: token, users: users}
+func New(mgr *tunnel.Manager, token string, usersMgr *users.Manager, log *slog.Logger) *Server {
+	return &Server{mgr: mgr, log: log, token: token, usersMgr: usersMgr}
 }
 
 // LoginRequest is the body for POST /api/v1/auth/login.
@@ -58,14 +62,21 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":            true,
 			"contract":      contract.Version,
-			"requires_auth": len(s.users) > 0,
+			"requires_auth": true,
 		})
 	})
 
-	// Login is unauthenticated so a client can verify credentials and obtain a token.
+	// Login is unauthenticated so a client can verify credentials and obtain a session token.
 	mux.HandleFunc("POST /api/v1/auth/login", s.postLogin)
 	mux.HandleFunc("POST /api/v1/login", s.postLogin)
 
+	// User management endpoints (Admin only)
+	mux.HandleFunc("GET /api/v1/users", s.adminAuth(s.listUsers))
+	mux.HandleFunc("POST /api/v1/users", s.adminAuth(s.postUser))
+	mux.HandleFunc("PUT /api/v1/users/{username}", s.adminAuth(s.putUser))
+	mux.HandleFunc("DELETE /api/v1/users/{username}", s.adminAuth(s.deleteUser))
+
+	// Client endpoints (Authenticated user or Admin)
 	mux.HandleFunc("GET /api/v1/tunnels", s.auth(s.listTunnels))
 	mux.HandleFunc("GET /api/v1/events", s.auth(s.streamEvents))
 	mux.HandleFunc("GET /api/v1/tunnels/{name}", s.auth(s.getTunnel))
@@ -80,62 +91,143 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
-	if len(s.users) == 0 {
-		writeJSON(w, http.StatusOK, LoginResponse{OK: true, Token: s.token})
-		return
-	}
-
 	var req LoginRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
 		return
 	}
 
-	for _, u := range s.users {
-		if u.Username == req.Username && u.Authenticate(req.Password) {
-			s.log.Info("user authenticated successfully", "username", req.Username)
-			writeJSON(w, http.StatusOK, LoginResponse{
-				OK:       true,
-				Username: u.Username,
-				Token:    s.token,
-			})
-			return
-		}
+	if s.usersMgr == nil {
+		writeJSON(w, http.StatusUnauthorized, LoginResponse{
+			OK:    false,
+			Error: "user authentication required but user manager not initialized",
+		})
+		return
 	}
 
-	s.log.Warn("user authentication failed", "username", req.Username)
-	writeJSON(w, http.StatusUnauthorized, LoginResponse{
-		OK:    false,
-		Error: "invalid username or password",
+	token, err := s.usersMgr.Authenticate(req.Username, req.Password)
+	if err != nil {
+		s.log.Warn("user authentication failed", "username", req.Username, "error", err)
+		writeJSON(w, http.StatusUnauthorized, LoginResponse{
+			OK:    false,
+			Error: "invalid username or password",
+		})
+		return
+	}
+
+	s.log.Info("user authenticated successfully", "username", req.Username)
+	writeJSON(w, http.StatusOK, LoginResponse{
+		OK:       true,
+		Username: req.Username,
+		Token:    token,
 	})
+}
+
+// adminAuth requires the admin API token.
+func (s *Server) adminAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if ok && subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) == 1 {
+			next(w, r)
+			return
+		}
+		writeErr(w, http.StatusUnauthorized, "admin authorization required")
+	}
 }
 
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// CutPrefix returns the input unchanged when the prefix is absent, so
-		// the ok result must be checked: without it a bare token with no
-		// scheme would be accepted.
+		// 1. Admin API token
 		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if ok && subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) == 1 {
 			next(w, r)
 			return
 		}
 
-		// Also check Basic Auth when users are configured.
-		if len(s.users) > 0 {
+		// 2. User session token
+		if ok && s.usersMgr != nil {
+			if username, valid := s.usersMgr.Validate(got); valid {
+				r = r.WithContext(context.WithValue(r.Context(), userContextKey, username))
+				next(w, r)
+				return
+			}
+		}
+
+		// 3. Basic Auth
+		if s.usersMgr != nil {
 			username, password, ok := r.BasicAuth()
 			if ok {
-				for _, u := range s.users {
-					if u.Username == username && u.Authenticate(password) {
-						next(w, r)
-						return
-					}
+				if _, err := s.usersMgr.Authenticate(username, password); err == nil {
+					r = r.WithContext(context.WithValue(r.Context(), userContextKey, username))
+					next(w, r)
+					return
 				}
 			}
 		}
 
 		writeErr(w, http.StatusUnauthorized, "invalid or missing authorization")
 	}
+}
+
+func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
+	if s.usersMgr == nil {
+		writeJSON(w, http.StatusOK, []users.UserSummary{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.usersMgr.List())
+}
+
+func (s *Server) postUser(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
+		return
+	}
+	if s.usersMgr == nil {
+		writeErr(w, http.StatusInternalServerError, "user manager not available")
+		return
+	}
+	if err := s.usersMgr.Add(req.Username, req.Password); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "username": req.Username})
+}
+
+func (s *Server) putUser(w http.ResponseWriter, r *http.Request) {
+	username := r.PathValue("username")
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
+		return
+	}
+	if s.usersMgr == nil {
+		writeErr(w, http.StatusInternalServerError, "user manager not available")
+		return
+	}
+	if err := s.usersMgr.UpdatePassword(username, req.Password); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "username": username})
+}
+
+func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
+	username := r.PathValue("username")
+	if s.usersMgr == nil {
+		writeErr(w, http.StatusInternalServerError, "user manager not available")
+		return
+	}
+	if err := s.usersMgr.Delete(username); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "username": username})
 }
 
 func (s *Server) listTunnels(w http.ResponseWriter, r *http.Request) {
@@ -152,6 +244,15 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	username, _ := r.Context().Value(userContextKey).(string)
+	if username != "" && s.usersMgr != nil {
+		unreg := s.usersMgr.RegisterCancel(username, cancel)
+		defer unreg()
+	}
 
 	events, release := s.mgr.Subscribe()
 	defer release()
@@ -173,7 +274,7 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return
 		case ev, ok := <-events:
 			if !ok {

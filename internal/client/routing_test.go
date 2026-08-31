@@ -135,6 +135,11 @@ func startFullStack(t *testing.T, cfg *Config, names ...string) *fullStack {
 		up[n] = true
 	}
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/auth/login" || r.URL.Path == "/api/v1/login" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "token": "test-token"})
+			return
+		}
 		if r.Header.Get("Authorization") != "Bearer test-token" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
