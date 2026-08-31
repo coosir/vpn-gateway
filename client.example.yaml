@@ -7,6 +7,11 @@
 # server address, the certificate to pin, and one password per tunnel.
 bundle: /etc/vpn-gateway/client.json
 
+# User credentials if authentication is configured on the server.
+auth:
+  username: alice
+  password: alicepassword
+
 # The system-wide interface. Creating it needs elevated privileges: root on
 # Linux, root on macOS, Administrator on Windows.
 tun:
@@ -75,7 +80,7 @@ auto_domains: true
 # choice always beats an inferred one.
 #
 # Every matcher in one rule is combined with OR. `tunnel` is a tunnel name, or
-# `direct`, or `block`.
+# `direct`, or `block`. Any rule can be disabled with `disabled: true`.
 rules:
   - domain_suffix: [corp.example.com, internal.corp]
     tunnel: office
@@ -93,5 +98,10 @@ rules:
 
   - domain_suffix: [ads.example.com]
     tunnel: block
+
+  # Temporarily disabled rule:
+  # - domain_suffix: [staging.corp]
+  #   tunnel: office
+  #   disabled: true
 
 log_level: warn

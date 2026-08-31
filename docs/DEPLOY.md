@@ -107,8 +107,6 @@ sudo cp /tmp/config.example.yaml /etc/vpn-gateway/config.yaml
 sudo chmod 0600 /etc/vpn-gateway/config.yaml
 ```
 
-Start with only the credential-free tunnel enabled:
-
 ```yaml
 api_listen: 127.0.0.1:8642
 state_dir: /var/lib/vpn-gateway
@@ -122,6 +120,11 @@ trojan:
 
 pull_policy: missing
 
+# Optional: Require username & password authentication from clients
+users:
+  - username: alice
+    password_hash: "$2a$10$LPi1PG0BPYrE3iCKop1L..XxmXyYJnEDxR6/DKG3nSbnj.XZRNsJK"
+
 tunnels:
   - name: mock
     provider: mock
@@ -132,6 +135,19 @@ tunnels:
       routes: "10.99.0.0/16"
       dns: "10.99.0.53"
 ```
+
+### Server user authentication (optional)
+
+If you want to restrict access so only authorised users can connect, add `users` to `config.yaml`:
+
+```sh
+# Generate a bcrypt hash for a user password
+vgctl hash-password "your-secure-password"
+```
+
+Then add the username and generated hash under `users:`. When configured:
+- `vgctl client-config` marks `requires_auth: true` in the exported `client.json`.
+- Clients connecting to the server must supply the correct username and password.
 
 `server_name` is baked into the certificate your clients will pin, so set it
 now. Changing it later means re-pinning every device.
@@ -478,8 +494,10 @@ rules:
     tunnel: corp
 ```
 
-With `auto_routes` on, the CIDRs a tunnel reports already route themselves, so
-in practice you only add domain rules.
+### Rule Priority and Management
+- **Custom Rules**: Your own rules appear at the top of the list and take highest priority.
+- **Auto Rules**: When `auto_routes` or `auto_domains` is enabled, routes and search domains reported by active tunnels are automatically listed at the bottom (lower priority). They are marked with an `[Auto]` badge and are read-only (cannot be edited or deleted).
+- **Enabling & Disabling Rules**: Any rule — custom or auto-derived — can be toggled between Enabled and Disabled via the interface or by setting `disabled: true` in `client.yaml`. Disabled rules are skipped during routing.
 
 Check where something actually goes:
 

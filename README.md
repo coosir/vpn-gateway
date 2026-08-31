@@ -28,22 +28,25 @@ Phases 0 to 2 are complete and verified end to end. What works today:
   clients with no reimplementation
 - `vpn-gateway-server`: container orchestration, per-tunnel supervision and
   restart backoff, the client-facing control API
+- user authentication: optional server-side username & hashed password
+  verification (`bcrypt`, `sha256`), password hashing tool (`vgctl hash-password`),
+  and client credential enforcement
 - the trojan listener: one TLS port for every tunnel, selected by which
   password the client sends, with self-signed certificates clients pin or a
   certificate you supply
 - `vgctl`: emits the client bundle and verifies every tunnel end to end
 - per-tunnel control: nothing dials by itself, and a tunnel that keeps
   failing stops rather than knocking
-- `vpn-gateway`: the desktop client. One TUN interface or a local proxy port,
-  rules by domain and IP, per-tunnel DNS, and failover that switches a tunnel
-  out without disturbing the others
+- `vpn-gateway`: the desktop client. TUN interface or local proxy port,
+  custom and auto-derived routing rules by domain and IP with enable/disable
+  toggles, per-tunnel DNS, and failover
 - interactive login: a gateway asking for an SMS code, a TOTP token, a
   captcha or a single sign-on address raises a challenge that reaches the
   client and is answered there
-- a local interface in Chinese and English: live tunnel state, a rule editor
-  that applies and saves without a restart, container logs, and login prompts
-- a tray and window around it, for anyone who would rather not keep a browser
-  tab open
+- a local interface in Chinese and English: live tunnel state, rule editor
+  with auto-rule visibility and toggles, container logs, and login prompts
+- a tray and native window around it for macOS (with background launchd
+  helper service for TUN mode), Windows, and Linux
 
 Not built yet: privilege separation on the client (it currently needs
 elevation itself, see below). The iNode image is written but cannot be built
