@@ -98,6 +98,17 @@ app: desktop
 	@rm -rf "$(APPDIR)/icon.iconset"
 	@echo "built $(APP)"
 
+# Build Windows AMD64 desktop application and CLI client.
+windows:
+	@mkdir -p dist/windows-amd64
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
+		$(GO) build -tags desktop -trimpath -ldflags="$(LDFLAGS) -H=windowsgui" \
+		-o dist/windows-amd64/vpn-gateway-desktop.exe ./cmd/vpn-gateway-desktop
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
+		$(GO) build -trimpath -ldflags="$(LDFLAGS)" \
+		-o dist/windows-amd64/vpn-gateway.exe ./cmd/vpn-gateway
+	@echo "built dist/windows-amd64/vpn-gateway-desktop.exe and vpn-gateway.exe"
+
 # --- images ---------------------------------------------------------------
 #
 # Images are built here and pushed to a registry; the server pulls them. It
