@@ -174,6 +174,18 @@ it is needed for the server to work.
 sudo vgctl -config /etc/vpn-gateway/config.yaml -host 127.0.0.1 verify
 ```
 
+`verify` fetches one URL through each tunnel and prints the address the
+request came out of. The default is `https://api.ipify.org`, which is not
+reachable from mainland China -- and a server on the near side of a domestic
+VPN gateway is exactly where this tends to run. There every tunnel reports
+`FAILED` with the same error, including ones that work, so name something
+reachable instead:
+
+```sh
+sudo vgctl -config /etc/vpn-gateway/config.yaml -host 127.0.0.1 \
+  -probe https://myip.ipip.net verify
+```
+
 Expected:
 
 ```
