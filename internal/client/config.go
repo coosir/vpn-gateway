@@ -61,29 +61,29 @@ type Config struct {
 // TUNConfig controls the system-wide interface. Bringing it up needs
 // elevated privileges on every platform.
 type TUNConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled bool `yaml:"enabled" json:"enabled"`
 	// Name is the interface name; empty lets the platform choose.
-	Name string `yaml:"name,omitempty"`
+	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 	// Address is the interface's own prefix, e.g. "172.19.0.1/30".
-	Address string `yaml:"address,omitempty"`
-	MTU     uint32 `yaml:"mtu,omitempty"`
+	Address string `yaml:"address,omitempty" json:"address,omitempty"`
+	MTU     uint32 `yaml:"mtu,omitempty" json:"mtu,omitempty"`
 	// AutoRoute installs the system routes that send traffic to the
 	// interface. Without it the interface exists but carries nothing.
-	AutoRoute bool `yaml:"auto_route,omitempty"`
+	AutoRoute bool `yaml:"auto_route,omitempty" json:"auto_route,omitempty"`
 	// StrictRoute additionally blocks traffic that tries to bypass the
 	// interface. It is more thorough and more likely to interfere with other
 	// networking on the machine, so it is off by default.
-	StrictRoute bool `yaml:"strict_route,omitempty"`
+	StrictRoute bool `yaml:"strict_route,omitempty" json:"strict_route,omitempty"`
 	// Stack is "system", "gvisor" or "mixed".
-	Stack string `yaml:"stack,omitempty"`
+	Stack string `yaml:"stack,omitempty" json:"stack,omitempty"`
 }
 
 // ProxyConfig exposes a local SOCKS5 and HTTP port instead of, or as well as,
 // the TUN interface. It needs no privileges, which makes it the way to try
 // the client out and the fallback when TUN is not available.
 type ProxyConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Listen  string `yaml:"listen,omitempty"`
+	Enabled bool   `yaml:"enabled" json:"enabled"`
+	Listen  string `yaml:"listen,omitempty" json:"listen,omitempty"`
 }
 
 // DNSConfig controls name resolution for everything no tunnel claims.
@@ -95,23 +95,23 @@ type DNSConfig struct {
 	//
 	// A public resolver keeps names outside every tunnel off the local
 	// network, which is worth having where it is reachable.
-	Default string `yaml:"default,omitempty"`
+	Default string `yaml:"default,omitempty" json:"default,omitempty"`
 	// Strategy is "prefer_ipv4", "prefer_ipv6", "ipv4_only" or "ipv6_only".
-	Strategy string `yaml:"strategy,omitempty"`
+	Strategy string `yaml:"strategy,omitempty" json:"strategy,omitempty"`
 }
 
 // UIConfig controls the local interface.
 type UIConfig struct {
 	// Enabled serves the interface while the client is running.
-	Enabled bool `yaml:"enabled"`
+	Enabled bool `yaml:"enabled" json:"enabled"`
 	// Listen must be a loopback address. Anything reachable from the network
 	// would let a stranger reroute this machine's traffic.
-	Listen string `yaml:"listen,omitempty"`
+	Listen string `yaml:"listen,omitempty" json:"listen,omitempty"`
 	// StateDir holds the interface token, so the link stays the same between
 	// restarts.
-	StateDir string `yaml:"state_dir,omitempty"`
+	StateDir string `yaml:"state_dir,omitempty" json:"state_dir,omitempty"`
 	// Open launches a browser at the interface when the client starts.
-	Open bool `yaml:"open,omitempty"`
+	Open bool `yaml:"open,omitempty" json:"open,omitempty"`
 
 	// LinkFile is where the client writes the full interface link, including
 	// the token, so the tray application can find it without anyone copying
@@ -121,7 +121,7 @@ type UIConfig struct {
 	// itself, which a desktop session cannot read. Naming the path here lets
 	// the operator put the link somewhere their own user can, and decide who
 	// that is: whoever can read this file can drive the interface.
-	LinkFile string `yaml:"link_file,omitempty"`
+	LinkFile string `yaml:"link_file,omitempty" json:"link_file,omitempty"`
 
 	// LinkOwner is the user the link file is given to. A file root writes
 	// belongs to root and is unreadable by the desktop session that has to
@@ -129,7 +129,7 @@ type UIConfig struct {
 	//
 	// Empty leaves it with whoever the client runs as, which is right for a
 	// client that is not elevated in the first place.
-	LinkOwner string `yaml:"link_owner,omitempty"`
+	LinkOwner string `yaml:"link_owner,omitempty" json:"link_owner,omitempty"`
 }
 
 // Rule routes matching traffic to a tunnel. Every matcher within one rule is
