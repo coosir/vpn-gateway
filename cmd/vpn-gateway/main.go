@@ -63,17 +63,27 @@ func main() {
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 
+	if isWindowsService() {
+		if err := runWindowsService(*configPath, *logLevel); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	if flag.NArg() != 1 {
 		flag.Usage()
 		os.Exit(2)
 	}
-	if err := run(*configPath, *logLevel, flag.Arg(0)); err != nil {
+	if err := run(ctx, *configPath, *logLevel, flag.Arg(0)); err != nil {
 		fmt.Fprintln(os.Stderr, "vpn-gateway:", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath, logLevel, command string) error {
+func run(ctx context.Context, configPath, logLevel, command string) error {
 	var lvl slog.Level
 	if err := lvl.UnmarshalText([]byte(logLevel)); err != nil {
 		return fmt.Errorf("bad log level %q: %w", logLevel, err)
@@ -101,9 +111,6 @@ func run(configPath, logLevel, command string) error {
 		fmt.Printf("  on_failure %s\n", cfg.OnFailure)
 		return nil
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	session := client.NewSession(configPath, log)
 	defer session.Close()
