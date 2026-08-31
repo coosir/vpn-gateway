@@ -540,3 +540,65 @@ func TestSplitListen(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildConfigDirectRoute(t *testing.T) {
+	raw, err := BuildConfig(Options{
+		Listen:     ":443",
+		ServerName: "vpn.test",
+		CertPath:   "/tmp/c",
+		KeyPath:    "/tmp/k",
+		Routes: []Route{
+			{Name: "lan", TrojanPassword: "pw1", Direct: true},
+			{Name: "office", TrojanPassword: "pw2", DataHost: "127.0.0.1", DataPort: 21000},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Inbounds []struct {
+			Users []struct {
+				Name     string `json:"name"`
+				Password string `json:"password"`
+			} `json:"users"`
+		} `json:"inbounds"`
+		Outbounds []struct {
+			Tag  string `json:"tag"`
+			Type string `json:"type"`
+		} `json:"outbounds"`
+		Route struct {
+			Rules []struct {
+				AuthUser []string `json:"auth_user"`
+				Outbound string   `json:"outbound"`
+			} `json:"rules"`
+		} `json:"route"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(parsed.Inbounds[0].Users) != 2 {
+		t.Fatalf("users count = %d, want 2", len(parsed.Inbounds[0].Users))
+	}
+	obTypes := map[string]string{}
+	for _, ob := range parsed.Outbounds {
+		obTypes[ob.Tag] = ob.Type
+	}
+	if obTypes["tunnel-lan"] != "direct" {
+		t.Errorf("outbound tunnel-lan type = %q, want direct", obTypes["tunnel-lan"])
+	}
+	if obTypes["tunnel-office"] != "socks" {
+		t.Errorf("outbound tunnel-office type = %q, want socks", obTypes["tunnel-office"])
+	}
+
+	ruleTargets := map[string]string{}
+	for _, r := range parsed.Route.Rules {
+		if len(r.AuthUser) > 0 {
+			ruleTargets[r.AuthUser[0]] = r.Outbound
+		}
+	}
+	if ruleTargets["lan"] != "tunnel-lan" {
+		t.Errorf("rule for lan = %q, want tunnel-lan", ruleTargets["lan"])
+	}
+}
+

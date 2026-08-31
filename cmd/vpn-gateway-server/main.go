@@ -85,8 +85,13 @@ func run(configPath string, check bool, logLevel string) error {
 			if t.Disabled {
 				state = "disabled"
 			}
-			fmt.Printf("  %-20s %-14s %-9s data=%d control=%d\n",
-				t.Name, t.Provider, state, t.DataPort, t.ControlPort)
+			if t.IsDirect() {
+				fmt.Printf("  %-20s %-14s %-9s host routing\n",
+					t.Name, t.Provider, state)
+			} else {
+				fmt.Printf("  %-20s %-14s %-9s data=%d control=%d\n",
+					t.Name, t.Provider, state, t.DataPort, t.ControlPort)
+			}
 		}
 		return nil
 	}

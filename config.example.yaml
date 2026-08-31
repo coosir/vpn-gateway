@@ -70,6 +70,16 @@ users:
 # across a server restart, whatever autostart says.
 
 tunnels:
+  # Server LAN / Direct Host Tunnel (no container required).
+  # Routes traffic directly through the server's own network interface to access
+  # the server's local subnet, intranet, VPC, or LAN devices.
+  - name: server-lan
+    provider: direct
+    extra:
+      routes: "192.168.1.0/24, 10.0.0.0/8"
+      dns: "192.168.1.1"
+      search_domains: "lan.internal"
+
   # A credential-free tunnel that dials straight out. Useful for verifying
   # routing, the GUI and failover without touching a real VPN.
   - name: mock

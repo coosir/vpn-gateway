@@ -22,7 +22,8 @@ Phases 0 to 2 are complete and verified end to end. What works today:
 - image contract v1, with authentication on both the data and control planes
 - `vg-agent`: the in-container supervisor, SOCKS5 data plane with traffic
   accounting, HTTP control plane with an event stream
-- providers: `mock` (no VPN, for testing); `easyconnect` and `atrust` via
+- providers: `direct` (direct server host network / LAN routing, no container);
+  `mock` (no VPN, for testing); `easyconnect` and `atrust` via
   zju-connect; `fortinet`, `globalprotect`, `pulse`, `f5`, `juniper`, `array`
   and `anyconnect` via OpenConnect; `inode` and a generic `vendor` tier for
   clients with no reimplementation
@@ -115,6 +116,7 @@ there is no network to fetch a stylesheet or a font from.
 
 | VPN | provider | image | needs |
 |-----|----------|-------|-------|
+| Server Host / LAN | `direct` | *(none)* | direct host network routing |
 | Sangfor EasyConnect | `easyconnect` | `sangfor` | nothing |
 | Sangfor aTrust | `atrust` | `sangfor` | nothing |
 | Fortinet | `fortinet` | `openconnect` | `NET_ADMIN`, `/dev/net/tun` |

@@ -340,3 +340,41 @@ tunnels:
 		t.Errorf("error %q does not mention missing password_hash", msg)
 	}
 }
+
+func TestLoadConfigDirectTunnel(t *testing.T) {
+	path := writeConfig(t, `
+port_base: 30000
+trojan: {server_name: vpn.test}
+tunnels:
+  - name: lan
+    provider: direct
+    extra:
+      routes: "192.168.1.0/24,10.0.0.0/8"
+      dns: "192.168.1.1"
+  - name: mock
+    provider: mock
+    image: img
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(cfg.Tunnels) != 2 {
+		t.Fatalf("len(tunnels) = %d, want 2", len(cfg.Tunnels))
+	}
+	lan := cfg.Tunnels[0]
+	if !lan.IsDirect() {
+		t.Errorf("lan.IsDirect() = false, want true")
+	}
+	if lan.DataPort != 0 || lan.ControlPort != 0 {
+		t.Errorf("lan got ports %d/%d, want 0/0", lan.DataPort, lan.ControlPort)
+	}
+	mock := cfg.Tunnels[1]
+	if mock.IsDirect() {
+		t.Errorf("mock.IsDirect() = true, want false")
+	}
+	if mock.DataPort != 30000 || mock.ControlPort != 30001 {
+		t.Errorf("mock got ports %d/%d, want 30000/30001", mock.DataPort, mock.ControlPort)
+	}
+}
+

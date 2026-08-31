@@ -175,6 +175,17 @@ type TunnelConfig struct {
 	VNCPort int `yaml:"vnc_port"`
 }
 
+// IsDirect reports whether this tunnel routes directly through the server host's
+// network (such as the server's LAN or intranet) without using a container.
+func (t TunnelConfig) IsDirect() bool {
+	switch strings.ToLower(t.Provider) {
+	case "direct", "host", "server", "local", "lan":
+		return true
+	default:
+		return false
+	}
+}
+
 // nameRE matches names safe to use as a container name, a trojan user and a
 // routing rule target at once.
 var nameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
@@ -281,7 +292,7 @@ func (c *Config) Validate() error {
 		if t.Provider == "" {
 			errs = append(errs, fmt.Errorf("%s: provider is required", where))
 		}
-		if t.Image == "" {
+		if !t.IsDirect() && t.Image == "" {
 			errs = append(errs, fmt.Errorf("%s: image is required", where))
 		}
 		n := 0
@@ -328,6 +339,9 @@ func (t TrojanConfig) validate() []error {
 func (c *Config) assignPorts() {
 	idx := make([]int, 0, len(c.Tunnels))
 	for i := range c.Tunnels {
+		if c.Tunnels[i].IsDirect() {
+			continue
+		}
 		idx = append(idx, i)
 	}
 	sort.Slice(idx, func(a, b int) bool { return c.Tunnels[idx[a]].Name < c.Tunnels[idx[b]].Name })
@@ -348,6 +362,9 @@ func (c *Config) assignPorts() {
 // ResolvePassword returns the tunnel's password from whichever source is
 // configured.
 func (t TunnelConfig) ResolvePassword() (string, error) {
+	if t.IsDirect() {
+		return "", nil
+	}
 	switch {
 	case t.PasswordEnv != "":
 		v, ok := os.LookupEnv(t.PasswordEnv)

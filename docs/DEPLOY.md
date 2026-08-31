@@ -441,7 +441,18 @@ interface inside its container, so that container needs two extra things:
       authgroup: "corp"       # the realm, if the login form has one
 ```
 
-Tunnels do not dial by themselves. Connect this one from the client, or set
+For accessing the server's own local area network (LAN), local subnets, or VPC intranet without running a container:
+
+```yaml
+  - name: server-lan
+    provider: direct
+    extra:
+      routes: "192.168.1.0/24,10.0.0.0/8"
+      dns: "192.168.1.1"
+      search_domains: "lan.example"
+```
+
+Tunnels do not dial by themselves (except `direct` host tunnels, which are available immediately). Connect this one from the client, or set
 `autostart: true` on it. Either way it stops after `max_attempts` failures
 rather than knocking at a gateway that is refusing it, because enough failed
 authentications in a row is what locks a corporate account.

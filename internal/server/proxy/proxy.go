@@ -38,13 +38,16 @@ const (
 )
 
 // Route describes one tunnel's presence in the listener: the trojan user that
-// selects it and the container proxy it resolves to.
+// selects it and the container proxy or direct host interface it resolves to.
 type Route struct {
 	// Name is the tunnel name. It is the trojan user name and the suffix of
 	// the outbound tag.
 	Name string
 	// TrojanPassword is what a client sends to select this tunnel.
 	TrojanPassword string
+	// Direct routes this tunnel directly through the server host's network
+	// (e.g. for accessing the server's LAN or intranet) without a container proxy.
+	Direct bool
 	// DataHost and DataPort address the container's SOCKS5 data plane.
 	DataHost string
 	DataPort int
@@ -94,8 +97,9 @@ func BuildConfig(opts Options) ([]byte, error) {
 
 	users := make([]map[string]any, 0, len(opts.Routes))
 	outbounds := []map[string]any{
-		// Every tunnel resolves to a socks outbound. direct exists only so
-		// the configuration remains valid when no tunnel is configured.
+		// Every tunnel resolves to a socks outbound (or a direct outbound for
+		// host tunnels). direct exists only so the configuration remains valid
+		// when no tunnel is configured.
 		{"type": "block", "tag": blockTag},
 		{"type": "direct", "tag": directTag},
 	}
@@ -108,6 +112,19 @@ func BuildConfig(opts Options) ([]byte, error) {
 		users = append(users, map[string]any{"name": r.Name, "password": r.TrojanPassword})
 
 		tag := tunnelPrefix + r.Name
+		if r.Direct {
+			outbounds = append(outbounds, map[string]any{
+				"type": "direct",
+				"tag":  tag,
+			})
+			rules = append(rules, map[string]any{
+				"inbound":   []string{inboundTag},
+				"auth_user": []string{r.Name},
+				"outbound":  tag,
+			})
+			continue
+		}
+
 		ob := map[string]any{
 			"type":        "socks",
 			"tag":         tag,

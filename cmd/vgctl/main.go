@@ -127,7 +127,11 @@ func listTunnels(cfg *server.Config) error {
 		if t.Disabled {
 			state = "disabled"
 		}
-		fmt.Printf("%-20s %-14s %-9s %-8d %d\n", t.Name, t.Provider, state, t.DataPort, t.ControlPort)
+		if t.IsDirect() {
+			fmt.Printf("%-20s %-14s %-9s %-8s %s\n", t.Name, t.Provider, state, "-", "-")
+		} else {
+			fmt.Printf("%-20s %-14s %-9s %-8d %d\n", t.Name, t.Provider, state, t.DataPort, t.ControlPort)
+		}
 	}
 	return nil
 }
