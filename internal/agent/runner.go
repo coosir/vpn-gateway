@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/vpn-gateway/vpn-gateway/pkg/contract"
@@ -122,6 +123,36 @@ const recentLines = 8
 // clients with interactive login can be slow, so this is generous.
 const DefaultReadyTimeout = 90 * time.Second
 
+// stopGrace is how long a VPN client has to put back what it changed before
+// it is ended outright.
+const stopGrace = 5 * time.Second
+
+// stopChild asks the child to stop and makes sure it goes.
+//
+// os/exec arranges this itself when the context is cancelled, through Cancel
+// and WaitDelay. This is for the paths that stop a child for their own
+// reasons: without the kill behind the signal, a client that ignores SIGTERM
+// would leave Run waiting on an exit that never arrives.
+func stopChild(p *os.Process, exited <-chan struct{}) {
+	if exited == nil {
+		// A child that has only just started has installed nothing worth
+		// unwinding, and there is no exit here to wait for, so it gets no
+		// grace it could not use.
+		p.Kill()
+		return
+	}
+	if err := p.Signal(syscall.SIGTERM); err != nil {
+		// Already gone, or a platform that will not deliver it.
+		p.Kill()
+		return
+	}
+	select {
+	case <-exited:
+	case <-time.After(stopGrace):
+		p.Kill()
+	}
+}
+
 // Run starts the child, waits for its proxy to accept connections, reports
 // StateUp, and blocks until the child exits or ctx is cancelled.
 func (r *Runner) Run(ctx context.Context, rep Reporter) error {
@@ -138,10 +169,19 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 
 	cmd := exec.CommandContext(ctx, r.Path, r.Args...)
 	cmd.Env = append(os.Environ(), r.Env...)
-	// Give the child its own process group so cancelling the context kills
-	// any helper processes it spawned, not just the immediate child.
-	cmd.Cancel = func() error { return cmd.Process.Kill() }
-	cmd.WaitDelay = 5 * time.Second
+	// Ask the child to stop rather than ending it outright. A VPN client
+	// undoes its own work on the way out: openconnect runs vpnc-script with
+	// reason=disconnect, which puts back the resolver and the default route
+	// it replaced. SIGKILL skips all of that, and what is left is a container
+	// holding the VPN's own nameservers with no default route -- which then
+	// cannot resolve the gateway to redial. The tunnel is wedged until the
+	// container is recreated, and the only clue is "getaddrinfo failed for
+	// host ...: Try again" from every attempt.
+	//
+	// WaitDelay is the other half: os/exec sends SIGKILL itself once it
+	// elapses, so a client that ignores SIGTERM still goes.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = stopGrace
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -174,7 +214,7 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 
 	for _, line := range r.StdinPrelude {
 		if _, err := io.WriteString(stdin, line+"\n"); err != nil {
-			cmd.Cancel()
+			stopChild(cmd.Process, nil)
 			return fmt.Errorf("send the opening input to %s: %w", r.Path, err)
 		}
 	}
@@ -200,7 +240,7 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 		ready = DefaultReadyTimeout
 	}
 	if err := r.waitReady(ctx, ready, exit); err != nil {
-		cmd.Cancel()
+		stopChild(cmd.Process, exit.done)
 		<-exit.done
 		return err
 	}

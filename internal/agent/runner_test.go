@@ -837,3 +837,64 @@ func (p *slowFailingProvider) Dial(context.Context, string, string) (net.Conn, e
 	return nil, errNotDialable
 }
 func (p *slowFailingProvider) Answer(contract.AuthAnswer) error { return nil }
+
+// runUntilCancelled starts a Runner over a shell script, waits for it to be
+// up, then cancels. It returns how long Run took to come back.
+func runUntilCancelled(t *testing.T, script string) time.Duration {
+	t.Helper()
+
+	r := &Runner{
+		Path: "/bin/sh",
+		Args: []string{"-c", script},
+		// No proxy to wait for: this stands in for a client that installs its
+		// own interface and is up the moment it says so.
+		DirectDial: true,
+		ReadyWhen:  func() bool { return true },
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- r.Run(ctx, &countingReporter{}) }()
+
+	// Let the child install its trap before the signal arrives.
+	time.Sleep(300 * time.Millisecond)
+	start := time.Now()
+	cancel()
+
+	select {
+	case <-done:
+		return time.Since(start)
+	case <-time.After(30 * time.Second):
+		t.Fatal("Run did not return after the context was cancelled")
+		return 0
+	}
+}
+
+func TestAStoppedChildIsAskedFirstSoItCanCleanUp(t *testing.T) {
+	// A VPN client undoes its own work on the way out: openconnect runs
+	// vpnc-script with reason=disconnect, which puts back the resolver and
+	// the default route. SIGKILL skips it, and the container is left holding
+	// the VPN's nameservers with no default route -- unable to resolve the
+	// gateway to redial. The tunnel is then wedged until it is recreated.
+	marker := filepath.Join(t.TempDir(), "disconnected")
+	script := "trap 'printf done > " + marker + "; exit 0' TERM\n" +
+		"while :; do sleep 0.1; done\n"
+
+	runUntilCancelled(t, script)
+
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("the child was never given the chance to tear down what it installed: %v", err)
+	}
+}
+
+func TestAChildThatIgnoresTheSignalIsStillEnded(t *testing.T) {
+	// The grace period must not become a way to hang: a client that will not
+	// go has to be ended anyway, or a reconnect never completes.
+	script := "trap '' TERM\nwhile :; do sleep 0.1; done\n"
+
+	took := runUntilCancelled(t, script)
+
+	if took > stopGrace+5*time.Second {
+		t.Errorf("Run took %s to return; the grace period is %s", took, stopGrace)
+	}
+}

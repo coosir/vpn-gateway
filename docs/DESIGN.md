@@ -213,6 +213,15 @@ someone is still looking for their phone.
 Answering happens once, on the server, and the session persists. A phone using
 the same tunnel never sees the prompt.
 
+A third detail belongs with those: a supervised client is asked to stop, not
+killed. It undoes its own work on the way out -- openconnect runs vpnc-script
+with reason=disconnect, which puts back the resolver and the default route it
+replaced -- and SIGKILL skips all of it. What is left is a container holding
+the VPN's own nameservers with no default route, which cannot resolve the
+gateway to redial: the tunnel is wedged until the container is recreated, and
+every attempt says only "getaddrinfo failed". So it gets SIGTERM and a few
+seconds, and SIGKILL only if it will not go.
+
 Phase 4 also adds the vendor tier: a provider that runs a vendor's own Linux
 client in the container. It shares the network namespace with the agent, so
 once the client connects an ordinary dial already goes through the tunnel and
