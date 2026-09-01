@@ -80,12 +80,12 @@ type Config struct {
 	LogLevel string `yaml:"log_level,omitempty"`
 }
 
-// EffectiveMode returns the normalized mode ("rule", "global", "direct").
+// EffectiveMode returns the normalized mode ("rule", "global", "direct"). Default is "direct".
 func (c *Config) EffectiveMode() string {
-	if c.Mode == ModeGlobal || c.Mode == ModeDirect {
+	if c.Mode == ModeGlobal || c.Mode == ModeRule {
 		return c.Mode
 	}
-	return ModeRule
+	return ModeDirect
 }
 
 // AuthConfig holds user credentials for server authentication.

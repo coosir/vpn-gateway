@@ -8,55 +8,101 @@ import (
 	"image/color"
 	"image/png"
 	"math"
+
+	"github.com/vpn-gateway/vpn-gateway/internal/client"
 )
 
-// Icons are drawn rather than shipped as files. A menu bar icon is a ring at
-// 22 pixels and nothing more, and generating it keeps the two states exactly
-// consistent with each other.
-//
-// macOS tints a template icon itself, so these carry shape in the alpha
-// channel and no colour of their own. That is also why the two states differ
-// by shape: on a template icon, colour would be thrown away.
+// Icons are drawn mathematically rather than shipped as raster assets.
+// Both the application icon and the menu bar / tray icons use the same
+// shield gateway emblem as the UI header logo, styled and scaled to Apple macOS 15 HIG.
 const iconSize = 44 // drawn at 2x for retina menu bars
 
-// connectedIcon is a closed ring: every tunnel is carrying traffic.
-func connectedIcon() []byte { return ring(false) }
+// Color palette for tray status indicators
+var (
+	colorGreen = color.NRGBA{R: 0x10, G: 0xb9, B: 0x81, A: 0xff} // Connected / Healthy (#10b981)
+	colorAmber = color.NRGBA{R: 0xf5, G: 0x9e, B: 0x0b, A: 0xff} // Connecting / Partial (#f59e0b)
+	colorRed   = color.NRGBA{R: 0xef, G: 0x44, B: 0x44, A: 0xff} // Failed / Error (#ef4444)
+	colorSlate = color.NRGBA{R: 0x64, G: 0x74, B: 0x8b, A: 0xff} // Idle / Disconnected (#64748b)
+	colorBlack = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff} // Template icon mask
+)
 
-// degradedIcon is a broken ring: at least one tunnel is not up, or the client
-// cannot be reached at all.
-func degradedIcon() []byte { return ring(true) }
+// shieldShape tests whether a point (x, y) in the standard 24x24 SVG coordinate
+// space sits inside the outer shield contour and inner cutout contour.
+func shieldShape(x, y float64) (outer bool, inner bool) {
+	dx := math.Abs(x - 12.0)
 
-func ring(broken bool) []byte {
+	// Outer shield boundary
+	if dx <= 8.0 && y >= 2.0+0.375*dx {
+		if y <= 11.09 {
+			outer = true
+		} else {
+			normX := dx / 8.0
+			outer = y <= 11.09+10.91*math.Sqrt(math.Max(0, 1.0-normX*normX))
+		}
+	}
+
+	// Inner cutout boundary
+	if dx <= 6.0 && y >= 4.18+0.375*dx {
+		if y <= 11.09 {
+			inner = true
+		} else {
+			normX := dx / 6.0
+			inner = y <= 11.09+8.91*math.Sqrt(math.Max(0, 1.0-normX*normX))
+		}
+	}
+	return outer, inner
+}
+
+// drawTrayShield renders an optical 16pt (32px at 2x retina) shield icon centered in 44x44.
+func drawTrayShield(fg color.NRGBA, broken bool, fillInner bool) []byte {
 	img := image.NewNRGBA(image.Rect(0, 0, iconSize, iconSize))
-
-	const (
-		outer     = iconSize/2 - 3
-		thickness = 5.0
-	)
-	centre := float64(iconSize-1) / 2
-	inner := outer - thickness
 
 	for y := range iconSize {
 		for x := range iconSize {
-			dx := float64(x) - centre
-			dy := float64(y) - centre
-			d := math.Hypot(dx, dy)
+			var outerHits, innerHits int
+			const samples = 4
+			for sy := 0; sy < samples; sy++ {
+				for sx := 0; sx < samples; sx++ {
+					px := float64(x) + (float64(sx)+0.5)/float64(samples)
+					py := float64(y) + (float64(sy)+0.5)/float64(samples)
 
-			// Antialias the two edges of the ring by how far the pixel sits
-			// across each boundary.
-			a := clamp(float64(outer)-d+0.5) * clamp(d-float64(inner)+0.5)
-			if broken {
-				// A wedge open at the top right, which reads as a gap even at
-				// the size a menu bar draws this.
-				angle := math.Atan2(-dy, dx)
-				if angle > 0.35 && angle < 1.25 {
-					a = 0
+					// Standard optical height: 32px (y: 6.0 to 38.0), optical width: 26px (x: 8.5 to 34.5)
+					svgX := 12.0 + (px-21.5)*(16.0/26.0)
+					svgY := 2.0 + (py-6.0)*(20.0/32.0)
+
+					o, i := shieldShape(svgX, svgY)
+					if broken {
+						// Open a wedge at the top right to distinguish degraded states
+						dx := svgX - 12.0
+						dy := svgY - 12.0
+						angle := math.Atan2(-dy, dx)
+						if angle > 0.35 && angle < 1.25 {
+							o = false
+							i = false
+						}
+					}
+					if o {
+						outerHits++
+					}
+					if i {
+						innerHits++
+					}
 				}
 			}
-			if a <= 0 {
-				continue
+
+			total := float64(samples * samples)
+			outerCov := float64(outerHits) / total
+			innerCov := float64(innerHits) / total
+
+			borderCov := math.Max(0, outerCov-innerCov)
+			if fillInner && innerCov > 0 {
+				alpha := borderCov + innerCov*0.25
+				if alpha > 0 {
+					img.SetNRGBA(x, y, blend(fg, clamp(alpha)))
+				}
+			} else if borderCov > 0 {
+				img.SetNRGBA(x, y, blend(fg, clamp(borderCov)))
 			}
-			img.SetNRGBA(x, y, color.NRGBA{R: 0, G: 0, B: 0, A: uint8(a * 255)})
 		}
 	}
 
@@ -65,37 +111,130 @@ func ring(broken bool) []byte {
 	return buf.Bytes()
 }
 
-// appIcon draws the launcher icon: the same ring, but filled in and on a
-// rounded ground, because a Dock or Finder icon is looked at rather than
-// glanced past and a bare outline reads as unfinished there.
+// connectedIcon is the template shield icon for macOS menu bar.
+func connectedIcon() []byte { return drawTrayShield(colorBlack, false, false) }
+
+// degradedIcon is the broken template shield icon for macOS menu bar.
+func degradedIcon() []byte { return drawTrayShield(colorBlack, true, false) }
+
+// statusIcon returns a colored shield icon reflecting the client lifecycle state.
+func statusIcon(phase client.Phase, healthy bool) []byte {
+	switch phase {
+	case client.PhaseConnected:
+		if healthy {
+			return drawTrayShield(colorGreen, false, true)
+		}
+		return drawTrayShield(colorAmber, true, true)
+	case client.PhaseConnecting:
+		return drawTrayShield(colorAmber, false, true)
+	case client.PhaseFailed:
+		return drawTrayShield(colorRed, true, true)
+	case client.PhaseSetup, client.PhaseIdle:
+		return drawTrayShield(colorSlate, false, false)
+	default:
+		return drawTrayShield(colorSlate, false, false)
+	}
+}
+
+// appIcon draws the launcher application icon conforming to macOS Big Sur/Sequoia HIG:
+// an 82% standard inset squircle with soft bottom drop shadow and the centered shield emblem.
 func appIcon(size int) []byte {
 	img := image.NewNRGBA(image.Rect(0, 0, size, size))
 
 	s := float64(size)
-	centre := (s - 1) / 2
-	corner := s * 0.22
-	outer := s * 0.30
-	inner := s * 0.185
 
-	ground := color.NRGBA{R: 0x14, G: 0x17, B: 0x1c, A: 0xff}
-	mark := color.NRGBA{R: 0x45, G: 0xc9, B: 0xa3, A: 0xff}
+	// Apple macOS 15 HIG standard icon sizing: 81.5% squircle body centered in canvas
+	bodySize := s * 0.815
+	bodyLeft := (s - bodySize) / 2.0
+	bodyTop := s * 0.075
+	corner := bodySize * 0.224
+
+	// Rich tech-blue gradient background (#258cfb to #0e59c5)
+	bgTop := color.NRGBA{R: 0x25, G: 0x8c, B: 0xfb, A: 0xff}
+	bgBottom := color.NRGBA{R: 0x0e, G: 0x59, B: 0xc5, A: 0xff}
+
+	// Shield foreground
+	fgShield := color.NRGBA{R: 0xe0, G: 0xf2, B: 0xfe, A: 0xff} // crisp ice-blue/white
+	fgInner := color.NRGBA{R: 0x38, G: 0xbd, B: 0xf8, A: 0x60}  // glowing tech-blue tint
+
+	shieldPad := bodySize * 0.20
+	shieldDim := bodySize - 2*shieldPad
+	shieldLeft := bodyLeft + shieldPad
+	shieldTop := bodyTop + shieldPad
+
+	shadowOffset := s * 0.035
+	shadowBlur := s * 0.04
 
 	for y := range size {
+		fy := float64(y)
+		vRatio := (fy - bodyTop) / bodySize
+		if vRatio < 0 {
+			vRatio = 0
+		} else if vRatio > 1 {
+			vRatio = 1
+		}
+		bgCur := color.NRGBA{
+			R: uint8(float64(bgTop.R)*(1-vRatio) + float64(bgBottom.R)*vRatio),
+			G: uint8(float64(bgTop.G)*(1-vRatio) + float64(bgBottom.G)*vRatio),
+			B: uint8(float64(bgTop.B)*(1-vRatio) + float64(bgBottom.B)*vRatio),
+			A: 0xff,
+		}
+
 		for x := range size {
-			fx, fy := float64(x), float64(y)
+			fx := float64(x)
 
-			// A rounded square, measured by distance to the inset rectangle.
-			dx := math.Max(math.Max(corner-fx, fx-(s-1-corner)), 0)
-			dy := math.Max(math.Max(corner-fy, fy-(s-1-corner)), 0)
-			if math.Hypot(dx, dy) > corner+0.5 {
-				continue
+			// Drop shadow calculation
+			sdx := math.Max(math.Max(bodyLeft+corner-fx, fx-(bodyLeft+bodySize-1-corner)), 0)
+			sdy := math.Max(math.Max(bodyTop+shadowOffset+corner-fy, fy-(bodyTop+shadowOffset+bodySize-1-corner)), 0)
+			sdist := math.Hypot(sdx, sdy)
+			shadowAlpha := clamp(corner+shadowBlur-sdist) / shadowBlur * 0.22
+
+			// Rounded squircle mask
+			dx := math.Max(math.Max(bodyLeft+corner-fx, fx-(bodyLeft+bodySize-1-corner)), 0)
+			dy := math.Max(math.Max(bodyTop+corner-fy, fy-(bodyTop+bodySize-1-corner)), 0)
+			dist := math.Hypot(dx, dy)
+			bgAlpha := clamp(corner + 0.5 - dist)
+
+			// Subpixel sampling for shield inside squircle
+			var outerHits, innerHits int
+			const samples = 3
+			for sy := 0; sy < samples; sy++ {
+				for sx := 0; sx < samples; sx++ {
+					px := fx + (float64(sx)+0.5)/float64(samples)
+					py := fy + (float64(sy)+0.5)/float64(samples)
+
+					svgX := (px - shieldLeft) * (24.0 / shieldDim)
+					svgY := (py - shieldTop) * (24.0 / shieldDim)
+
+					o, i := shieldShape(svgX, svgY)
+					if o {
+						outerHits++
+					}
+					if i {
+						innerHits++
+					}
+				}
 			}
-			img.SetNRGBA(x, y, blend(ground, clamp(corner+0.5-math.Hypot(dx, dy))))
 
-			d := math.Hypot(fx-centre, fy-centre)
-			a := clamp(outer-d+0.5) * clamp(d-inner+0.5)
-			if a > 0 {
-				img.SetNRGBA(x, y, over(mark, ground, a))
+			total := float64(samples * samples)
+			outerCov := float64(outerHits) / total
+			innerCov := float64(innerHits) / total
+			borderCov := math.Max(0, outerCov-innerCov)
+
+			pixelColor := bgCur
+			if borderCov > 0 {
+				pixelColor = over(fgShield, pixelColor, borderCov)
+			}
+			if innerCov > 0 {
+				innerAlpha := float64(fgInner.A) / 255.0 * innerCov
+				pixelColor = over(fgInner, pixelColor, innerAlpha)
+			}
+
+			if bgAlpha > 0 {
+				img.SetNRGBA(x, y, blend(pixelColor, bgAlpha))
+			} else if shadowAlpha > 0 {
+				shadowColor := color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: uint8(shadowAlpha * 255)}
+				img.SetNRGBA(x, y, shadowColor)
 			}
 		}
 	}

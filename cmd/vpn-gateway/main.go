@@ -19,6 +19,7 @@ import (
 
 	"github.com/vpn-gateway/vpn-gateway/internal/client"
 	"github.com/vpn-gateway/vpn-gateway/internal/client/ui"
+	"github.com/vpn-gateway/vpn-gateway/internal/version"
 )
 
 // openBrowser opens the interface. Failing to is not worth stopping for: the
@@ -49,6 +50,7 @@ Commands:
   config   print the generated sing-box configuration and exit
   check    validate the configuration and the bundle, then exit
   auth     answer interactive login prompts as tunnels raise them
+  version  print the client version and exit
 
 Set ui.enabled to serve a local interface while the client runs: tunnel
 state, the rule editor, container logs and login prompts.
@@ -76,6 +78,10 @@ func main() {
 	if flag.NArg() != 1 {
 		flag.Usage()
 		os.Exit(2)
+	}
+	if flag.Arg(0) == "version" {
+		fmt.Println(version.Full())
+		return
 	}
 	if err := run(ctx, *configPath, *logLevel, flag.Arg(0)); err != nil {
 		fmt.Fprintln(os.Stderr, "vpn-gateway:", err)

@@ -41,10 +41,10 @@ const maxTunnelItems = 12
 // Window geometry. The interface is a dense table, so it wants width more
 // than height, and it stays usable well below this.
 const (
-	windowWidth  = 1100
-	windowHeight = 720
-	windowMinW   = 720
-	windowMinH   = 460
+	windowWidth  = 920
+	windowHeight = 620
+	windowMinW   = 680
+	windowMinH   = 440
 )
 
 // run builds the application and blocks until it quits.
@@ -93,6 +93,8 @@ func run(configPath, lang string) error {
 		},
 	})
 
+	app.SetIcon(appIcon(512))
+
 	// Which engine is in charge is decided here, not chosen: the background
 	// service either exists or it does not, and it can be installed or removed
 	// from somewhere this application never hears about.
@@ -130,9 +132,11 @@ func run(configPath, lang string) error {
 	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		e.Cancel()
 		window.Hide()
+		hideDockIcon()
 	})
 
 	tray := app.SystemTray.New()
+	tray.SetIcon(statusIcon(client.PhaseSetup, false))
 	tray.SetTemplateIcon(degradedIcon())
 	tray.SetTooltip(t("tip.setup"))
 
@@ -302,6 +306,7 @@ func absPath(p string) string {
 }
 
 func showWindow(w *application.WebviewWindow) {
+	showDockIcon()
 	w.Show()
 	w.Focus()
 }
@@ -320,6 +325,7 @@ func refresh(sv *supervisor, t func(string, ...any) string,
 		status.SetLabel(v.Status)
 		connect.SetLabel(v.Action)
 		connect.SetEnabled(v.CanToggle)
+		tray.SetIcon(statusIcon(snap.Phase, v.Healthy))
 		if v.Healthy {
 			tray.SetTemplateIcon(connectedIcon())
 		} else {

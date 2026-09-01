@@ -68,7 +68,7 @@ func TestIconHasAHole(t *testing.T) {
 		t.Error("the centre is filled; the icon would read as a disc rather than a ring")
 	}
 	// And the ring itself has to be there.
-	if _, _, _, a := img.At(mid, 4).RGBA(); a == 0 {
+	if _, _, _, a := img.At(mid, 7).RGBA(); a == 0 {
 		t.Error("the ring is missing at the top")
 	}
 }
@@ -95,8 +95,8 @@ func TestAppIconIsOpaqueAndSquare(t *testing.T) {
 	if img.Bounds().Dx() != 256 || img.Bounds().Dy() != 256 {
 		t.Fatalf("app icon is %v", img.Bounds())
 	}
-	// The middle of an edge is inside the rounded square, so it must be solid.
-	if _, _, _, a := img.At(128, 4).RGBA(); a < 0xf000 {
+	// Inside the squircle body, it must be solid.
+	if _, _, _, a := img.At(128, 28).RGBA(); a < 0xf000 {
 		t.Error("the icon's ground is not opaque")
 	}
 	// A corner is outside it, so it must be clear.

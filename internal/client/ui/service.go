@@ -10,6 +10,7 @@ import (
 
 	"github.com/vpn-gateway/vpn-gateway/internal/client"
 	"github.com/vpn-gateway/vpn-gateway/internal/client/helper"
+	"github.com/vpn-gateway/vpn-gateway/internal/version"
 )
 
 // The background service is what makes a TUN interface possible from an
@@ -33,6 +34,10 @@ type serviceStatus struct {
 	// LinkFile is where the installed service publishes its interface link.
 	// The application reads it to attach.
 	LinkFile string `json:"link_file,omitempty"`
+	// AppVersion is the version of this client application.
+	AppVersion string `json:"app_version"`
+	// Outdated is true when the installed service binary version is older than this application.
+	Outdated bool `json:"outdated"`
 }
 
 func (s *Server) serviceOptions() helper.Options {
@@ -40,16 +45,21 @@ func (s *Server) serviceOptions() helper.Options {
 }
 
 func (s *Server) serviceState() serviceStatus {
+	hStatus := helper.Inspect(s.serviceOptions())
 	st := serviceStatus{
-		Status:   helper.Inspect(s.serviceOptions()),
-		Ready:    s.ctl.Status().Phase != client.PhaseSetup,
-		LinkFile: s.ctl.Settings().UI.LinkFile,
+		Status:     hStatus,
+		Ready:      s.ctl.Status().Phase != client.PhaseSetup,
+		LinkFile:   s.ctl.Settings().UI.LinkFile,
+		AppVersion: version.Full(),
 	}
 	// Answered in the order the steps have to happen in: being told to find an
 	// executable, when the first thing missing is a server to connect to, is
 	// an answer to a question nobody has reached yet.
 	if !st.Ready {
 		st.Blocker = "import a server bundle first; a service with nothing to connect to would only be restarted in a loop"
+	}
+	if st.Installed && st.InstalledVersion != "" && st.InstalledVersion != version.Full() {
+		st.Outdated = true
 	}
 	return st
 }

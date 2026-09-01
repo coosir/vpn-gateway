@@ -59,9 +59,29 @@ func Inspect(opt Options) Status {
 	st.Running = running
 	st.PID = pid
 	st.ConfigPath = configPath
+	if st.Installed {
+		st.InstalledVersion = InstalledBinaryVersion(st.BinaryPath)
+	}
 
 	st.Blocker = blocker(opt)
 	return st
+}
+
+// InstalledBinaryVersion runs the installed helper binary on Windows to report its version.
+func InstalledBinaryVersion(binaryPath string) string {
+	if binaryPath == "" {
+		binaryPath = filepath.Join(os.Getenv("ProgramFiles"), "VPNGateway", cliName)
+	}
+	if _, err := os.Stat(binaryPath); err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), inspectTimeout)
+	defer cancel()
+	out, err := hideWindow(exec.CommandContext(ctx, binaryPath, "version")).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func blocker(opt Options) string {

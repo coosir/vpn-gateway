@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/client"
+	"github.com/vpn-gateway/vpn-gateway/internal/version"
 	"github.com/vpn-gateway/vpn-gateway/pkg/contract"
 )
 
@@ -155,6 +156,7 @@ type State struct {
 	AllNodes      []client.CustomNode   `json:"all_nodes"`
 	SelectedNode  string                `json:"selected_node"`
 	Mode          string                `json:"mode"`
+	Version       string                `json:"version"`
 }
 
 // TunnelView is one tunnel as the interface shows it.
@@ -247,6 +249,7 @@ func (s *Server) state() State {
 		AllNodes:      allNodes,
 		SelectedNode:  cfg.SelectedNode,
 		Mode:          cfg.EffectiveMode(),
+		Version:       version.Full(),
 		Client: ClientView{
 			TUN:         cfg.TUN.Enabled,
 			Proxy:       cfg.Proxy.Enabled,
@@ -301,6 +304,9 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 	changes := s.prompts.subscribe()
 	defer s.prompts.unsubscribe(changes)
 
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
@@ -309,6 +315,14 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 			// A challenge appearing or being answered must show at once; a
 			// person has a minute or two to type a code.
 			if !send() {
+				return
+			}
+		case <-ticker.C:
+			// Send an SSE keepalive comment to prevent intermediate gateways and webview timeouts
+			if _, err := w.Write([]byte(": ping\n\n")); err != nil {
+				return
+			}
+			if rc.Flush() != nil {
 				return
 			}
 		}
@@ -742,10 +756,10 @@ func (s *Server) postMode(w http.ResponseWriter, r *http.Request) {
 
 	next := *s.ctl.Settings()
 	switch body.Mode {
-	case client.ModeGlobal, client.ModeDirect:
+	case client.ModeGlobal, client.ModeRule:
 		next.Mode = body.Mode
 	default:
-		next.Mode = client.ModeRule
+		next.Mode = client.ModeDirect
 	}
 
 	if err := s.ctl.Apply(r.Context(), &next); err != nil {

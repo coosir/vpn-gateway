@@ -1,630 +1,1187 @@
 <!doctype html>
-<html lang="en" data-theme="auto">
+<html lang="zh-CN" data-theme="auto">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>vpn-gateway</title>
 <style>
 /* ---------------------------------------------------------------------------
-   An instrument panel, not a dashboard.
-   Everything is monospace and every font is one the machine already has: this
-   interface is most needed when the tunnels are down, which is exactly when
-   there is no network to fetch a webfont from.
+   Tiny RDM Inspired Modern Blue UI Theme
+   Refined, modern, desktop-native aesthetic with blue accents.
 --------------------------------------------------------------------------- */
 :root {
-  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo,
-          Consolas, "DejaVu Sans Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
-  --bg:        #f4f2ed;
-  --surface:   #fbfaf7;
-  --raised:    #ffffff;
-  --hair:      #e2ddd2;
-  --hair-firm: #cdc6b8;
-  --ink:       #17191d;
-  --dim:       #666b73;
-  --faint:     #9aa0a7;
-  --live:      #14795f;
-  --live-bg:   #e2f0eb;
-  --down:      #b04226;
-  --down-bg:   #f7e6e1;
-  --amber:     #9a6412;
-  --amber-bg:  #f6ecd9;
-  --focus:     #1a1c20;
-  --lamp-glow: none;
+  /* Light Theme (Tiny RDM Clean Blue Tone) */
+  --bg:             #f5f7fa;
+  --surface:        #ffffff;
+  --raised:         #ffffff;
+  --card-bg:        #ffffff;
+  --card-hover:     #f8fafc;
+  --hair:           #e5e9f0;
+  --hair-firm:      #cbd5e1;
+  --ink:            #1e293b;
+  --dim:            #64748b;
+  --faint:          #94a3b8;
+
+  /* Primary Blue Palette */
+  --primary:        #2080f0;
+  --primary-hover:  #4098fc;
+  --primary-active: #1060c9;
+  --primary-bg:     #eff6ff;
+  --primary-border: #bfdbfe;
+  --primary-light:  #dbeafe;
+
+  /* Status Colors */
+  --live:           #10b981;
+  --live-bg:        #ecfdf5;
+  --live-border:    #a7f3d0;
+  --down:           #ef4444;
+  --down-bg:        #fef2f2;
+  --down-border:    #fecaca;
+  --amber:          #f59e0b;
+  --amber-bg:       #fffbeb;
+  --amber-border:   #fde68a;
+
+  --focus:          #2080f0;
+  --focus-ring:     0 0 0 3px rgba(32, 128, 240, 0.18);
+  --shadow-sm:      0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow:         0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
+  --shadow-md:      0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg:      0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+  --radius-sm:      6px;
+  --radius:         8px;
+  --radius-lg:      12px;
+  --radius-xl:      16px;
 }
-/* Dark palette, applied by the explicit choice or by the system default. */
+
+/* Dark Palette (Deep Slate & Vibrant Blue) */
 :root[data-theme="dark"] {
-  --bg:        #0d0f12;
-  --surface:   #14171c;
-  --raised:    #191d23;
-  --hair:      #232830;
-  --hair-firm: #333b45;
-  --ink:       #d7dce3;
-  --dim:       #7b838f;
-  --faint:     #565e69;
-  --live:      #45c9a3;
-  --live-bg:   #10241f;
-  --down:      #e3705a;
-  --down-bg:   #2a1512;
-  --amber:     #e0a458;
-  --amber-bg:  #2a2011;
-  --focus:     #d7dce3;
-  --lamp-glow: 0 0 7px currentColor;
+  --bg:             #0f172a;
+  --surface:        #1e293b;
+  --raised:         #243248;
+  --card-bg:        #1e293b;
+  --card-hover:     #283548;
+  --hair:           #334155;
+  --hair-firm:      #475569;
+  --ink:            #f1f5f9;
+  --dim:            #94a3b8;
+  --faint:          #64748b;
+
+  --primary:        #38bdf8;
+  --primary-hover:  #60a5fa;
+  --primary-active: #2563eb;
+  --primary-bg:     #172554;
+  --primary-border: #1e40af;
+  --primary-light:  #1e3a8a;
+
+  --live:           #34d399;
+  --live-bg:        #064e3b;
+  --live-border:    #065f46;
+  --down:           #f87171;
+  --down-bg:        #450a0a;
+  --down-border:    #7f1d1d;
+  --amber:          #fbbf24;
+  --amber-bg:       #451a03;
+  --amber-border:   #78350f;
+
+  --focus:          #38bdf8;
+  --focus-ring:     0 0 0 3px rgba(56, 189, 248, 0.25);
+  --shadow-sm:      0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow:         0 2px 4px 0 rgba(0, 0, 0, 0.25);
+  --shadow-md:      0 6px 12px -2px rgba(0, 0, 0, 0.35);
+  --shadow-lg:      0 12px 24px -4px rgba(0, 0, 0, 0.45);
   color-scheme: dark;
 }
+
 @media (prefers-color-scheme: dark) {
   :root[data-theme="auto"] {
-    --bg:        #0d0f12;
-    --surface:   #14171c;
-    --raised:    #191d23;
-    --hair:      #232830;
-    --hair-firm: #333b45;
-    --ink:       #d7dce3;
-    --dim:       #7b838f;
-    --faint:     #565e69;
-    --live:      #45c9a3;
-    --live-bg:   #10241f;
-    --down:      #e3705a;
-    --down-bg:   #2a1512;
-    --amber:     #e0a458;
-    --amber-bg:  #2a2011;
-    --focus:     #d7dce3;
-    --lamp-glow: 0 0 7px currentColor;
+    --bg:             #0f172a;
+    --surface:        #1e293b;
+    --raised:         #243248;
+    --card-bg:        #1e293b;
+    --card-hover:     #283548;
+    --hair:           #334155;
+    --hair-firm:      #475569;
+    --ink:            #f1f5f9;
+    --dim:            #94a3b8;
+    --faint:          #64748b;
+
+    --primary:        #38bdf8;
+    --primary-hover:  #60a5fa;
+    --primary-active: #2563eb;
+    --primary-bg:     #172554;
+    --primary-border: #1e40af;
+    --primary-light:  #1e3a8a;
+
+    --live:           #34d399;
+    --live-bg:        #064e3b;
+    --live-border:    #065f46;
+    --down:           #f87171;
+    --down-bg:        #450a0a;
+    --down-border:    #7f1d1d;
+    --amber:          #fbbf24;
+    --amber-bg:       #451a03;
+    --amber-border:   #78350f;
+
+    --focus:          #38bdf8;
+    --focus-ring:     0 0 0 3px rgba(56, 189, 248, 0.25);
+    --shadow-sm:      0 1px 2px 0 rgba(0, 0, 0, 0.3);
+    --shadow:         0 2px 4px 0 rgba(0, 0, 0, 0.25);
+    --shadow-md:      0 6px 12px -2px rgba(0, 0, 0, 0.35);
+    --shadow-lg:      0 12px 24px -4px rgba(0, 0, 0, 0.45);
+    color-scheme: dark;
   }
 }
 
 * { box-sizing: border-box; }
-/* An author rule with a display value beats the user agent's [hidden] rule,
-   so anything toggled by the hidden attribute needs this to actually hide. */
 [hidden] { display: none !important; }
-html, body { height: 100%; }
+html, body { height: 100%; margin: 0; }
 body {
-  margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 13px/1.5 var(--mono);
-  font-variant-ligatures: none;
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
-a { color: inherit; }
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
 
-/* --- shell ------------------------------------------------------------- */
+/* --- Layout Structure -------------------------------------------------- */
 .shell { display: grid; grid-template-rows: auto 1fr; height: 100%; }
 
+/* --- Top Header Bar ---------------------------------------------------- */
 .bar {
-  display: flex; align-items: center; gap: 20px;
-  padding: 0 18px; height: 46px;
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 20px; height: 52px;
   background: var(--surface);
   border-bottom: 1px solid var(--hair);
-  position: sticky; top: 0; z-index: 20;
+  position: sticky; top: 0; z-index: 30;
+  box-shadow: var(--shadow-sm);
 }
-.mark {
-  font-weight: 700; letter-spacing: .1em; font-size: 11px;
-  text-transform: uppercase;
-  display: flex; align-items: center; gap: 9px;
-}
-.mark .bug {
-  width: 9px; height: 9px; border-radius: 2px;
-  background: var(--live); color: var(--live);
-  box-shadow: var(--lamp-glow);
-}
-.bar .gap { flex: 1; }
-.readout { display: flex; gap: 18px; color: var(--dim); font-size: 11px; }
-.readout b { color: var(--ink); font-weight: 600; }
 
-.body { display: grid; grid-template-columns: 168px 1fr; min-height: 0; }
+.brand {
+  font-weight: 700; font-size: 14px;
+  display: flex; align-items: center; gap: 10px;
+  color: var(--ink);
+  user-select: none;
+}
+.brand-icon {
+  width: 26px; height: 26px; border-radius: 6px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-active));
+  color: #ffffff;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 6px rgba(32, 128, 240, 0.3);
+}
+.brand-icon svg { width: 15px; height: 15px; fill: currentColor; }
+
+.status-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 20px;
+  font-size: 11px; font-weight: 600;
+  background: var(--hair); color: var(--dim);
+  transition: all .2s ease;
+}
+.status-pill.live {
+  background: var(--live-bg); color: var(--live);
+  border: 1px solid var(--live-border);
+}
+.status-pill.connecting {
+  background: var(--amber-bg); color: var(--amber);
+  border: 1px solid var(--amber-border);
+}
+.status-pill.bad {
+  background: var(--down-bg); color: var(--down);
+  border: 1px solid var(--down-border);
+}
+.pulse-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor;
+}
+.status-pill.live .pulse-dot {
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
+  animation: pulse-green 2s infinite;
+}
+@keyframes pulse-green {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.bar .readout {
+  display: flex; gap: 14px; color: var(--dim); font-size: 11px;
+}
+.readout-item {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.readout-item b { color: var(--ink); font-weight: 600; }
+
+.bar .gap { flex: 1; }
+
+/* Segmented Control (Mode Switcher) */
+.segmented {
+  display: inline-flex;
+  background: var(--bg);
+  border: 1px solid var(--hair-firm);
+  border-radius: var(--radius);
+  padding: 3px;
+  gap: 2px;
+}
+.segmented button {
+  appearance: none; border: 0; background: none;
+  color: var(--dim); font-family: inherit;
+  font-size: 11.5px; font-weight: 500;
+  padding: 4px 11px; border-radius: var(--radius-sm);
+  cursor: pointer; transition: all .18s cubic-bezier(.4,0,.2,1);
+  display: flex; align-items: center; gap: 5px;
+  user-select: none;
+}
+.segmented button:hover { color: var(--ink); }
+.segmented button.active {
+  color: var(--primary);
+  background: var(--surface);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+:root[data-theme="dark"] .segmented button.active {
+  color: #38bdf8;
+  background: var(--surface);
+}
+
+/* --- Main Layout with Sidebar --- */
+.body {
+  display: grid; grid-template-columns: 210px 1fr; min-height: 0;
+}
 
 .rail {
   border-right: 1px solid var(--hair);
-  padding: 14px 0;
+  padding: 16px 10px;
   background: var(--surface);
-  display: flex; flex-direction: column; gap: 1px;
+  display: flex; flex-direction: column; gap: 3px;
+  user-select: none;
+}
+.rail-group-title {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--faint);
+  padding: 8px 12px 4px;
 }
 .rail button {
   appearance: none; border: 0; background: none; color: var(--dim);
-  font: inherit; text-align: left; cursor: pointer;
-  padding: 7px 18px; display: flex; align-items: center; gap: 10px;
-  border-left: 2px solid transparent;
+  font-family: inherit; font-size: 12.5px; font-weight: 500;
+  text-align: left; cursor: pointer;
+  padding: 8px 12px; border-radius: var(--radius);
+  display: flex; align-items: center; gap: 10px;
+  transition: all .15s ease;
 }
-.rail button:hover { color: var(--ink); background: var(--bg); }
+.rail button svg {
+  width: 16px; height: 16px; opacity: .75; flex-shrink: 0;
+}
+.rail button:hover {
+  color: var(--ink); background: var(--bg);
+}
+.rail button:hover svg { opacity: 1; color: var(--primary); }
 .rail button[aria-current="true"] {
-  color: var(--ink); border-left-color: var(--amber); background: var(--bg);
+  color: var(--primary);
+  background: var(--primary-bg);
+  font-weight: 600;
+}
+.rail button[aria-current="true"] svg {
+  opacity: 1; color: var(--primary);
+}
+:root[data-theme="dark"] .rail button[aria-current="true"] {
+  color: #38bdf8; background: var(--primary-bg);
 }
 .rail .count {
-  margin-left: auto; font-size: 10px; color: var(--faint);
-}
-.rail .sep { height: 1px; background: var(--hair); margin: 12px 18px; }
-.rail .meta {
-  padding: 4px 18px; font-size: 10px; color: var(--faint); line-height: 1.7;
-  white-space: pre-line; overflow-wrap: anywhere;
-}
-
-.pane { overflow: auto; padding: 22px 26px 60px; min-width: 0; }
-
-h2 {
-  margin: 0 0 3px; font-size: 12px; font-weight: 700;
-  letter-spacing: .12em; text-transform: uppercase;
-}
-.sub { margin: 0 0 20px; color: var(--dim); font-size: 11px; max-width: 62ch; }
-
-/* --- tunnels: a wiring diagram ----------------------------------------- */
-.tunnels { position: relative; }
-/* The bus every lamp sits on. */
-.tunnels::before {
-  content: ""; position: absolute; left: 5.5px; top: 14px; bottom: 14px;
-  width: 1px; background: var(--hair-firm);
-}
-.tunnel {
-  display: grid;
-  grid-template-columns: 12px minmax(96px, 168px) 52px minmax(0, 1fr) auto;
-  gap: 18px; align-items: baseline;
-  padding: 11px 0;
-  border-bottom: 1px solid var(--hair);
-  animation: rise .28s ease both;
-}
-@keyframes rise { from { opacity: 0; transform: translateY(3px); } }
-@media (prefers-reduced-motion: reduce) { .tunnel { animation: none; } }
-
-.lamp {
-  width: 11px; height: 11px; border-radius: 50%;
-  align-self: center; justify-self: center;
-  border: 1px solid var(--hair-firm);
-  background: var(--bg);
-  transition: background .2s, box-shadow .2s, border-color .2s;
-}
-.lamp.on {
-  background: var(--live); border-color: var(--live);
-  color: var(--live); box-shadow: var(--lamp-glow);
-}
-.lamp.off {
-  background: var(--down); border-color: var(--down);
-  color: var(--down); box-shadow: var(--lamp-glow);
-}
-.lamp.idle {
-  background: var(--bg); border-color: var(--hair-firm);
-  color: transparent; box-shadow: none;
-}
-.tstate.idle { color: var(--faint); }
-.trow-actions { display: flex; gap: 6px; align-items: center; }
-.tname { font-weight: 600; overflow-wrap: anywhere; }
-.tstate { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
-.tstate.on { color: var(--live); }
-.tstate.off { color: var(--down); }
-.facts { color: var(--dim); font-size: 11px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
-.facts .k { color: var(--faint); }
-.facts code { color: var(--ink); }
-
-/* --- rules -------------------------------------------------------------- */
-.rule {
-  border: 1px solid var(--hair); background: var(--surface);
-  padding: 12px; margin-bottom: 10px;
-  transition: opacity .15s ease;
-}
-.rule.disabled {
-  opacity: .52;
-  background: var(--bg);
-  border-style: dashed;
-}
-.rule-head {
-  display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--hair);
-}
-.rule-badges { display: flex; gap: 6px; align-items: center; }
-.badge {
-  font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
-  padding: 2px 6px; border-radius: 2px;
-  background: var(--hair-firm); color: var(--ink);
-}
-.badge.auto {
-  background: var(--live-bg); color: var(--live); border: 1px solid currentColor;
-}
-.badge.custom {
+  margin-left: auto; font-size: 11px; font-family: var(--mono);
+  padding: 1px 6px; border-radius: 10px;
   background: var(--hair); color: var(--dim);
 }
-.badge.disabled-tag {
-  background: var(--down-bg); color: var(--down); border: 1px solid currentColor;
+.rail button[aria-current="true"] .count {
+  background: var(--primary-light); color: var(--primary-active);
 }
-.matcher { display: flex; gap: 8px; margin-bottom: 7px; align-items: center; }
-.matcher.readonly { color: var(--dim); padding: 4px 0; font-size: 12px; }
-.matcher.readonly code { color: var(--ink); font-weight: 600; }
-.matcher select { width: 148px; flex: none; }
-.matcher input { flex: 1; min-width: 0; }
+:root[data-theme="dark"] .rail button[aria-current="true"] .count {
+  background: var(--primary-border); color: #e0f2fe;
+}
+.rail .sep { height: 1px; background: var(--hair); margin: 10px 8px; }
+.rail .meta {
+  padding: 8px 12px; font-size: 11px; color: var(--faint); line-height: 1.6;
+  white-space: pre-line; overflow-wrap: anywhere; font-family: var(--mono);
+}
+.rail-version {
+  margin-top: auto;
+  padding: 10px 12px 4px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--faint);
+  border-top: 1px solid var(--hair);
+  user-select: none;
+}
+
+.pane {
+  overflow: auto; padding: 24px 30px 60px; min-width: 0;
+  animation: fadeIn .18s ease-out;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+.pane-header {
+  margin-bottom: 22px;
+}
+h2 {
+  margin: 0 0 5px; font-size: 18px; font-weight: 700;
+  color: var(--ink); letter-spacing: -0.01em;
+}
+.sub {
+  margin: 0; color: var(--dim); font-size: 12.5px; max-width: 70ch;
+}
+
+/* --- Reusable UI Elements ---------------------------------------------- */
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 16px;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.card:hover {
+  border-color: var(--hair-firm);
+  box-shadow: var(--shadow);
+}
+.card-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 14px;
+}
+.card-title {
+  font-size: 13.5px; font-weight: 700; color: var(--ink);
+  display: flex; align-items: center; gap: 8px;
+}
+.card-subtitle {
+  font-size: 12px; color: var(--dim); margin-top: 2px;
+}
+
+/* Buttons */
+button.act {
+  appearance: none; font-family: inherit; font-size: 12px; font-weight: 500;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--hair-firm); border-radius: var(--radius);
+  padding: 6px 14px; transition: all .15s ease; user-select: none;
+}
+button.act:hover {
+  border-color: var(--primary); color: var(--primary);
+  background: var(--primary-bg);
+}
+button.act:active { transform: scale(0.98); }
+button.act.primary {
+  background: var(--primary); color: #ffffff;
+  border-color: var(--primary); font-weight: 600;
+  box-shadow: 0 1px 3px rgba(32, 128, 240, 0.3);
+}
+button.act.primary:hover {
+  background: var(--primary-hover); border-color: var(--primary-hover);
+  color: #ffffff;
+}
+button.act.primary:active { background: var(--primary-active); }
+button.act.danger {
+  background: var(--down-bg); color: var(--down);
+  border-color: var(--down-border);
+}
+button.act.danger:hover {
+  background: var(--down); color: #ffffff; border-color: var(--down);
+}
+button.act.quiet {
+  border-color: transparent; color: var(--dim); background: none;
+  padding: 5px 10px;
+}
+button.act.quiet:hover {
+  color: var(--ink); background: var(--hair); border-color: transparent;
+}
+button.act:disabled {
+  opacity: .45; cursor: not-allowed; transform: none !important;
+}
+
+/* Forms & Inputs */
+input[type=text], input[type=password], select, textarea {
+  appearance: none; font-family: inherit; font-size: 12.5px;
+  color: var(--ink); background: var(--surface);
+  border: 1px solid var(--hair-firm); border-radius: var(--radius);
+  padding: 7px 11px; min-width: 0; width: 100%;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+select {
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 8px center; background-size: 14px;
+}
+input::placeholder, textarea::placeholder { color: var(--faint); }
+input:focus, select:focus, textarea:focus {
+  outline: none; border-color: var(--focus);
+  box-shadow: var(--focus-ring);
+}
+
+.field { margin-bottom: 18px; max-width: 74ch; }
+.field > label {
+  display: block; font-size: 12px; font-weight: 600;
+  color: var(--ink); margin-bottom: 6px;
+}
+.field .hint {
+  margin: 6px 0 0; font-size: 11.5px; color: var(--dim); line-height: 1.5;
+}
+
+/* Toggle Switch (iOS / Modern style) */
+.switch {
+  position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0;
+}
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute; cursor: pointer; inset: 0;
+  background-color: var(--hair-firm);
+  transition: .22s cubic-bezier(.4,0,.2,1);
+  border-radius: 22px;
+}
+.slider:before {
+  position: absolute; content: "";
+  height: 16px; width: 16px; left: 3px; bottom: 3px;
+  background-color: white;
+  transition: .22s cubic-bezier(.4,0,.2,1);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+}
+input:checked + .slider { background-color: var(--primary); }
+input:focus + .slider { box-shadow: var(--focus-ring); }
+input:checked + .slider:before { transform: translateX(18px); }
+
+.check-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; background: var(--bg); border-radius: var(--radius);
+  margin-bottom: 8px; border: 1px solid var(--hair);
+}
+.check-row-info b { display: block; font-size: 12.5px; margin-bottom: 2px; }
+.check-row-info span { font-size: 11px; color: var(--dim); }
+
+.toolbar { display: flex; gap: 8px; align-items: center; margin: 16px 0 0; flex-wrap: wrap; }
+.note { font-size: 12px; color: var(--dim); }
+.note.bad { color: var(--down); font-weight: 500; }
+.note.good { color: var(--live); font-weight: 500; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
+  background: var(--hair); color: var(--dim); font-family: var(--sans);
+}
+.badge.primary { background: var(--primary-bg); color: var(--primary); border: 1px solid var(--primary-border); }
+.badge.live { background: var(--live-bg); color: var(--live); border: 1px solid var(--live-border); }
+.badge.down { background: var(--down-bg); color: var(--down); border: 1px solid var(--down-border); }
+.badge.amber { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-border); }
+.badge.ping { font-family: var(--mono); }
+
+/* --- HOME / OVERVIEW PANE ---------------------------------------------- */
+.hero-card {
+  background: linear-gradient(145deg, var(--surface) 0%, var(--primary-bg) 100%);
+  border: 1px solid var(--primary-border);
+  border-radius: var(--radius-xl);
+  padding: 24px 28px;
+  margin-bottom: 22px;
+  box-shadow: 0 4px 20px -2px rgba(32, 128, 240, 0.08);
+  position: relative; overflow: hidden;
+}
+:root[data-theme="dark"] .hero-card {
+  background: linear-gradient(145deg, #1e293b 0%, #172554 100%);
+  border-color: #1e3a8a;
+  box-shadow: 0 6px 24px -2px rgba(0, 0, 0, 0.4);
+}
+.hero-top {
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;
+  margin-bottom: 20px;
+}
+.hero-status-title {
+  display: flex; align-items: center; gap: 12px;
+}
+.status-orb {
+  width: 44px; height: 44px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--hair); color: var(--dim);
+  box-shadow: var(--shadow-sm); flex-shrink: 0;
+  transition: all .25s ease;
+}
+.status-orb svg { width: 22px; height: 22px; fill: currentColor; }
+.status-orb.connected {
+  background: var(--live); color: #ffffff;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+}
+.status-orb.connecting {
+  background: var(--amber); color: #ffffff;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);
+}
+.status-orb.failed {
+  background: var(--down); color: #ffffff;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35);
+}
+.hero-status-text h3 {
+  margin: 0 0 3px; font-size: 18px; font-weight: 700; color: var(--ink);
+}
+.hero-status-text p {
+  margin: 0; font-size: 12.5px; color: var(--dim);
+}
+
+/* Big Master Switch Button */
+.master-btn-wrap { display: flex; align-items: center; gap: 12px; }
+.master-btn {
+  appearance: none; font-family: inherit; font-size: 14px; font-weight: 700;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 10px;
+  padding: 10px 24px; border-radius: 30px;
+  border: 0; transition: all .2s cubic-bezier(.4,0,.2,1);
+  box-shadow: 0 4px 12px rgba(32, 128, 240, 0.28);
+  user-select: none;
+}
+.master-btn.connect {
+  background: linear-gradient(135deg, var(--primary), var(--primary-active));
+  color: #ffffff;
+}
+.master-btn.connect:hover {
+  background: linear-gradient(135deg, var(--primary-hover), var(--primary));
+  box-shadow: 0 6px 18px rgba(32, 128, 240, 0.38);
+  transform: translateY(-1px);
+}
+.master-btn.disconnect {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.28);
+}
+.master-btn.disconnect:hover {
+  background: linear-gradient(135deg, #f87171, #ef4444);
+  box-shadow: 0 6px 18px rgba(239, 68, 68, 0.38);
+  transform: translateY(-1px);
+}
+.master-btn svg { width: 18px; height: 18px; fill: currentColor; }
+
+.hero-stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px; padding-top: 18px; border-top: 1px solid rgba(191, 219, 254, 0.6);
+}
+:root[data-theme="dark"] .hero-stats {
+  border-top-color: rgba(30, 58, 138, 0.6);
+}
+.hero-stat-item {
+  display: flex; flex-direction: column; gap: 3px;
+}
+.hero-stat-label {
+  font-size: 11px; font-weight: 500; color: var(--dim);
+}
+.hero-stat-val {
+  font-size: 13.5px; font-weight: 700; color: var(--ink); font-family: var(--mono);
+  display: flex; align-items: center; gap: 6px;
+}
+
+/* Home Mode Cards Grid */
+.mode-cards-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+  margin-bottom: 20px;
+}
+@media (max-width: 860px) {
+  .mode-cards-grid { grid-template-columns: 1fr; }
+}
+.mode-card {
+  background: var(--surface);
+  border: 2px solid var(--hair);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  cursor: pointer;
+  transition: all .2s cubic-bezier(.4,0,.2,1);
+  display: flex; flex-direction: column; gap: 8px;
+  position: relative;
+}
+.mode-card:hover {
+  border-color: var(--primary-border);
+  background: var(--card-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+.mode-card.active {
+  border-color: var(--primary);
+  background: var(--primary-bg);
+  box-shadow: 0 4px 16px -2px rgba(32, 128, 240, 0.15);
+}
+:root[data-theme="dark"] .mode-card.active {
+  border-color: #38bdf8;
+  background: #172554;
+}
+.mode-card-head {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.mode-card-icon {
+  width: 32px; height: 32px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg); color: var(--dim);
+  transition: all .2s ease;
+}
+.mode-card.active .mode-card-icon {
+  background: var(--primary); color: #ffffff;
+}
+.mode-card-icon svg { width: 18px; height: 18px; fill: currentColor; }
+.mode-card-title {
+  font-size: 14px; font-weight: 700; color: var(--ink);
+}
+.mode-card-desc {
+  font-size: 11.5px; color: var(--dim); line-height: 1.45; flex: 1;
+}
+
+/* Service Card on Home */
+.service-banner {
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;
+  background: var(--surface); border: 1px solid var(--hair); border-radius: var(--radius-lg);
+  padding: 18px 20px; box-shadow: var(--shadow-sm); margin-bottom: 20px;
+}
+.service-info { display: flex; align-items: flex-start; gap: 14px; max-width: 700px; }
+.service-icon {
+  width: 38px; height: 38px; border-radius: 10px;
+  background: var(--primary-bg); color: var(--primary);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.service-icon svg { width: 20px; height: 20px; fill: currentColor; }
+
+/* Quick Navigation Grid */
+.quick-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+}
+@media (max-width: 960px) {
+  .quick-grid { grid-template-columns: repeat(2, 1fr); }
+}
+.quick-card {
+  background: var(--surface); border: 1px solid var(--hair); border-radius: var(--radius-lg);
+  padding: 14px 16px; cursor: pointer; transition: all .15s ease;
+  display: flex; align-items: center; gap: 12px;
+}
+.quick-card:hover {
+  border-color: var(--primary); background: var(--card-hover);
+  transform: translateY(-1px); box-shadow: var(--shadow);
+}
+.quick-card-icon {
+  width: 34px; height: 34px; border-radius: 8px;
+  background: var(--bg); color: var(--primary);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.quick-card-icon svg { width: 17px; height: 17px; fill: currentColor; }
+.quick-card-title { font-size: 13px; font-weight: 600; color: var(--ink); }
+.quick-card-sub { font-size: 11px; color: var(--dim); margin-top: 1px; }
+
+/* --- TUNNELS PANE ------------------------------------------------------ */
+.tunnels-grid { display: flex; flex-direction: column; gap: 10px; }
+.tunnel-card {
+  background: var(--surface); border: 1px solid var(--hair); border-radius: var(--radius-lg);
+  padding: 14px 18px; display: grid;
+  grid-template-columns: 14px 170px 70px 1fr auto;
+  gap: 16px; align-items: center;
+  box-shadow: var(--shadow-sm);
+  transition: all .15s ease;
+}
+.tunnel-card:hover { border-color: var(--hair-firm); }
+.tunnel-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--faint);
+}
+.tunnel-dot.on {
+  background: var(--live); box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+.tunnel-dot.off {
+  background: var(--down); box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+.tunnel-name { font-weight: 600; font-size: 13.5px; overflow-wrap: anywhere; }
+.tunnel-facts { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 11.5px; }
+.tunnel-facts .fact-tag {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px;
+  background: var(--bg); border: 1px solid var(--hair); border-radius: 4px;
+  color: var(--dim); font-family: var(--mono);
+}
+.tunnel-facts .fact-tag b { color: var(--ink); font-weight: 500; }
+
+/* --- NODES & SUBSCRIPTIONS PANE ---------------------------------------- */
+.node-card {
+  background: var(--surface); border: 1px solid var(--hair); border-radius: var(--radius-lg);
+  padding: 12px 16px; margin-bottom: 8px;
+  display: grid; grid-template-columns: 1fr auto auto;
+  gap: 14px; align-items: center;
+  box-shadow: var(--shadow-sm);
+  transition: all .15s ease;
+}
+.node-card:hover { border-color: var(--hair-firm); }
+.node-card.active {
+  border-color: var(--primary);
+  background: var(--primary-bg);
+  box-shadow: 0 2px 8px rgba(32, 128, 240, 0.12);
+}
+:root[data-theme="dark"] .node-card.active {
+  border-color: #38bdf8; background: #172554;
+}
+.node-name {
+  font-weight: 600; font-size: 13px; margin-bottom: 3px;
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
+.node-detail { font-size: 11.5px; color: var(--dim); display: flex; gap: 12px; font-family: var(--mono); }
+
+.sub-card {
+  background: var(--surface); border: 1px solid var(--hair); border-radius: var(--radius-lg);
+  padding: 14px 16px; margin-bottom: 12px; box-shadow: var(--shadow-sm);
+}
+.sub-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.sub-name { font-weight: 600; font-size: 13.5px; }
+.sub-url { font-size: 11.5px; color: var(--dim); font-family: var(--mono); overflow-wrap: anywhere; margin-bottom: 6px; }
+.sub-meta { font-size: 11px; color: var(--faint); }
+
+/* --- RULES PANE -------------------------------------------------------- */
+.rule-card {
+  background: var(--surface); border: 1px solid var(--hair); border-radius: var(--radius-lg);
+  padding: 14px 16px; margin-bottom: 10px;
+  box-shadow: var(--shadow-sm); transition: all .15s ease;
+}
+.rule-card.disabled { opacity: .55; background: var(--bg); border-style: dashed; }
+.rule-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--hair);
+}
+.matcher-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.matcher-row select { width: 140px; flex-shrink: 0; }
+.matcher-row input { flex: 1; font-family: var(--mono); }
 .rule-foot {
   display: flex; gap: 10px; align-items: center;
   margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--hair);
 }
-.rule-foot .arrow { color: var(--faint); }
 .rule-foot .grow { flex: 1; }
 
-select, input[type=text] {
-  appearance: none; font: inherit; color: var(--ink);
-  background: var(--raised);
-  border: 1px solid var(--hair-firm); border-radius: 0;
-  padding: 5px 8px; min-width: 0;
-}
-select { padding-right: 24px; background-image: none; }
-input[type=text]::placeholder { color: var(--faint); }
-:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-
-button.act {
-  appearance: none; font: inherit; cursor: pointer;
-  background: var(--raised); color: var(--ink);
-  border: 1px solid var(--hair-firm); padding: 5px 11px;
-}
-button.act:hover { border-color: var(--focus); }
-button.act.primary {
-  background: var(--ink); color: var(--bg); border-color: var(--ink);
-}
-button.act.primary:hover { opacity: .86; }
-button.act.quiet { border-color: transparent; color: var(--dim); background: none; }
-button.act.quiet:hover { color: var(--down); border-color: var(--hair-firm); }
-button.act:disabled { opacity: .45; cursor: default; }
-
-.toolbar { display: flex; gap: 9px; align-items: center; margin: 16px 0 0; }
-.note { font-size: 11px; color: var(--dim); }
-.note.bad { color: var(--down); }
-.note.good { color: var(--live); }
-
-/* --- nodes & subscriptions -------------------------------------------- */
-.node-card {
-  border: 1px solid var(--hair); background: var(--surface);
-  padding: 10px 14px; margin-bottom: 8px;
-  display: grid; grid-template-columns: 1fr auto auto;
-  gap: 12px; align-items: center;
-  transition: border-color .15s ease, background .15s ease;
-}
-.node-card.active {
-  border-color: var(--live);
-  background: var(--raised);
-}
-.node-info { min-width: 0; }
-.node-name { font-weight: 600; margin-bottom: 3px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.node-detail { font-size: 11px; color: var(--dim); display: flex; gap: 10px; }
-.node-detail span { color: var(--faint); }
-.badge.active-tag {
-  background: var(--live-bg); color: var(--live); border: 1px solid currentColor;
-}
-.badge.ping { font-family: var(--mono); }
-.badge.ping.good { background: var(--live-bg); color: var(--live); border: 1px solid currentColor; }
-.badge.ping.medium { background: var(--amber-bg); color: var(--amber); border: 1px solid currentColor; }
-.badge.ping.bad { background: var(--down-bg); color: var(--down); border: 1px solid currentColor; }
-
-.sub-card {
-  border: 1px solid var(--hair); background: var(--surface);
-  padding: 12px 14px; margin-bottom: 12px;
-}
-.sub-head {
-  display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 8px;
-}
-.sub-name { font-weight: 600; font-size: 13px; }
-.sub-url { font-size: 11px; color: var(--dim); overflow-wrap: anywhere; margin-bottom: 6px; }
-.sub-meta { font-size: 11px; color: var(--faint); display: flex; gap: 14px; align-items: center; }
-
-/* --- setup and settings ------------------------------------------------- */
-.phase { font-size: 11px; color: var(--dim); margin-right: 4px; }
-.phase b { color: var(--ink); font-weight: 600; }
-.phase.live b { color: var(--live); }
-.phase.bad b { color: var(--down); }
-
-.steps { margin: 0 0 22px; padding-left: 20px; max-width: 74ch; }
-.steps li { margin-bottom: 20px; }
-.steps b { font-weight: 600; }
-.steps p { margin: 4px 0 9px; color: var(--dim); font-size: 12px; }
-.cmd {
-  margin: 0; padding: 9px 11px; font-size: 11.5px;
-  background: var(--surface); border: 1px solid var(--hair);
-  overflow-x: auto; color: var(--ink);
-}
-.drop { display: flex; align-items: center; gap: 12px; margin-bottom: 9px; }
-.drop .or { color: var(--faint); font-size: 11px; }
-textarea {
-  width: 100%; max-width: 74ch; font: inherit; font-size: 11.5px;
-  color: var(--ink); background: var(--raised);
-  border: 1px solid var(--hair-firm); border-radius: 0; padding: 9px 11px;
-  resize: vertical;
-}
-textarea::placeholder { color: var(--faint); }
-
-.field { margin-bottom: 20px; max-width: 74ch; }
-.field > label {
-  display: block; font-size: 11px; letter-spacing: .08em;
-  text-transform: uppercase; color: var(--dim); margin-bottom: 7px;
-}
-.field .hint { margin: 6px 0 0; font-size: 11px; color: var(--faint); }
-.service-state { margin: 0; font-size: 12px; }
-.service-state b { font-weight: 600; }
-.service-state b.on { color: var(--live); }
-.service-state b.off { color: var(--dim); }
-.choices { display: flex; gap: 10px; flex-wrap: wrap; }
-.choice {
-  flex: 1; min-width: 220px; display: flex; gap: 9px; align-items: flex-start;
-  padding: 11px 13px; border: 1px solid var(--hair-firm);
-  background: var(--surface); cursor: pointer;
-}
-.choice:hover { border-color: var(--focus); }
-.choice input { margin-top: 2px; accent-color: var(--amber); }
-.choice b { display: block; font-weight: 600; margin-bottom: 3px; }
-.choice em { font-style: normal; font-size: 11px; color: var(--dim); }
-.check { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 12px; }
-.check input { accent-color: var(--amber); }
-
-/* --- logs --------------------------------------------------------------- */
-.logs {
-  background: var(--surface); border: 1px solid var(--hair);
-  padding: 12px 14px; margin: 0;
-  font-size: 11.5px; line-height: 1.65;
+/* --- LOGS PANE --------------------------------------------------------- */
+.log-box {
+  background: #0f172a; color: #cbd5e1; border-radius: var(--radius-lg);
+  padding: 14px 16px; font-family: var(--mono); font-size: 12px; line-height: 1.6;
   white-space: pre-wrap; overflow-wrap: anywhere;
-  max-height: 62vh; overflow: auto; color: var(--dim);
+  height: 60vh; overflow: auto; border: 1px solid #1e293b;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
 }
-.logs strong { color: var(--ink); font-weight: 500; }
 
-/* --- the prompt: the one moment that must interrupt --------------------- */
+/* --- MODAL DIALOGS / PROMPTS ------------------------------------------- */
 .veil {
-  position: fixed; inset: 0; z-index: 60;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: blur(3px);
-  display: grid; place-items: center; padding: 24px;
+  position: fixed; inset: 0; z-index: 80;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  display: grid; place-items: center; padding: 20px;
+  animation: fadeIn .15s ease;
 }
-.prompt {
+.prompt-box {
   width: min(520px, 100%);
-  background: var(--raised);
+  background: var(--surface);
   border: 1px solid var(--hair-firm);
-  border-top: 2px solid var(--amber);
-  padding: 22px 24px 20px;
-  box-shadow: 0 24px 60px -24px rgba(0,0,0,.45);
-  animation: drop .22s cubic-bezier(.2,.8,.3,1) both;
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  box-shadow: var(--shadow-lg);
+  animation: modalScale .2s cubic-bezier(.2,.8,.3,1) both;
 }
-@keyframes drop { from { opacity: 0; transform: translateY(-10px); } }
-@media (prefers-reduced-motion: reduce) { .prompt { animation: none; } }
-.prompt .kind {
-  font-size: 10px; letter-spacing: .16em; text-transform: uppercase;
-  color: var(--amber); margin-bottom: 12px;
+@keyframes modalScale {
+  from { opacity: 0; transform: scale(0.95) translateY(-8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.empty-state {
+  border: 2px dashed var(--hair-firm); border-radius: var(--radius-lg);
+  padding: 36px 20px; text-align: center; color: var(--dim);
+}
+.empty-state svg { width: 36px; height: 36px; fill: var(--faint); margin-bottom: 8px; }
+
+.alert-banner {
+  padding: 10px 14px; border-radius: var(--radius);
+  font-size: 12px; margin-bottom: 16px;
   display: flex; align-items: center; gap: 8px;
 }
-.prompt .kind::before {
-  content: ""; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--amber); color: var(--amber); box-shadow: var(--lamp-glow);
-}
-.prompt h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
-.prompt .why { margin: 0 0 16px; color: var(--dim); font-size: 12px; }
-.prompt input[type=text] {
-  width: 100%; font-size: 19px; letter-spacing: .1em;
-  padding: 10px 12px; text-align: center;
-}
-.prompt .link {
-  display: block; margin: 0 0 14px; padding: 9px 11px;
-  background: var(--amber-bg); border: 1px solid var(--hair);
-  font-size: 11px; overflow-wrap: anywhere;
-}
-.prompt .foot {
-  display: flex; align-items: center; gap: 10px; margin-top: 16px;
-}
-.prompt .expiry { flex: 1; font-size: 11px; color: var(--dim); }
-.prompt .expiry.soon { color: var(--down); }
-
-.empty {
-  border: 1px dashed var(--hair-firm); padding: 22px;
-  color: var(--dim); font-size: 12px; text-align: center;
-}
-.offline {
-  background: var(--down-bg); color: var(--down);
-  border: 1px solid currentColor; padding: 7px 11px;
-  font-size: 11px; margin-bottom: 16px;
-}
-/* --- mode switcher segmented control --- */
-.mode-group {
-  display: inline-flex;
-  background: var(--bg);
-  border: 1px solid var(--hair-firm);
-  border-radius: 4px;
-  padding: 2px;
-  gap: 2px;
-}
-.mode-btn {
-  appearance: none;
-  border: 0;
-  background: none;
-  color: var(--dim);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 500;
-  padding: 3px 9px;
-  border-radius: 3px;
-  cursor: pointer;
-  transition: all .15s ease;
-}
-.mode-btn:hover {
-  color: var(--ink);
-  background: var(--surface);
-}
-.mode-btn.active {
-  color: var(--ink);
-  background: var(--surface);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0,0,0,.1);
-}
+.alert-banner.info { background: var(--primary-bg); color: var(--primary); border: 1px solid var(--primary-border); }
+.alert-banner.danger { background: var(--down-bg); color: var(--down); border: 1px solid var(--down-border); }
+.alert-banner.warn { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-border); }
 </style>
 </head>
 <body>
+
 <div class="shell">
+  <!-- Top Navigation Bar -->
   <header class="bar">
-    <div class="mark"><span class="bug" id="bug"></span>vpn-gateway</div>
-    <div class="readout">
-      <span><b id="r-up">0</b>/<span id="r-total">0</span> <span data-i18n="bar.up"></span></span>
-      <span><span data-i18n="bar.ingress"></span> <b id="r-ingress">—</b></span>
-      <span><span data-i18n="bar.onfail"></span> <b id="r-fail">—</b></span>
+    <div class="brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24"><path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3zm0 2.18l6 2.25v4.66c0 4.1-2.67 7.91-6 8.91-3.33-1-6-4.81-6-8.91V6.43l6-2.25z"/></svg>
+      </div>
+      <span>vpn-gateway</span>
     </div>
-    <div class="mode-group" id="bar-mode-group">
-      <button class="mode-btn" data-mode="rule" data-i18n="mode.rule"></button>
-      <button class="mode-btn" data-mode="global" data-i18n="mode.global"></button>
-      <button class="mode-btn" data-mode="direct" data-i18n="mode.direct"></button>
+
+    <div class="status-pill" id="bar-status-pill">
+      <span class="pulse-dot"></span>
+      <span id="bar-phase-text">未连接</span>
     </div>
+
     <div class="gap"></div>
-    <span class="phase" id="phase"></span>
-    <button class="act primary" id="toggle" hidden></button>
-    <button class="act" id="lang" data-i18n-title="bar.langTitle">中文</button>
-    <button class="act" id="theme" data-i18n-title="bar.themeTitle">theme</button>
+
+    <button class="act" id="lang" data-i18n-title="bar.langTitle">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+      <span id="lang-text">中文</span>
+    </button>
+    <button class="act" id="theme" data-i18n-title="bar.themeTitle">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-3.03 0-5.5-2.47-5.5-5.5 0-1.82.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/></svg>
+      <span id="theme-text">主题</span>
+    </button>
   </header>
 
   <div class="body">
+    <!-- Sidebar Navigation -->
     <nav class="rail">
-      <button data-pane="tunnels" aria-current="true"><span data-i18n="nav.tunnels"></span><span class="count" id="c-tunnels"></span></button>
-      <button data-pane="nodes"><span data-i18n="nav.nodes"></span><span class="count" id="c-nodes"></span></button>
-      <button data-pane="rules"><span data-i18n="nav.rules"></span><span class="count" id="c-rules"></span></button>
-      <button data-pane="logs" data-i18n="nav.logs"></button>
-      <button data-pane="settings" data-i18n="nav.settings"></button>
-      <button data-pane="config" data-i18n="nav.config"></button>
-      <button data-pane="setup" data-i18n="nav.setup"></button>
+      <div class="rail-group-title" data-i18n="nav.overviewGroup"></div>
+      <button data-pane="home" aria-current="true">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+        <span data-i18n="nav.home"></span>
+      </button>
+
+      <div class="rail-group-title" data-i18n="nav.manageGroup"></div>
+      <button data-pane="tunnels">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
+        <span data-i18n="nav.tunnels"></span>
+        <span class="count" id="c-tunnels"></span>
+      </button>
+      <button data-pane="nodes">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+        <span data-i18n="nav.nodes"></span>
+        <span class="count" id="c-nodes"></span>
+      </button>
+      <button data-pane="rules">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
+        <span data-i18n="nav.rules"></span>
+        <span class="count" id="c-rules"></span>
+      </button>
+
+      <div class="rail-group-title" data-i18n="nav.systemGroup"></div>
+      <button data-pane="logs">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 10h2v2H6zm0 4h8v2H6zm10 0h2v2h-2zm-6-4h8v2h-8z"/></svg>
+        <span data-i18n="nav.logs"></span>
+      </button>
+      <button data-pane="settings">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+        <span data-i18n="nav.settings"></span>
+      </button>
+      <button data-pane="config">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+        <span data-i18n="nav.config"></span>
+      </button>
+      <button data-pane="setup">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+        <span data-i18n="nav.setup"></span>
+      </button>
+
       <div class="sep"></div>
       <div class="meta" id="railmeta"></div>
+      <div class="rail-version">
+        <span id="rail-version-text">v1.0 build(0001)</span>
+      </div>
     </nav>
 
+    <!-- Content Panes -->
     <main>
-      <section class="pane" id="pane-nodes" hidden>
-        <h2 data-i18n="nodes.title"></h2>
-        <p class="sub" data-i18n="nodes.sub"></p>
+      <!-- ================= 1. 首页 (HOME) ================= -->
+      <section class="pane" id="pane-home">
+        <div class="alert-banner danger" id="home-offline" hidden></div>
 
-        <div style="margin-bottom: 20px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--hair-firm); border-radius: 6px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <div>
-              <div style="font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); margin-bottom: 3px;" data-i18n="nodes.modeCardTitle"></div>
-              <div style="font-size: 12px;" id="mode-desc"></div>
-            </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <div class="mode-group" id="pane-mode-group">
-                <button class="mode-btn" data-mode="rule" data-i18n="mode.rule"></button>
-                <button class="mode-btn" data-mode="global" data-i18n="mode.global"></button>
-                <button class="mode-btn" data-mode="direct" data-i18n="mode.direct"></button>
+        <!-- Hero Status Card with Master Switch -->
+        <div class="hero-card">
+          <div class="hero-top">
+            <div class="hero-status-title">
+              <div class="status-orb" id="home-status-orb">
+                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
               </div>
-              <button class="act quiet" id="clear-proxy-btn" data-i18n="nodes.deselect" style="font-size: 11px;" hidden></button>
+              <div class="hero-status-text">
+                <h3 id="home-phase-title">未连接</h3>
+                <p id="home-phase-sub">点击右侧按钮一键连接网关与内网隧道</p>
+              </div>
+            </div>
+            <div class="master-btn-wrap">
+              <button class="master-btn connect" id="home-master-btn">
+                <svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z"/></svg>
+                <span id="home-master-btn-text">一键连接</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="hero-stats">
+            <div class="hero-stat-item">
+              <span class="hero-stat-label" data-i18n="home.statMode"></span>
+              <span class="hero-stat-val" id="h-mode-val">直连模式</span>
+            </div>
+            <div class="hero-stat-item">
+              <span class="hero-stat-label" data-i18n="home.statIngress"></span>
+              <span class="hero-stat-val" id="h-ingress-val">TUN 网卡</span>
+            </div>
+            <div class="hero-stat-item">
+              <span class="hero-stat-label" data-i18n="home.statTunnels"></span>
+              <span class="hero-stat-val" id="h-tunnels-val">0 在线</span>
+            </div>
+            <div class="hero-stat-item">
+              <span class="hero-stat-label" data-i18n="home.statProxy"></span>
+              <span class="hero-stat-val" id="h-proxy-val">默认直连</span>
             </div>
           </div>
         </div>
 
+        <!-- 模式切换 (Mode Switching Cards - Default Direct) -->
+        <div style="margin-bottom: 22px;">
+          <div class="card-header" style="margin-bottom: 12px;">
+            <div>
+              <div class="card-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--primary)"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                <span data-i18n="home.modeSelectTitle"></span>
+              </div>
+              <div class="card-subtitle" data-i18n="home.modeSelectSub"></div>
+            </div>
+          </div>
+
+          <div class="mode-cards-grid">
+            <!-- 1. 全局直连 (Direct - Default) -->
+            <div class="mode-card" data-mode="direct" id="mode-card-direct">
+              <div class="mode-card-head">
+                <div class="mode-card-icon">
+                  <svg viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
+                </div>
+                <span class="badge primary" data-i18n="mode.directBadge"></span>
+              </div>
+              <div class="mode-card-title" data-i18n="mode.direct"></div>
+              <div class="mode-card-desc" data-i18n="mode.directDesc"></div>
+            </div>
+
+            <!-- 2. 规则分流 (Rule) -->
+            <div class="mode-card" data-mode="rule" id="mode-card-rule">
+              <div class="mode-card-head">
+                <div class="mode-card-icon">
+                  <svg viewBox="0 0 24 24"><path d="M12 2C6.49 2 2 6.49 2 12s4.49 10 10 10 10-4.49 10-10S17.51 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3-8c0 1.66-1.34 3-3 3s-3-1.34-3-3 1.34-3 3-3 3 1.34 3 3z"/></svg>
+                </div>
+                <span class="badge" data-i18n="mode.ruleBadge"></span>
+              </div>
+              <div class="mode-card-title" data-i18n="mode.rule"></div>
+              <div class="mode-card-desc" data-i18n="mode.ruleDesc"></div>
+            </div>
+
+            <!-- 3. 全局代理 (Global) -->
+            <div class="mode-card" data-mode="global" id="mode-card-global">
+              <div class="mode-card-head">
+                <div class="mode-card-icon">
+                  <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+                </div>
+                <span class="badge" data-i18n="mode.globalBadge"></span>
+              </div>
+              <div class="mode-card-title" data-i18n="mode.global"></div>
+              <div class="mode-card-desc" data-i18n="mode.globalDesc"></div>
+            </div>
+          </div>
+
+          <!-- Active Proxy quick info -->
+          <div id="home-proxy-info-bar" style="display:flex; justify-content:space-between; align-items:center; background:var(--surface); border:1px solid var(--hair); border-radius:var(--radius); padding:10px 14px; font-size:12px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="color:var(--dim)" data-i18n="nodes.activeProxy"></span>:
+              <b id="home-active-proxy-name" style="color:var(--ink)">未选用</b>
+              <span class="badge" id="home-active-proxy-ping" hidden></span>
+            </div>
+            <button class="act quiet" id="home-change-node-btn" data-i18n="home.manageNodes"></button>
+          </div>
+        </div>
+
+        <!-- 服务安装与权限管理 (Service Install & Management) -->
+        <div class="service-banner" id="home-service-banner">
+          <div class="service-info">
+            <div class="service-icon">
+              <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>
+            </div>
+            <div>
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                <b style="font-size:13.5px;" data-i18n="service.title"></b>
+                <span class="badge" id="home-service-badge">未安装</span>
+              </div>
+              <div style="font-size:12px; color:var(--dim); line-height:1.45;" id="home-service-desc">
+                创建 TUN 网卡和改路由表需要系统管理员权限。安装后台服务后将以系统服务后台常驻运行，开机自启。
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button class="act primary" id="home-service-install" data-i18n="service.install"></button>
+            <button class="act quiet" id="home-service-uninstall" data-i18n="service.uninstall" hidden></button>
+          </div>
+        </div>
+
+        <!-- Quick Navigation Cards Grid -->
+        <div class="quick-grid">
+          <div class="quick-card" data-goto="tunnels">
+            <div class="quick-card-icon">
+              <svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
+            </div>
+            <div>
+              <div class="quick-card-title" data-i18n="nav.tunnels"></div>
+              <div class="quick-card-sub" id="q-tunnels-sub">0 条隧道</div>
+            </div>
+          </div>
+
+          <div class="quick-card" data-goto="nodes">
+            <div class="quick-card-icon">
+              <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+            </div>
+            <div>
+              <div class="quick-card-title" data-i18n="nav.nodes"></div>
+              <div class="quick-card-sub" id="q-nodes-sub">0 个节点</div>
+            </div>
+          </div>
+
+          <div class="quick-card" data-goto="rules">
+            <div class="quick-card-icon">
+              <svg viewBox="0 0 24 24"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
+            </div>
+            <div>
+              <div class="quick-card-title" data-i18n="nav.rules"></div>
+              <div class="quick-card-sub" id="q-rules-sub">0 条分流规则</div>
+            </div>
+          </div>
+
+          <div class="quick-card" data-goto="settings">
+            <div class="quick-card-icon">
+              <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+            </div>
+            <div>
+              <div class="quick-card-title" data-i18n="nav.settings"></div>
+              <div class="quick-card-sub" data-i18n="home.quickSettings"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 2. 隧道管理 (TUNNELS) ================= -->
+      <section class="pane" id="pane-tunnels" hidden>
+        <div class="pane-header">
+          <h2 data-i18n="tunnels.title"></h2>
+          <p class="sub" data-i18n="tunnels.subManual"></p>
+        </div>
         <div class="toolbar" style="margin:0 0 16px">
-          <button class="act primary" id="add-node-btn" data-i18n="nodes.addNode"></button>
-          <button class="act" id="add-sub-btn" data-i18n="nodes.addSub"></button>
-          <button class="act quiet" id="ping-all-btn" data-i18n="nodes.pingAll"></button>
-          <button class="act quiet" id="update-all-subs-btn" data-i18n="nodes.updateAllSubs"></button>
+          <button class="act" id="tunnels-refresh">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+            <span data-i18n="tunnels.refresh"></span>
+          </button>
+          <span class="note" id="tunnels-updated"></span>
+        </div>
+        <div class="tunnels-grid" id="tunnels"></div>
+      </section>
+
+      <!-- ================= 3. 节点与订阅 (NODES & SUBS) ================= -->
+      <section class="pane" id="pane-nodes" hidden>
+        <div class="pane-header">
+          <h2 data-i18n="nodes.title"></h2>
+          <p class="sub" data-i18n="nodes.sub"></p>
+        </div>
+
+        <div class="toolbar" style="margin:0 0 16px">
+          <button class="act primary" id="add-node-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            <span data-i18n="nodes.addNode"></span>
+          </button>
+          <button class="act" id="add-sub-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            <span data-i18n="nodes.addSub"></span>
+          </button>
+          <button class="act" id="ping-all-btn" data-i18n="nodes.pingAll"></button>
+          <button class="act" id="update-all-subs-btn" data-i18n="nodes.updateAllSubs"></button>
           <span class="note" id="nodes-note"></span>
         </div>
 
         <div style="margin-bottom: 24px;">
-          <h3 style="font-size:11px;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--dim)" data-i18n="nodes.subsTitle"></h3>
+          <h3 style="font-size:12px; margin:0 0 10px; text-transform:uppercase; letter-spacing:0.06em; color:var(--dim);" data-i18n="nodes.subsTitle"></h3>
           <div id="subscriptions-list"></div>
         </div>
 
         <div>
-          <h3 style="font-size:11px;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--dim)" data-i18n="nodes.nodesTitle"></h3>
+          <h3 style="font-size:12px; margin:0 0 10px; text-transform:uppercase; letter-spacing:0.06em; color:var(--dim);" data-i18n="nodes.nodesTitle"></h3>
           <div id="nodes-list"></div>
         </div>
       </section>
 
-      <section class="pane" id="pane-setup" hidden>
-        <h2 data-i18n="setup.title"></h2>
-        <p class="sub" data-i18n="setup.sub"></p>
-
-        <ol class="steps">
-          <li>
-            <b data-i18n="setup.s1.t"></b>
-            <p data-i18n="setup.s1.b"></p>
-            <pre class="cmd">vgctl -config /etc/vpn-gateway/config.yaml client-config &gt; client.json</pre>
-          </li>
-          <li>
-            <b data-i18n="setup.s2.t"></b>
-            <p data-i18n="setup.s2.b"></p>
-            <div class="drop" id="drop">
-              <input type="file" id="bundle-file" accept=".json,application/json" hidden>
-              <button class="act" id="bundle-pick" data-i18n="setup.pick"></button>
-              <span class="or" data-i18n="setup.or"></span>
-            </div>
-            <textarea id="bundle-text" rows="7" spellcheck="false"
-                      data-i18n-ph="setup.paste"></textarea>
-          </li>
-          <li>
-            <b data-i18n="setup.s3.t"></b>
-            <p data-i18n="setup.s3.b"></p>
-            <div style="display:flex;gap:8px;margin-top:6px">
-              <input type="text" id="bundle-user" data-i18n-ph="auth.username" style="flex:1" autocomplete="username">
-              <input type="password" id="bundle-pass" data-i18n-ph="auth.password" style="flex:1" autocomplete="current-password">
-            </div>
-          </li>
-        </ol>
-
-        <div class="toolbar">
-          <button class="act primary" id="bundle-save" data-i18n="setup.save"></button>
-          <span class="note" id="setup-note"></span>
-        </div>
-      </section>
-
-      <section class="pane" id="pane-tunnels">
-        <div class="offline" id="offline" hidden data-i18n="offline"></div>
-        <h2 data-i18n="tunnels.title"></h2>
-        <p class="sub" data-i18n="tunnels.subManual"></p>
-        <div class="toolbar" style="margin:0 0 14px">
-          <button class="act" id="tunnels-refresh" data-i18n="tunnels.refresh"></button>
-          <span class="note" id="tunnels-updated"></span>
-        </div>
-        <div class="tunnels" id="tunnels"></div>
-      </section>
-
+      <!-- ================= 4. 分流规则 (RULES) ================= -->
       <section class="pane" id="pane-rules" hidden>
-        <h2 data-i18n="rules.title"></h2>
-        <p class="sub" data-i18n="rules.sub"></p>
-        <div id="rules-global-banner" class="banner info" style="margin-bottom:14px;padding:8px 12px;background:var(--amber-bg);border:1px solid var(--amber);font-size:11px;" hidden data-i18n="rules.globalBanner"></div>
+        <div class="pane-header">
+          <h2 data-i18n="rules.title"></h2>
+          <p class="sub" data-i18n="rules.sub"></p>
+        </div>
+        <div id="rules-global-banner" class="alert-banner warn" hidden data-i18n="rules.globalBanner"></div>
         <div id="rules"></div>
         <div class="toolbar">
-          <button class="act" id="add-rule" data-i18n="rules.add"></button>
+          <button class="act" id="add-rule">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            <span data-i18n="rules.add"></span>
+          </button>
           <button class="act primary" id="apply-rules" data-i18n="rules.apply"></button>
           <button class="act quiet" id="revert-rules" data-i18n="rules.revert"></button>
           <span class="note" id="rules-note"></span>
         </div>
       </section>
 
+      <!-- ================= 5. 运行日志 (LOGS) ================= -->
       <section class="pane" id="pane-logs" hidden>
-        <h2 data-i18n="logs.title"></h2>
-        <p class="sub" data-i18n="logs.sub"></p>
+        <div class="pane-header">
+          <h2 data-i18n="logs.title"></h2>
+          <p class="sub" data-i18n="logs.sub"></p>
+        </div>
         <div class="toolbar" style="margin:0 0 14px">
-          <select id="log-tunnel"></select>
+          <select id="log-tunnel" style="max-width:220px;"></select>
           <button class="act" id="log-refresh" data-i18n="logs.refresh"></button>
           <button class="act" id="log-reconnect" data-i18n="logs.reconnect"></button>
           <span class="note" id="log-note"></span>
         </div>
-        <pre class="logs" id="logs" data-i18n="logs.pick"></pre>
+        <pre class="log-box" id="logs" data-i18n="logs.pick"></pre>
       </section>
 
+      <!-- ================= 6. 客户端设置 (SETTINGS) ================= -->
       <section class="pane" id="pane-settings" hidden>
-        <h2 data-i18n="settings.title"></h2>
-        <p class="sub" data-i18n="settings.sub"></p>
+        <div class="pane-header">
+          <h2 data-i18n="settings.title"></h2>
+          <p class="sub" data-i18n="settings.sub"></p>
+        </div>
 
         <div class="field" id="service-field" hidden>
-          <label data-i18n="service.title"></label>
-          <p class="service-state"><b id="service-state"></b></p>
-          <p class="hint" id="service-detail"></p>
-          <div class="toolbar">
-            <button class="act" id="service-install" data-i18n="service.install"></button>
-            <button class="act quiet" id="service-uninstall" data-i18n="service.uninstall" hidden></button>
-            <span class="note" id="service-note"></span>
+          <div class="card" style="background:var(--bg); border:1px solid var(--hair-firm);">
+            <div class="card-title" data-i18n="service.title"></div>
+            <p style="margin:6px 0; font-size:12.5px;">状态: <b id="service-state"></b></p>
+            <p class="hint" id="service-detail"></p>
+            <div class="toolbar">
+              <button class="act primary" id="service-install" data-i18n="service.install"></button>
+              <button class="act danger" id="service-uninstall" data-i18n="service.uninstall" hidden></button>
+              <span class="note" id="service-note"></span>
+            </div>
           </div>
         </div>
 
         <div class="field">
           <label data-i18n="settings.auth"></label>
-          <div style="display:flex;gap:8px;margin-top:6px">
-            <input type="text" id="set-username" data-i18n-ph="auth.username" style="flex:1" autocomplete="username">
-            <input type="password" id="set-password" data-i18n-ph="auth.password" style="flex:1" autocomplete="current-password">
+          <div style="display:flex; gap:10px; margin-top:6px;">
+            <input type="text" id="set-username" data-i18n-ph="auth.username" autocomplete="username">
+            <input type="password" id="set-password" data-i18n-ph="auth.password" autocomplete="current-password">
           </div>
           <p class="hint" data-i18n="settings.auth.b"></p>
         </div>
 
         <div class="field">
           <label data-i18n="settings.ingress"></label>
-          <div class="choices">
-            <label class="choice"><input type="radio" name="ingress" value="proxy">
-              <span><b data-i18n="settings.proxy"></b><em data-i18n="settings.proxy.b"></em></span></label>
-            <label class="choice"><input type="radio" name="ingress" value="tun">
-              <span><b data-i18n="settings.tun"></b><em data-i18n="settings.tun.b"></em></span></label>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <label class="card" style="margin:0; cursor:pointer; display:flex; align-items:flex-start; gap:10px;">
+              <input type="radio" name="ingress" value="tun" style="margin-top:3px; accent-color:var(--primary);">
+              <div>
+                <b data-i18n="settings.tun" style="display:block; margin-bottom:2px;"></b>
+                <span class="hint" data-i18n="settings.tun.b" style="margin:0;"></span>
+              </div>
+            </label>
+            <label class="card" style="margin:0; cursor:pointer; display:flex; align-items:flex-start; gap:10px;">
+              <input type="radio" name="ingress" value="proxy" style="margin-top:3px; accent-color:var(--primary);">
+              <div>
+                <b data-i18n="settings.proxy" style="display:block; margin-bottom:2px;"></b>
+                <span class="hint" data-i18n="settings.proxy.b" style="margin:0;"></span>
+              </div>
+            </label>
           </div>
         </div>
 
@@ -649,10 +1206,27 @@ textarea::placeholder { color: var(--faint); }
         </div>
 
         <div class="field">
-          <label class="check"><input type="checkbox" id="set-autoroutes">
-            <span data-i18n="settings.autoroutes"></span></label>
-          <label class="check"><input type="checkbox" id="set-autodomains">
-            <span data-i18n="settings.autodomains"></span></label>
+          <div class="check-row">
+            <div class="check-row-info">
+              <b data-i18n="settings.autoroutes"></b>
+              <span data-i18n="settings.autoroutesHint"></span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="set-autoroutes">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="check-row">
+            <div class="check-row-info">
+              <b data-i18n="settings.autodomains"></b>
+              <span data-i18n="settings.autodomainsHint"></span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="set-autodomains">
+              <span class="slider"></span>
+            </label>
+          </div>
         </div>
 
         <div class="toolbar">
@@ -661,90 +1235,144 @@ textarea::placeholder { color: var(--faint); }
         </div>
       </section>
 
+      <!-- ================= 7. 运行配置 (CONFIG) ================= -->
       <section class="pane" id="pane-config" hidden>
-        <h2 data-i18n="config.title"></h2>
-        <p class="sub" data-i18n="config.sub"></p>
-        <pre class="logs" id="genconfig" data-i18n="loading"></pre>
+        <div class="pane-header">
+          <h2 data-i18n="config.title"></h2>
+          <p class="sub" data-i18n="config.sub"></p>
+        </div>
+        <pre class="log-box" id="genconfig" data-i18n="loading"></pre>
+      </section>
+
+      <!-- ================= 8. 导入配置 (SETUP) ================= -->
+      <section class="pane" id="pane-setup" hidden>
+        <div class="pane-header">
+          <h2 data-i18n="setup.title"></h2>
+          <p class="sub" data-i18n="setup.sub"></p>
+        </div>
+
+        <div class="card" style="margin-bottom:16px;">
+          <div style="font-weight:600; margin-bottom:6px;" data-i18n="setup.s1.t"></div>
+          <p style="font-size:12px; color:var(--dim); margin:0 0 8px;" data-i18n="setup.s1.b"></p>
+          <pre style="background:var(--bg); border:1px solid var(--hair); padding:10px; border-radius:var(--radius); font-family:var(--mono); font-size:12px; margin:0; overflow-x:auto;">vgctl -config /etc/vpn-gateway/config.yaml client-config &gt; client.json</pre>
+        </div>
+
+        <div class="card" style="margin-bottom:16px;">
+          <div style="font-weight:600; margin-bottom:6px;" data-i18n="setup.s2.t"></div>
+          <p style="font-size:12px; color:var(--dim); margin:0 0 8px;" data-i18n="setup.s2.b"></p>
+          <div style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">
+            <input type="file" id="bundle-file" accept=".json,application/json" hidden>
+            <button class="act" id="bundle-pick" data-i18n="setup.pick"></button>
+            <span style="font-size:11.5px; color:var(--faint);" data-i18n="setup.or"></span>
+          </div>
+          <textarea id="bundle-text" rows="6" spellcheck="false" data-i18n-ph="setup.paste" style="font-family:var(--mono); font-size:12px;"></textarea>
+        </div>
+
+        <div class="card" style="margin-bottom:16px;">
+          <div style="font-weight:600; margin-bottom:6px;" data-i18n="setup.s3.t"></div>
+          <p style="font-size:12px; color:var(--dim); margin:0 0 8px;" data-i18n="setup.s3.b"></p>
+          <div style="display:flex; gap:10px;">
+            <input type="text" id="bundle-user" data-i18n-ph="auth.username" autocomplete="username">
+            <input type="password" id="bundle-pass" data-i18n-ph="auth.password" autocomplete="current-password">
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <button class="act primary" id="bundle-save" data-i18n="setup.save"></button>
+          <span class="note" id="setup-note"></span>
+        </div>
       </section>
     </main>
   </div>
 </div>
 
+<!-- ================= Modals & Prompts ================= -->
+<!-- 1. Authentication Prompt (2FA/OTP/Captcha) -->
 <div class="veil" id="veil" hidden>
-  <div class="prompt" role="dialog" aria-modal="true" aria-labelledby="p-title">
-    <div class="kind" id="p-kind"></div>
-    <h3 id="p-title"></h3>
-    <p class="why" id="p-why"></p>
-    <a class="link" id="p-link" hidden target="_blank" rel="noreferrer"></a>
-    <input type="text" id="p-input" autocomplete="off" autocapitalize="off"
-           autocorrect="off" spellcheck="false" inputmode="text">
-    <div class="foot">
-      <span class="expiry" id="p-expiry"></span>
-      <button class="act" id="p-skip" data-i18n="prompt.later"></button>
-      <button class="act primary" id="p-send" data-i18n="prompt.send"></button>
+  <div class="prompt-box" role="dialog" aria-modal="true">
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+      <span class="badge amber" id="p-kind">AUTH</span>
+      <h3 style="margin:0; font-size:16px; font-weight:700;" id="p-title"></h3>
+    </div>
+    <p style="margin:0 0 14px; font-size:12.5px; color:var(--dim);" id="p-why"></p>
+    <a id="p-link" hidden target="_blank" rel="noreferrer" style="display:block; margin-bottom:12px; padding:8px 12px; background:var(--primary-bg); border-radius:var(--radius); font-size:12px; overflow-wrap:anywhere;"></a>
+    <input type="text" id="p-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="font-size:16px; text-align:center; padding:10px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
+      <span style="font-size:12px; color:var(--dim);" id="p-expiry"></span>
+      <div style="display:flex; gap:8px;">
+        <button class="act quiet" id="p-skip" data-i18n="prompt.later"></button>
+        <button class="act primary" id="p-send" data-i18n="prompt.send"></button>
+      </div>
     </div>
   </div>
 </div>
 
+<!-- 2. Add / Edit Node Modal -->
 <div class="veil" id="node-modal-veil" hidden>
-  <div class="prompt" role="dialog" aria-modal="true" style="max-width:480px">
-    <div class="kind" id="node-modal-title"></div>
-    <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+  <div class="prompt-box" role="dialog" aria-modal="true" style="max-width:480px">
+    <div style="font-size:16px; font-weight:700; color:var(--ink); margin-bottom:14px;" id="node-modal-title"></div>
+    <div style="display:flex; flex-direction:column; gap:12px;">
       <div>
-        <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.pasteLink"></label>
-        <input type="text" id="node-url-input" placeholder="trojan://password@server:443#Name" style="width:100%">
+        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.pasteLink"></label>
+        <input type="text" id="node-url-input" placeholder="trojan://password@server:443#Name" style="font-family:var(--mono);">
       </div>
-      <div style="font-size:11px;color:var(--faint);text-align:center" data-i18n="nodes.orManual"></div>
+      <div style="font-size:11px; color:var(--faint); text-align:center;" data-i18n="nodes.orManual"></div>
       <div>
-        <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.nodeName"></label>
-        <input type="text" id="node-name-input" placeholder="HongKong-01" style="width:100%">
+        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.nodeName"></label>
+        <input type="text" id="node-name-input" placeholder="HongKong-01">
       </div>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex; gap:10px;">
         <div style="flex:2">
-          <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.server"></label>
-          <input type="text" id="node-server-input" placeholder="example.com" style="width:100%">
+          <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.server"></label>
+          <input type="text" id="node-server-input" placeholder="example.com">
         </div>
         <div style="flex:1">
-          <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.port"></label>
-          <input type="text" id="node-port-input" placeholder="443" style="width:100%">
+          <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.port"></label>
+          <input type="text" id="node-port-input" placeholder="443">
         </div>
       </div>
       <div>
-        <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.password"></label>
-        <input type="text" id="node-pass-input" placeholder="password" style="width:100%">
+        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.password"></label>
+        <input type="text" id="node-pass-input" placeholder="password">
       </div>
       <div>
-        <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.sni"></label>
-        <input type="text" id="node-sni-input" placeholder="example.com" style="width:100%">
+        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.sni"></label>
+        <input type="text" id="node-sni-input" placeholder="example.com">
       </div>
-      <label class="check" style="margin-top:4px">
-        <input type="checkbox" id="node-insecure-input">
-        <span data-i18n="nodes.allowInsecure"></span>
-      </label>
+      <div class="check-row" style="margin:4px 0 0;">
+        <div class="check-row-info">
+          <span style="font-size:12px; font-weight:500;" data-i18n="nodes.allowInsecure"></span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="node-insecure-input">
+          <span class="slider"></span>
+        </label>
+      </div>
     </div>
-    <div class="foot" style="margin-top:16px;display:flex;gap:8px;align-items:center">
-      <span class="note bad" id="node-modal-err" style="flex:1"></span>
+    <div style="margin-top:18px; display:flex; gap:8px; align-items:center; justify-content:flex-end;">
+      <span class="note bad" id="node-modal-err" style="flex:1;"></span>
       <button class="act quiet" id="node-modal-cancel" data-i18n="nodes.cancel"></button>
       <button class="act primary" id="node-modal-save" data-i18n="nodes.save"></button>
     </div>
   </div>
 </div>
 
+<!-- 3. Add Subscription Modal -->
 <div class="veil" id="sub-modal-veil" hidden>
-  <div class="prompt" role="dialog" aria-modal="true" style="max-width:480px">
-    <div class="kind" data-i18n="nodes.modalAddSub"></div>
-    <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+  <div class="prompt-box" role="dialog" aria-modal="true" style="max-width:480px">
+    <div style="font-size:16px; font-weight:700; color:var(--ink); margin-bottom:14px;" data-i18n="nodes.modalAddSub"></div>
+    <div style="display:flex; flex-direction:column; gap:12px;">
       <div>
-        <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.subName"></label>
-        <input type="text" id="sub-name-input" placeholder="My Airport Sub" style="width:100%">
+        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.subName"></label>
+        <input type="text" id="sub-name-input" placeholder="My Airport Sub">
       </div>
       <div>
-        <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.subURL"></label>
-        <input type="text" id="sub-url-input" placeholder="https://example.com/sub/trojan" style="width:100%">
+        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.subURL"></label>
+        <input type="text" id="sub-url-input" placeholder="https://example.com/sub/trojan" style="font-family:var(--mono);">
       </div>
     </div>
-    <div class="foot" style="margin-top:16px;display:flex;gap:8px;align-items:center">
-      <span class="note bad" id="sub-modal-err" style="flex:1"></span>
+    <div style="margin-top:18px; display:flex; gap:8px; align-items:center; justify-content:flex-end;">
+      <span class="note bad" id="sub-modal-err" style="flex:1;"></span>
       <button class="act quiet" id="sub-modal-cancel" data-i18n="nodes.cancel"></button>
       <button class="act primary" id="sub-modal-save" data-i18n="nodes.save"></button>
     </div>
@@ -754,8 +1382,6 @@ textarea::placeholder { color: var(--faint); }
 <script>
 "use strict";
 
-/* The token arrives in the address bar once and is kept for this tab only, so
-   a bookmark or a shared screenshot of the URL does not stay usable. */
 const TOKEN = (() => {
   const p = new URLSearchParams(location.search);
   const fromURL = p.get("token");
@@ -788,109 +1414,65 @@ async function api(path, opts = {}) {
   return res;
 }
 
-/* --- language ------------------------------------------------------------
-   Chinese is the default because that is who this was built for. The
-   translations are written to read naturally in each language rather than
-   word for word: a tool someone uses every day should not sound translated.
-
-   Text that comes from a VPN gateway or from the client's own errors is
-   passed through untouched. Restating a gateway's message in another
-   language would be guessing at what it said. */
+/* --- Language Strings -------------------------------------------------- */
 const STRINGS = {
   zh: {
-    "bar.up": "条隧道在线", "bar.ingress": "入口", "bar.onfail": "故障时",
+    "nav.overviewGroup": "概览", "nav.manageGroup": "管理", "nav.systemGroup": "系统",
+    "nav.home": "首页", "nav.tunnels": "隧道管理", "nav.nodes": "节点与订阅",
+    "nav.rules": "分流规则", "nav.logs": "运行日志", "nav.settings": "客户端设置",
+    "nav.config": "运行配置", "nav.setup": "导入配置",
+
+    "bar.tunnels": "隧道", "bar.ingress": "入口", "bar.onfail": "故障处理",
     "bar.langTitle": "切换语言", "bar.themeTitle": "切换主题",
-    "bar.tun": "TUN", "bar.proxy": "代理端口", "bar.none": "无",
-    "meta.proxy": "代理", "meta.dns": "DNS", "meta.dnsLocal": "系统解析器",
-    "meta.autoroutes": "自动路由", "meta.autodomains": "自动域名",
-    "on": "开", "off": "关",
-    "nav.settings": "设置",
-    "bar.phase": "状态",
-    "phase.setup": "尚未配置", "phase.idle": "未连接", "phase.connecting": "连接中…",
+    "bar.tun": "TUN 网卡", "bar.proxy": "代理端口", "bar.none": "无",
+
+    "phase.setup": "未导入配置", "phase.idle": "未连接", "phase.connecting": "连接中…",
     "phase.connected": "已连接", "phase.failed": "连接失败",
-    "act.connect": "连接", "act.disconnect": "断开", "act.retry": "重试",
+    "home.phaseSetupSub": "请先在“导入配置”页面导入服务端签发的 Bundle",
+    "home.phaseIdleSub": "网关配置就绪，随时可以一键启动连接",
+    "home.phaseConnectingSub": "正在连接网关并初始化各隧道…",
+    "home.phaseConnectedSub": "隧道及路由引擎正常运行中",
+    "home.phaseFailedSub": "网关连接发生错误，请检查网络或配置",
 
-    "setup.title": "开始使用",
-    "setup.sub": "把服务端签发的 bundle 导入进来就可以连接了。bundle 里含有服务端地址、要信任的证书，以及每条隧道的密码。",
-    "setup.s1.t": "在服务端生成 bundle",
-    "setup.s1.b": "在跑 vpn-gateway-server 的那台机器上执行：",
-    "setup.s2.t": "把它导入这里",
-    "setup.s2.b": "选择文件，或直接把内容粘贴进来。",
-    "setup.s3.t": "用户认证（可选）",
-    "setup.s3.b": "如果服务端配置了用户，请在此输入用户名和密码：",
-    "setup.pick": "选择文件…", "setup.or": "或粘贴内容",
-    "setup.paste": "{\n  \"version\": 1,\n  \"server\": { … },\n  \"tunnels\": [ … ]\n}",
-    "setup.save": "导入并保存",
-    "setup.empty": "请先选择文件或粘贴内容。",
-    "setup.done": "已导入，可以连接了。",
-
-    "settings.title": "设置",
-    "settings.sub": "改动会立即生效；已连接时会重建路由引擎，已建立的连接会短暂中断。",
-    "settings.auth": "用户认证",
-    "settings.auth.b": "连接服务端所需的用户名与密码。",
-    "settings.ingress": "流量入口",
-    "settings.proxy": "本地代理端口", "settings.proxy.b": "无需任何权限。先用它把规则调对。",
-    "settings.tun": "TUN 网卡", "settings.tun.b": "接管整机流量，需要管理员权限。",
-    "settings.proxyListen": "代理监听地址",
-    "settings.onfail": "隧道故障时",
-    "settings.onfail.b": "直连：照常出网，但本该走内网的流量会离开内网。阻断：拒绝连接，涉密隧道更稳妥。",
-    "settings.dns": "默认 DNS",
-    "settings.dns.b": "local 表示用系统解析器，任何网络都可用。也可以填 https://1.1.1.1/dns-query 这样的地址。",
-    "settings.autoroutes": "自动把隧道上报的网段变成规则",
-    "settings.autodomains": "自动把隧道上报的搜索域变成规则",
-    "settings.save": "保存",
-    "settings.saved": "已保存",
-
-    "service.title": "后台服务",
-    "service.install": "安装并交给它",
-    "service.uninstall": "卸载",
-    "service.absent": "未安装",
-    "service.running": "运行中（PID %s）",
-    "service.stopped": "已安装，但没有在运行",
-    "service.why": "创建 TUN 网卡和改路由表需要管理员权限，应用本身没有。装上后台服务后，它以系统高权限运行同一份配置，开机自启；应用随后交出引擎，只作为它的界面。",
-    "service.installing": "正在安装，请在弹出的系统授权窗口里确认…",
-    "service.uninstalling": "正在卸载…",
-    "service.installed": "已安装。应用会切换到后台服务的界面。",
-    "service.removed": "已卸载。应用重新使用自己的引擎。",
-    "service.cancelled": "已取消，什么都没有改动。",
-    "service.elsewhere": "这个服务运行的是另一份配置：%s",
-
-    "need.connect": "尚未连接。",
-    "nav.tunnels": "隧道", "nav.nodes": "节点与订阅", "nav.rules": "分流规则", "nav.logs": "日志", "nav.config": "配置",
-    "nav.setup": "导入 bundle",
-    "offline": "已断开与客户端的连接。",
-    "loading": "加载中…",
-
-    "tunnels.title": "隧道",
-    "tunnels.sub": "服务端上报的状态。路由和 DNS 由 VPN 自己下发，会自动变成分流规则。",
-    "tunnels.empty": "没有隧道。bundle 里的隧道服务端都没有。",
-    "tunnels.up": "在线", "tunnels.down": "离线", "tunnels.stopped": "已停止",
-    "tunnels.start": "连接", "tunnels.stop": "断开",
-    "tunnels.subManual": "每条隧道单独连接。每次连接都是一次完整认证，所以不会自动重连——失败几次后会停下等你处理。",
-    "tunnels.routes": "路由", "tunnels.dns": "DNS", "tunnels.search": "搜索域",
-    "tunnels.tcpdns": "DNS 走 TCP", "tunnels.nothing": "尚未上报任何信息",
-    "tunnels.logs": "日志",
-    "tunnels.refresh": "刷新", "tunnels.updated": "更新于 %s", "tunnels.never": "尚未读取",
+    "home.connect": "一键连接", "home.disconnect": "断开连接", "home.retry": "重试连接", "home.importNow": "去导入配置",
+    "home.statMode": "路由模式", "home.statIngress": "流量入口", "home.statTunnels": "在线隧道", "home.statProxy": "代理出口",
+    "home.modeSelectTitle": "路由模式切换",
+    "home.modeSelectSub": "支持全局直连、规则分流与全局代理，默认推荐全局直连",
+    "home.manageNodes": "管理节点与订阅 →", "home.quickSettings": "网卡 / 端口 / DNS",
 
     "mode.title": "路由模式",
     "mode.rule": "规则分流",
     "mode.global": "全局代理",
     "mode.direct": "全局直连",
-    "mode.ruleDesc": "公司内网走 VPN 隧道，匹配规则走代理，其余外网流量直连。",
-    "mode.globalDesc": "公司内网走 VPN 隧道，其余所有外网流量统一走选中的代理节点。",
+    "mode.directBadge": "默认模式",
+    "mode.ruleBadge": "智能分流",
+    "mode.globalBadge": "全部代理",
     "mode.directDesc": "仅公司内网走 VPN 隧道，不走任何代理，其余外网流量全部直连。",
-    "nodes.activeProxy": "当前代理",
-    "nodes.noActiveProxy": "未选用（默认直连）",
-    "nodes.deselect": "取消选用",
-    "nodes.select": "选用",
-    "nodes.active": "当前选用",
-    "nodes.modeCardTitle": "路由模式与代理出口",
+    "mode.ruleDesc": "公司内网走 VPN 隧道，命中自定义/域名/IP规则走代理节点，其余直连。",
+    "mode.globalDesc": "公司内网走 VPN 隧道，其余所有外网流量统一通过选中的代理节点出海。",
+
+    "service.title": "后台提权服务",
+    "service.install": "一键安装服务",
+    "service.update": "更新后台服务",
+    "service.uninstall": "卸载服务",
+    "service.absent": "未安装",
+    "service.running": "运行中 (PID %s)",
+    "service.stopped": "已安装但未运行",
+    "service.outdatedBadge": "有新版本",
+    "service.outdatedDesc": "检测到应用程序已升级，后台服务仍在运行旧版本 (%s)，请点击更新服务以同步最新功能。",
+    "service.why": "创建 TUN 网卡和改路由表需要系统管理员权限。安装后台服务后将以系统服务后台常驻运行，开机自启，客户端仅作为控制面板。",
+    "service.installing": "正在安装/更新，请在弹出的系统授权窗口里确认…",
+    "service.uninstalling": "正在卸载服务…",
+    "service.installed": "后台服务已成功安装并接管！",
+    "service.removed": "服务已卸载，客户端重新使用内置引擎。",
+    "service.cancelled": "操作已取消。",
+    "service.elsewhere": "该服务运行的是另一份配置：%s",
 
     "nodes.title": "节点与订阅",
-    "nodes.sub": "管理用于访问外网的自建 Trojan 节点与订阅。可作为分流规则的目标或默认代理出口。",
+    "nodes.sub": "管理用于访问外网的自建 Trojan 节点与订阅，可作为分流规则的目标或默认代理出口。",
     "nodes.addNode": "添加节点", "nodes.addSub": "添加订阅",
     "nodes.pingAll": "一键测速", "nodes.updateAllSubs": "更新全部订阅",
-    "nodes.subsTitle": "订阅列表", "nodes.nodesTitle": "所有节点",
+    "nodes.subsTitle": "订阅列表", "nodes.nodesTitle": "全部节点",
     "nodes.emptySubs": "暂无订阅，点击上方按钮添加订阅链接。",
     "nodes.emptyNodes": "暂无可用节点。可添加自建 Trojan 节点或导入订阅。",
     "nodes.ping": "测速", "nodes.edit": "编辑", "nodes.delete": "删除", "nodes.update": "更新",
@@ -902,220 +1484,223 @@ const STRINGS = {
     "nodes.password": "密码", "nodes.sni": "SNI (域名)",
     "nodes.allowInsecure": "允许不安全证书 (Skip Cert Verify)",
     "nodes.modalAddSub": "添加节点订阅",
-    "nodes.subName": "订阅名称", "nodes.subURL": "订阅 URL (支持 Trojan 节点/Base64/Clash)",
+    "nodes.subName": "订阅名称", "nodes.subURL": "订阅 URL (支持 Trojan 节点 / Base64 / Clash)",
     "nodes.save": "保存", "nodes.cancel": "取消",
     "nodes.updating": "正在更新订阅…", "nodes.updated": "订阅已更新",
+    "nodes.activeProxy": "当前代理出口", "nodes.noActiveProxy": "未选用 (默认直连)",
+    "nodes.select": "选用为代理", "nodes.deselect": "取消选用", "nodes.active": "当前使用",
+
+    "tunnels.title": "隧道管理",
+    "tunnels.subManual": "每条隧道独立运行与认证。路由和 DNS 由 VPN 自行下发并自动注入分流规则。",
+    "tunnels.empty": "暂无隧道配置。请检查 Bundle 中的隧道列表。",
+    "tunnels.up": "在线", "tunnels.down": "离线", "tunnels.stopped": "已停止",
+    "tunnels.start": "启动", "tunnels.stop": "停止", "tunnels.logs": "查看日志",
+    "tunnels.refresh": "刷新状态", "tunnels.updated": "更新于 %s", "tunnels.never": "尚未读取",
+    "tunnels.routes": "路由", "tunnels.dns": "DNS", "tunnels.search": "搜索域",
+    "tunnels.tcpdns": "DNS 走 TCP", "tunnels.nothing": "尚未上报路由信息",
 
     "rules.title": "分流规则",
-    "rules.sub": "按顺序匹配，且排在隧道上报的规则之前，所以显式设置总能胜出。应用会重建路由引擎，已建立的连接会短暂中断。",
+    "rules.sub": "规则按从上到下顺序匹配。自定义规则优先级高于隧道自动下发规则。",
     "rules.globalBanner": "当前处于全局代理模式：所有未匹配公司内网规则的外网流量将统一走当前选中的代理节点。",
-    "rules.empty": "没有显式规则。流量按各隧道上报的路由走，其余直连。",
-    "rules.add": "新增规则", "rules.apply": "应用并保存", "rules.revert": "撤销",
-    "rules.matcher": "+ 匹配条件", "rules.delete": "删除规则",
-    "rules.dropMatcher": "移除这个匹配条件",
-    "rules.dirty": "有未应用的改动", "rules.applying": "应用中…", "rules.saved": "已应用并保存",
-    "rules.auto": "自动", "rules.custom": "自定义",
-    "rules.enable": "启用", "rules.disable": "禁用",
-    "rules.disabled": "已禁用",
-    "rules.autoHint": "由隧道自动上报，优先级低于自定义规则，不可编辑或删除。",
-    "m.domain_suffix": "域名后缀", "m.domain": "域名", "m.domain_keyword": "域名关键词",
-    "m.ip_cidr": "IP 网段", "m.port": "端口",
+    "rules.empty": "没有自定义规则。流量按各隧道上报的路由分流，其余流量直连。",
+    "rules.add": "新增规则", "rules.apply": "应用并保存", "rules.revert": "放弃改动",
+    "rules.matcher": "+ 匹配条件", "rules.delete": "删除规则", "rules.dropMatcher": "移除此条件",
+    "rules.dirty": "有未保存的改动", "rules.applying": "正在应用规则…", "rules.saved": "规则已成功应用",
+    "rules.auto": "自动下发", "rules.custom": "自定义", "rules.enable": "启用", "rules.disable": "禁用",
+    "rules.disabled": "已禁用", "rules.autoHint": "由内网隧道自动上报，优先级低于自定义规则，不可直接编辑。",
+    "m.domain_suffix": "域名后缀", "m.domain": "完整域名", "m.domain_keyword": "域名关键字",
+    "m.ip_cidr": "IP 网段", "m.port": "目标端口",
     "ph.domain": "corp.example.com, internal.corp", "ph.ip_cidr": "10.20.0.0/16, 192.168.1.0/24",
     "ph.port": "443, 8443",
-    "t.direct": "直连", "t.block": "阻断", "t.proxy": "代理",
+    "t.direct": "直连 (Direct)", "t.block": "阻断 (Block)", "t.proxy": "默认代理 (Proxy)",
     "t.tunnelPrefix": "[隧道] ", "t.subPrefix": "[订阅] ", "t.customPrefix": "[自建] ",
 
-    "logs.title": "容器日志", "logs.sub": "读取服务端上该隧道容器的输出。",
-    "logs.refresh": "刷新", "logs.reconnect": "重连该隧道",
-    "logs.pick": "请选择一条隧道。", "logs.empty": "还没有日志。",
-    "logs.reconnecting": "正在重连 %s",
+    "logs.title": "运行日志", "logs.sub": "实时读取服务端各隧道容器及客户端路由引擎的输出日志。",
+    "logs.refresh": "刷新日志", "logs.reconnect": "重连隧道", "logs.pick": "请在上方下拉列表选择隧道查看日志。",
+    "logs.empty": "暂无日志输出。", "logs.reconnecting": "正在发起重连 %s…",
 
-    "config.title": "生成的配置",
-    "config.sub": "路由引擎实际运行的配置，包含全部规则。请求去向不符合预期时看这里。",
+    "settings.title": "客户端设置", "settings.sub": "改动会立即生效并自动持久化。已连接时会平滑重建路由引擎。",
+    "settings.auth": "用户认证凭据", "settings.auth.b": "连接网关服务端所需的用户名与密码。",
+    "settings.ingress": "流量接管方式", "settings.tun": "TUN 虚拟网卡", "settings.tun.b": "全自动接管整机网络流量，需管理员权限",
+    "settings.proxy": "本地代理端口", "settings.proxy.b": "提供本地 HTTP/SOCKS5 代理端口，无需系统权限",
+    "settings.proxyListen": "代理监听地址", "settings.onfail": "内网隧道离线时",
+    "settings.onfail.b": "直连：离线流量正常外网直连。阻断：阻断内网请求，避免涉密请求泄漏。",
+    "settings.dns": "默认 DNS 解析器", "settings.dns.b": "local 代表使用系统默认 DNS，也可配置 https://1.1.1.1/dns-query 等公共 DoH",
+    "settings.autoroutes": "自动路由转换", "settings.autoroutesHint": "自动将内网隧道上报的 IP 网段转为路由规则",
+    "settings.autodomains": "自动搜索域转换", "settings.autodomainsHint": "自动将内网隧道上报的域名后缀转为路由规则",
+    "settings.save": "保存设置", "settings.saved": "设置已保存并生效",
 
-    "prompt.later": "稍后", "prompt.send": "提交",
-    "prompt.expires": "%s后过期", "prompt.expired": "已过期",
-    "dur.m": "%d 分 ", "dur.s": "%d 秒",
-    "prompt.fallback": "网关要求提供一个验证码。",
-    "prompt.vnc": "把 VNC 客户端指向服务端的 %d 端口，在那里完成登录。",
-    "k.sms.t": "短信验证码", "k.sms.w": "网关已通过短信发送验证码。",
-    "k.totp.t": "动态口令", "k.totp.w": "请输入认证器 App 当前显示的验证码。",
-    "k.captcha.t": "图形验证码", "k.captcha.w": "网关要求识别一张图片上的字符。",
-    "k.url.t": "单点登录地址", "k.url.w": "在下面的页面登录，然后把跳转到的地址粘贴回来。",
-    "k.password.t": "密码或令牌", "k.password.w": "网关还需要一项凭据。",
-    "k.vnc.t": "图形界面登录", "k.vnc.w": "这个客户端没有屏幕就无法登录。",
-    "auth.generic": "需要认证",
+    "config.title": "运行配置", "config.sub": "Sing-box 路由引擎当前正在执行的底层完整 JSON 配置。",
+    "setup.title": "导入配置", "setup.sub": "将服务端签发的 client.json 导入客户端即可开启安全网关连接。",
+    "setup.s1.t": "1. 服务端生成配置", "setup.s1.b": "在 vpn-gateway-server 运行机器上执行命令导出：",
+    "setup.s2.t": "2. 导入配置 Bundle", "setup.s2.b": "选择文件或直接粘贴 JSON 内容：",
+    "setup.s3.t": "3. 用户凭据 (可选)", "setup.s3.b": "如果网关配置了账号密码，请在此填写：",
+    "setup.pick": "选择 client.json 文件…", "setup.or": "或直接粘贴配置内容",
+    "setup.paste": "{\n  \"version\": 1,\n  \"server\": { … },\n  \"tunnels\": [ … ]\n}",
+    "setup.save": "导入并保存配置", "setup.empty": "请先选择文件或粘贴 Bundle 内容。", "setup.done": "配置已成功导入！",
+
     "auth.username": "用户名", "auth.password": "密码",
+    "prompt.later": "稍后处理", "prompt.send": "提交验证", "prompt.expires": "%s 后过期", "prompt.expired": "验证已过期",
+    "dur.m": "%d分", "dur.s": "%d秒",
+    "prompt.fallback": "网关要求完成安全二次验证。", "prompt.vnc": "请使用 VNC 客户端连接到服务端的 %d 端口完成图形登录。",
+    "k.sms.t": "短信验证码", "k.sms.w": "网关已下发短信验证码，请输入：",
+    "k.totp.t": "动态身份口令 (TOTP)", "k.totp.w": "请输入身份验证器 App (如 Google Authenticator) 当前显示的6位数字：",
+    "k.captcha.t": "图形验证码", "k.captcha.w": "请输入图形验证码图片上的字符：",
+    "k.url.t": "单点登录跳转 (SSO)", "k.url.w": "请在下方链接完成登录，并将重定向后的地址粘贴回来：",
+    "k.password.t": "二次密码验证", "k.password.w": "网关要求输入进一步的登录凭据：",
+    "k.vnc.t": "图形界面登录 (VNC)", "k.vnc.w": "该隧道需要图形交互认证。",
+    "auth.generic": "安全认证挑战",
 
-    "notoken": "这个页面需要客户端启动时打印的 token。请使用它给出的链接打开。"
+    "loading": "加载中…", "notoken": "此页面需要客户端启动时携带的 Token，请使用客户端打开。"
   },
   en: {
-    "bar.up": "tunnels up", "bar.ingress": "ingress", "bar.onfail": "on failure",
-    "bar.langTitle": "Switch language", "bar.themeTitle": "Switch theme",
-    "bar.tun": "tun", "bar.proxy": "proxy", "bar.none": "none",
-    "meta.proxy": "proxy", "meta.dns": "dns", "meta.dnsLocal": "system resolver",
-    "meta.autoroutes": "auto routes", "meta.autodomains": "auto domains",
-    "on": "on", "off": "off",
-    "nav.settings": "settings",
-    "bar.phase": "state",
-    "phase.setup": "not set up", "phase.idle": "not connected", "phase.connecting": "connecting…",
-    "phase.connected": "connected", "phase.failed": "could not connect",
-    "act.connect": "connect", "act.disconnect": "disconnect", "act.retry": "try again",
+    "nav.overviewGroup": "Overview", "nav.manageGroup": "Manage", "nav.systemGroup": "System",
+    "nav.home": "Home", "nav.tunnels": "Tunnels", "nav.nodes": "Nodes & Subs",
+    "nav.rules": "Routing Rules", "nav.logs": "Logs", "nav.settings": "Settings",
+    "nav.config": "Engine Config", "nav.setup": "Import Bundle",
 
-    "setup.title": "Getting started",
-    "setup.sub": "Import the bundle your server issued and this can connect. It carries the server address, the certificate to trust, and one password per tunnel.",
-    "setup.s1.t": "Produce a bundle on the server",
-    "setup.s1.b": "On the machine running vpn-gateway-server:",
-    "setup.s2.t": "Bring it here",
-    "setup.s2.b": "Choose the file, or paste its contents.",
-    "setup.s3.t": "User authentication (optional)",
-    "setup.s3.b": "If the server requires authentication, enter your credentials:",
-    "setup.pick": "Choose a file…", "setup.or": "or paste it",
-    "setup.paste": "{\n  \"version\": 1,\n  \"server\": { … },\n  \"tunnels\": [ … ]\n}",
-    "setup.save": "Import",
-    "setup.empty": "Choose a file or paste the bundle first.",
-    "setup.done": "Imported. You can connect now.",
+    "bar.tunnels": "Tunnels", "bar.ingress": "Ingress", "bar.onfail": "On Failure",
+    "bar.langTitle": "Switch Language", "bar.themeTitle": "Switch Theme",
+    "bar.tun": "TUN", "bar.proxy": "Proxy", "bar.none": "None",
 
-    "settings.title": "Settings",
-    "settings.sub": "Changes take effect at once. While connected this rebuilds the routing engine and briefly interrupts open connections.",
-    "settings.auth": "User authentication",
-    "settings.auth.b": "Username and password to authenticate with the server.",
-    "settings.ingress": "How traffic enters",
-    "settings.proxy": "Local proxy port", "settings.proxy.b": "Needs no privileges. Start here and get the rules right.",
-    "settings.tun": "TUN interface", "settings.tun.b": "Takes over the whole machine. Needs administrator rights.",
-    "settings.proxyListen": "Proxy listen address",
-    "settings.onfail": "When a tunnel is down",
-    "settings.onfail.b": "Direct keeps working but sends intranet traffic out of the network. Block refuses it, which is safer for anything sensitive.",
-    "settings.dns": "Default resolver",
-    "settings.dns.b": "local uses the system resolver and always works. A URL such as https://1.1.1.1/dns-query keeps these names off the local network.",
-    "settings.autoroutes": "Turn reported routes into rules",
-    "settings.autodomains": "Turn reported search domains into rules",
-    "settings.save": "Save",
-    "settings.saved": "Saved",
+    "phase.setup": "Not Configured", "phase.idle": "Disconnected", "phase.connecting": "Connecting…",
+    "phase.connected": "Connected", "phase.failed": "Failed",
+    "home.phaseSetupSub": "Please import server bundle from the 'Import Bundle' tab first",
+    "home.phaseIdleSub": "Configuration ready, click to start gateway connection",
+    "home.phaseConnectingSub": "Connecting to server and establishing tunnels…",
+    "home.phaseConnectedSub": "VPN Gateway and routing engine are running normally",
+    "home.phaseFailedSub": "Connection error occurred, check server and network status",
 
-    "service.title": "Background service",
-    "service.install": "Install and hand over",
-    "service.uninstall": "Remove",
-    "service.absent": "Not installed",
-    "service.running": "Running (pid %s)",
-    "service.stopped": "Installed, but not running",
-    "service.why": "Creating a TUN interface and changing the routing table needs privileges this application does not have. The service runs the same configuration as root, starts at boot, and the application hands the engine over to it and becomes its interface.",
-    "service.installing": "Installing. Enter an administrator password in the window that appeared\u2026",
-    "service.uninstalling": "Removing\u2026",
-    "service.installed": "Installed. The application will switch to the service's interface.",
-    "service.removed": "Removed. The application runs its own engine again.",
-    "service.cancelled": "Cancelled; nothing was changed.",
-    "service.elsewhere": "This service runs a different configuration: %s",
-
-    "need.connect": "Nothing is connected.",
-    "nav.tunnels": "tunnels", "nav.nodes": "proxies", "nav.rules": "rules", "nav.logs": "logs", "nav.config": "config",
-    "nav.setup": "bundle",
-    "offline": "Not receiving updates from the client.",
-    "loading": "Loading…",
-
-    "tunnels.title": "Tunnels",
-    "tunnels.sub": "What the server reports. Routes and resolvers come from the VPN itself and become routing rules automatically.",
-    "tunnels.empty": "No tunnels. The bundle names none the server has.",
-    "tunnels.up": "up", "tunnels.down": "down", "tunnels.stopped": "stopped",
-    "tunnels.start": "connect", "tunnels.stop": "disconnect",
-    "tunnels.subManual": "Each tunnel is dialled on its own. Every attempt is a full authentication, so nothing reconnects by itself: after a few failures a tunnel stops and waits for you.",
-    "tunnels.routes": "routes", "tunnels.dns": "dns", "tunnels.search": "search",
-    "tunnels.tcpdns": "dns over tcp", "tunnels.nothing": "nothing reported yet",
-    "tunnels.logs": "logs",
-    "tunnels.refresh": "refresh", "tunnels.updated": "read at %s", "tunnels.never": "not read yet",
+    "home.connect": "Connect Now", "home.disconnect": "Disconnect", "home.retry": "Retry Connection", "home.importNow": "Import Bundle",
+    "home.statMode": "Mode", "home.statIngress": "Ingress", "home.statTunnels": "Active Tunnels", "home.statProxy": "Proxy Outbound",
+    "home.modeSelectTitle": "Traffic Routing Mode",
+    "home.modeSelectSub": "Switch between Direct, Rule, and Global modes. Direct mode is default.",
+    "home.manageNodes": "Manage Nodes & Subs →", "home.quickSettings": "TUN / Port / DNS",
 
     "mode.title": "Routing Mode",
     "mode.rule": "Rule Mode",
     "mode.global": "Global Proxy",
     "mode.direct": "Direct Mode",
-    "mode.ruleDesc": "Intranet via VPN tunnels, rules via proxy, other internet traffic direct.",
-    "mode.globalDesc": "Intranet via VPN tunnels, all other internet traffic via selected proxy.",
-    "mode.directDesc": "Intranet via VPN tunnels only, no proxy used, all other traffic direct.",
-    "nodes.activeProxy": "Active Proxy",
-    "nodes.noActiveProxy": "None (Direct)",
-    "nodes.deselect": "Deselect",
-    "nodes.select": "Select",
-    "nodes.active": "Active",
-    "nodes.modeCardTitle": "Routing Mode & Proxy Outbound",
-    "rules.globalBanner": "Currently in Global Proxy mode: all non-tunnel traffic is routed through the active proxy node.",
+    "mode.directBadge": "Default",
+    "mode.ruleBadge": "Smart Routing",
+    "mode.globalBadge": "All Proxy",
+    "mode.directDesc": "Intranet traffic via VPN tunnels only, no proxy used, all other traffic direct.",
+    "mode.ruleDesc": "Intranet via VPN tunnels, matching rules via proxy node, other traffic direct.",
+    "mode.globalDesc": "Intranet via VPN tunnels, all other internet traffic routed through selected proxy node.",
 
-    "nodes.title": "Proxies & Subscriptions",
-    "nodes.sub": "Manage custom Trojan nodes and subscriptions for outbound traffic, available as routing targets.",
-    "nodes.addNode": "Add node", "nodes.addSub": "Add subscription",
-    "nodes.pingAll": "Test latencies", "nodes.updateAllSubs": "Update subscriptions",
-    "nodes.subsTitle": "Subscriptions", "nodes.nodesTitle": "Nodes",
+    "service.title": "Privileged Helper Service",
+    "service.install": "Install Service",
+    "service.update": "Update Service",
+    "service.uninstall": "Uninstall",
+    "service.absent": "Not Installed",
+    "service.running": "Running (PID %s)",
+    "service.stopped": "Installed but stopped",
+    "service.outdatedBadge": "Update Available",
+    "service.outdatedDesc": "A newer application version was detected. The background helper service is running (%s), please click to update.",
+    "service.why": "Creating TUN interface and modifying routing tables require system privileges. The helper service runs in the background as root and auto-starts at boot.",
+    "service.installing": "Installing/updating service, please authorize in the system prompt…",
+    "service.uninstalling": "Uninstalling service…",
+    "service.installed": "Helper service installed and connected!",
+    "service.removed": "Service uninstalled, running standalone engine.",
+    "service.cancelled": "Cancelled.",
+    "service.elsewhere": "This service runs a different config: %s",
+
+    "nodes.title": "Nodes & Subscriptions",
+    "nodes.sub": "Manage outbound Trojan nodes and subscriptions for proxy routing.",
+    "nodes.addNode": "Add Node", "nodes.addSub": "Add Subscription",
+    "nodes.pingAll": "Test All Latencies", "nodes.updateAllSubs": "Update All Subs",
+    "nodes.subsTitle": "Subscriptions", "nodes.nodesTitle": "Proxy Nodes",
     "nodes.emptySubs": "No subscriptions yet. Click above to add one.",
-    "nodes.emptyNodes": "No nodes available. Add a custom Trojan node or subscription.",
+    "nodes.emptyNodes": "No nodes available. Add a Trojan node or subscription.",
     "nodes.ping": "Ping", "nodes.edit": "Edit", "nodes.delete": "Delete", "nodes.update": "Update",
     "nodes.nodeCount": "%d nodes", "nodes.lastUpdated": "Updated %s", "nodes.neverUpdated": "Not updated yet",
     "nodes.testing": "Testing…", "nodes.timeout": "Timeout",
     "nodes.modalAddNode": "Add Trojan Node", "nodes.modalEditNode": "Edit Trojan Node",
-    "nodes.pasteLink": "Paste trojan:// link (auto parse)", "nodes.orManual": "or fill in details manually",
-    "nodes.nodeName": "Node name", "nodes.server": "Server address", "nodes.port": "Port",
-    "nodes.password": "Password", "nodes.sni": "SNI (Server Name)",
-    "nodes.allowInsecure": "Allow insecure certificate (Skip Cert Verify)",
+    "nodes.pasteLink": "Paste trojan:// link (auto parse)", "nodes.orManual": "or enter parameters manually",
+    "nodes.nodeName": "Node Name", "nodes.server": "Server Address", "nodes.port": "Port",
+    "nodes.password": "Password", "nodes.sni": "SNI (Domain)",
+    "nodes.allowInsecure": "Allow Insecure Certificate (Skip Cert Verify)",
     "nodes.modalAddSub": "Add Subscription",
-    "nodes.subName": "Subscription name", "nodes.subURL": "Subscription URL (Trojan/Base64/Clash)",
+    "nodes.subName": "Subscription Name", "nodes.subURL": "Subscription URL (Trojan / Base64 / Clash)",
     "nodes.save": "Save", "nodes.cancel": "Cancel",
     "nodes.updating": "Updating subscription…", "nodes.updated": "Subscription updated",
+    "nodes.activeProxy": "Active Proxy Outbound", "nodes.noActiveProxy": "None (Direct)",
+    "nodes.select": "Select Proxy", "nodes.deselect": "Deselect", "nodes.active": "Active",
 
-    "rules.title": "Routing rules",
-    "rules.sub": "Matched in order, before anything derived from what a tunnel reports, so an explicit choice always wins. Applying rebuilds the routing engine and briefly interrupts open connections.",
-    "rules.empty": "No explicit rules. Traffic follows what each tunnel reports, and everything else goes direct.",
-    "rules.add": "add rule", "rules.apply": "apply & save", "rules.revert": "revert",
-    "rules.matcher": "+ matcher", "rules.delete": "delete rule",
-    "rules.dropMatcher": "remove this matcher",
-    "rules.dirty": "unapplied changes", "rules.applying": "applying…", "rules.saved": "applied and saved",
-    "rules.auto": "Auto", "rules.custom": "Custom",
-    "rules.enable": "Enable", "rules.disable": "Disable",
-    "rules.disabled": "Disabled",
-    "rules.autoHint": "Reported automatically by tunnel with lower priority; cannot be edited or deleted.",
-    "m.domain_suffix": "domain suffix", "m.domain": "domain", "m.domain_keyword": "domain keyword",
-    "m.ip_cidr": "ip cidr", "m.port": "port",
+    "tunnels.title": "Tunnels",
+    "tunnels.subManual": "Each tunnel is dialed independently. Routes and DNS are issued by the VPN and auto-injected into routing rules.",
+    "tunnels.empty": "No tunnels configured in the imported bundle.",
+    "tunnels.up": "Online", "tunnels.down": "Offline", "tunnels.stopped": "Stopped",
+    "tunnels.start": "Connect", "tunnels.stop": "Disconnect", "tunnels.logs": "View Logs",
+    "tunnels.refresh": "Refresh", "tunnels.updated": "Updated at %s", "tunnels.never": "Not read yet",
+    "tunnels.routes": "Routes", "tunnels.dns": "DNS", "tunnels.search": "Search Domains",
+    "tunnels.tcpdns": "DNS over TCP", "tunnels.nothing": "No routes reported",
+
+    "rules.title": "Routing Rules",
+    "rules.sub": "Rules are evaluated from top to bottom. Custom rules take priority over tunnel auto-rules.",
+    "rules.globalBanner": "Currently in Global Proxy mode: all non-tunnel traffic is routed through the active proxy node.",
+    "rules.empty": "No custom rules. Traffic follows tunnel routes, and everything else goes direct.",
+    "rules.add": "Add Rule", "rules.apply": "Apply & Save", "rules.revert": "Discard Changes",
+    "rules.matcher": "+ Matcher", "rules.delete": "Delete", "rules.dropMatcher": "Remove",
+    "rules.dirty": "Unsaved changes", "rules.applying": "Applying rules…", "rules.saved": "Rules applied and saved",
+    "rules.auto": "Auto", "rules.custom": "Custom", "rules.enable": "Enable", "rules.disable": "Disable",
+    "rules.disabled": "Disabled", "rules.autoHint": "Reported automatically by VPN tunnel with lower priority.",
+    "m.domain_suffix": "Domain Suffix", "m.domain": "Full Domain", "m.domain_keyword": "Domain Keyword",
+    "m.ip_cidr": "IP CIDR", "m.port": "Target Port",
     "ph.domain": "corp.example.com, internal.corp", "ph.ip_cidr": "10.20.0.0/16, 192.168.1.0/24",
     "ph.port": "443, 8443",
-    "t.direct": "direct", "t.block": "block", "t.proxy": "proxy",
-    "t.tunnelPrefix": "[tunnel] ", "t.subPrefix": "[sub] ", "t.customPrefix": "[custom] ",
+    "t.direct": "Direct", "t.block": "Block", "t.proxy": "Default Proxy",
+    "t.tunnelPrefix": "[Tunnel] ", "t.subPrefix": "[Sub] ", "t.customPrefix": "[Custom] ",
 
-    "logs.title": "Container logs", "logs.sub": "Read from the tunnel's container on the server.",
-    "logs.refresh": "refresh", "logs.reconnect": "reconnect tunnel",
-    "logs.pick": "Pick a tunnel.", "logs.empty": "Nothing logged yet.",
-    "logs.reconnecting": "reconnecting %s",
+    "logs.title": "Logs", "logs.sub": "Real-time output logs from tunnel containers and routing engine.",
+    "logs.refresh": "Refresh", "logs.reconnect": "Reconnect Tunnel", "logs.pick": "Select a tunnel from the dropdown above to view logs.",
+    "logs.empty": "No logs recorded yet.", "logs.reconnecting": "Reconnecting %s…",
 
-    "config.title": "Generated configuration",
-    "config.sub": "What the routing engine is actually running, rules and all. Useful when a request goes somewhere unexpected.",
+    "settings.title": "Settings", "settings.sub": "Changes take effect immediately and are saved to config file.",
+    "settings.auth": "User Authentication", "settings.auth.b": "Credentials to connect to vpn-gateway-server.",
+    "settings.ingress": "Traffic Ingress", "settings.tun": "TUN Interface", "settings.tun.b": "Captures all system traffic, requires privileges",
+    "settings.proxy": "Local Proxy Port", "settings.proxy.b": "Exposes local HTTP/SOCKS5 proxy port",
+    "settings.proxyListen": "Proxy Listen Address", "settings.onfail": "When Tunnel is Down",
+    "settings.onfail.b": "Direct sends intranet traffic directly. Block drops packets to prevent leaks.",
+    "settings.dns": "Default DNS Resolver", "settings.dns.b": "local uses system DNS, or provide DoH like https://1.1.1.1/dns-query",
+    "settings.autoroutes": "Auto Routes", "settings.autoroutesHint": "Convert tunnel reported IP routes into rules automatically",
+    "settings.autodomains": "Auto Domains", "settings.autodomainsHint": "Convert tunnel search domains into rules automatically",
+    "settings.save": "Save Settings", "settings.saved": "Settings saved successfully",
 
-    "prompt.later": "not now", "prompt.send": "send",
-    "prompt.expires": "expires in %s", "prompt.expired": "expired",
-    "dur.m": "%dm ", "dur.s": "%ds",
-    "prompt.fallback": "The gateway is asking for a verification code.",
-    "prompt.vnc": "Point a VNC viewer at the server, port %d, and sign in there.",
-    "k.sms.t": "Verification code", "k.sms.w": "The gateway sent a code by SMS.",
-    "k.totp.t": "Authenticator code", "k.totp.w": "Enter the current code from your authenticator app.",
-    "k.captcha.t": "Characters from the image", "k.captcha.w": "The gateway is showing an image to read.",
-    "k.url.t": "Sign-on address", "k.url.w": "Sign in on the page below, then paste the address it sends you to.",
-    "k.password.t": "Password or token", "k.password.w": "The gateway is asking for one more credential.",
-    "k.vnc.t": "Graphical login", "k.vnc.w": "This client cannot log in without a screen.",
-    "auth.generic": "Authentication",
+    "config.title": "Engine Config", "config.sub": "Current active JSON configuration executed by Sing-box engine.",
+    "setup.title": "Import Bundle", "setup.sub": "Import the client.json bundle issued by the server to start connecting.",
+    "setup.s1.t": "1. Generate Bundle on Server", "setup.s1.b": "Run vgctl on your vpn-gateway-server machine:",
+    "setup.s2.t": "2. Import Bundle JSON", "setup.s2.b": "Select file or paste JSON content directly:",
+    "setup.s3.t": "3. Credentials (Optional)", "setup.s3.b": "If server authentication is configured, fill in below:",
+    "setup.pick": "Pick client.json file…", "setup.or": "or paste contents here",
+    "setup.paste": "{\n  \"version\": 1,\n  \"server\": { … },\n  \"tunnels\": [ … ]\n}",
+    "setup.save": "Import & Save Bundle", "setup.empty": "Please pick a file or paste bundle JSON first.", "setup.done": "Bundle imported successfully!",
+
     "auth.username": "Username", "auth.password": "Password",
+    "prompt.later": "Later", "prompt.send": "Submit", "prompt.expires": "Expires in %s", "prompt.expired": "Challenge expired",
+    "dur.m": "%dm ", "dur.s": "%ds",
+    "prompt.fallback": "Gateway asks for multi-factor authentication.", "prompt.vnc": "Point a VNC viewer at server port %d to log in visually.",
+    "k.sms.t": "SMS Verification Code", "k.sms.w": "The gateway has sent a verification code via SMS:",
+    "k.totp.t": "Authenticator Code (TOTP)", "k.totp.w": "Enter the 6-digit code from your authenticator app:",
+    "k.captcha.t": "Graphic Captcha", "k.captcha.w": "Enter the characters shown in the captcha image:",
+    "k.url.t": "SSO Login Link", "k.url.w": "Complete sign-in on the page below and paste back the destination URL:",
+    "k.password.t": "Secondary Password", "k.password.w": "The gateway asks for additional credentials:",
+    "k.vnc.t": "Graphical VNC Login", "k.vnc.w": "This gateway requires graphical desktop login.",
+    "auth.generic": "Security Challenge",
 
-    "notoken": "This page needs the token the client printed when it started. Open the link it gave you."
+    "loading": "Loading…", "notoken": "Token required. Please open this interface from the link generated by client."
   },
 };
 
 let lang = localStorage.getItem("vg.lang") || "zh";
 if (!STRINGS[lang]) lang = "zh";
 
-/* t looks a key up in the current language. %s and %d are replaced in order,
-   so a sentence can put its value wherever that language needs it. */
 function t(key, ...args) {
   let out = (STRINGS[lang] && STRINGS[lang][key]) || STRINGS.en[key] || key;
   for (const a of args) out = out.replace(/%[sd]/, a);
   return out;
 }
 
-/* Durations are written the way each language writes them, rather than
-   dropping an English "4m 9s" into a Chinese sentence. */
 function duration(totalSeconds) {
   const m = Math.floor(totalSeconds / 60);
   const sec = totalSeconds % 60;
@@ -1133,26 +1718,33 @@ function applyLanguage() {
   document.querySelectorAll("[data-i18n-ph]").forEach((n) => {
     n.placeholder = t(n.dataset.i18nPh);
   });
-  $("lang").textContent = lang === "zh" ? "中文" : "EN";
+  $("lang-text").textContent = lang === "zh" ? "中文" : "EN";
 }
 
-/* --- theme --------------------------------------------------------------- */
+/* --- Theme Management -------------------------------------------------- */
 const root = document.documentElement;
 root.dataset.theme = localStorage.getItem("vg.theme") || "auto";
+
+function updateThemeLabel() {
+  const cur = root.dataset.theme;
+  $("theme-text").textContent = cur === "auto" ? (lang === "zh" ? "系统" : "Auto")
+                              : cur === "dark" ? (lang === "zh" ? "深色" : "Dark")
+                              : (lang === "zh" ? "浅色" : "Light");
+}
 $("theme").addEventListener("click", () => {
   const order = ["auto", "light", "dark"];
   const next = order[(order.indexOf(root.dataset.theme) + 1) % order.length];
   root.dataset.theme = next;
   localStorage.setItem("vg.theme", next);
-  $("theme").textContent = next === "auto" ? "theme" : next;
+  updateThemeLabel();
 });
-$("theme").textContent = root.dataset.theme === "auto" ? "theme" : root.dataset.theme;
+updateThemeLabel();
 
 $("lang").addEventListener("click", () => {
   lang = lang === "zh" ? "en" : "zh";
   localStorage.setItem("vg.lang", lang);
   applyLanguage();
-  // Everything drawn from data has to be redrawn in the new language.
+  updateThemeLabel();
   renderedRules = null;
   renderedTunnels = null;
   shownPrompt = null;
@@ -1160,100 +1752,16 @@ $("lang").addEventListener("click", () => {
   if (currentPane() === "settings") fillSettings();
 });
 
-/* --- panes --------------------------------------------------------------- */
+/* --- Pane Navigation --------------------------------------------------- */
 document.querySelectorAll(".rail button[data-pane]").forEach((b) => {
   b.addEventListener("click", () => showPane(b.dataset.pane));
 });
 
-/* --- state --------------------------------------------------------------- */
-let state = { tunnels: [], prompts: [], rules: [], client: {}, server: {} };
-let draft = null;          // rules being edited; null means "showing live"
-let shownPrompt = null;
-/* What the rules editor is currently showing. Rebuilding the editor for an
-   update that changed nothing would throw away the field someone had just
-   clicked into, along with anything they had started typing. */
-let renderedRules = null;
-/* Same idea for the tunnel list, which is redrawn from scratch: rebuilding
-   rows that say exactly what they already said replays their animation and
-   moves the button under a hand that was reaching for it. */
-let renderedTunnels = null;
-
-function render(s) {
-  // Lists the client has nothing to put in can arrive as null rather than as
-  // an empty list. Everything below iterates them, so they are made into
-  // lists once, here, rather than guarded at each reader.
-  s.tunnels = s.tunnels || [];
-  s.rules = s.rules || [];
-  s.prompts = s.prompts || [];
-  s.subscriptions = s.subscriptions || [];
-  s.custom_nodes = s.custom_nodes || [];
-  s.all_nodes = s.all_nodes || [];
-  state = s;
-  renderPhase(s);
-  renderReadout(s);
-  const freshTunnels = JSON.stringify(s.tunnels);
-  if (freshTunnels !== renderedTunnels) {
-    renderedTunnels = freshTunnels;
-    renderTunnels(s.tunnels);
-  }
-  renderNodes(s);
-  renderLogTunnels(s.tunnels);
-  stampTunnels(s.at);
-  if (draft === null) {
-    const fresh = JSON.stringify(s.rules);
-    if (fresh !== renderedRules) {
-      renderedRules = fresh;
-      renderRules(s.rules);
-    }
-  }
-  $("c-tunnels").textContent = s.tunnels.length || "";
-  $("c-nodes").textContent = s.all_nodes.length || "";
-  $("c-rules").textContent = (draft || s.rules).length || "";
-  renderPrompt(s.prompts);
-}
-
-/* --- phase: what the whole application is doing ------------------------ */
-const PHASE_ACTION = {
-  setup: null, connecting: null,
-  idle: "act.connect", connected: "act.disconnect", failed: "act.retry",
-};
-
-/* The phase the last render drew, so a change of phase can be told from a
-   redraw that found the same one. */
-let lastPhase = null;
-
-function renderPhase(st) {
-  const phase = (st.session && st.session.phase) || "setup";
-  const box = $("phase");
-  box.className = "phase" + (phase === "connected" ? " live" : phase === "failed" ? " bad" : "");
-  box.innerHTML = "";
-  box.appendChild(el("span", null, t("bar.phase") + " "));
-  box.appendChild(el("b", null, t("phase." + phase)));
-
-  const btn = $("toggle");
-  const action = PHASE_ACTION[phase];
-  btn.hidden = !action;
-  if (action) btn.textContent = t(action);
-
-  // Setup is the only thing worth showing until there is something to
-  // connect to; the other panes would all be empty.
-  const ready = phase !== "setup";
-  document.querySelectorAll('.rail button[data-pane]').forEach((b) => {
-    b.hidden = !ready && b.dataset.pane !== "setup";
-  });
-  // Move on when the import lands, and only then. Doing it whenever a render
-  // found the pane open meant the page could never be shown again: a bundle
-  // has to be re-imported whenever the server gains a tunnel, and the pane
-  // that does it was being closed the moment anything redrew.
-  if (!ready) showPane("setup");
-  else if (lastPhase === "setup") showPane("tunnels");
-  lastPhase = phase;
-
-  if (phase === "failed" && st.session.last_error) {
-    $("offline").hidden = false;
-    $("offline").textContent = st.session.last_error;
-  }
-}
+// Quick shortcut cards
+document.querySelectorAll(".quick-card[data-goto]").forEach((c) => {
+  c.addEventListener("click", () => showPane(c.dataset.goto));
+});
+$("home-change-node-btn").addEventListener("click", () => showPane("nodes"));
 
 function currentPane() {
   const open = document.querySelector('.pane:not([hidden])');
@@ -1264,6 +1772,7 @@ function showPane(name) {
   document.querySelectorAll(".rail button[data-pane]").forEach((o) =>
     o.setAttribute("aria-current", String(o.dataset.pane === name)));
   document.querySelectorAll(".pane").forEach((p) => (p.hidden = p.id !== "pane-" + name));
+  if (name === "home") renderHome(state);
   if (name === "tunnels") refreshTunnels();
   if (name === "nodes") renderNodes(state);
   if (name === "config") loadGeneratedConfig();
@@ -1271,108 +1780,250 @@ function showPane(name) {
   if (name === "settings") fillSettings();
 }
 
-$("toggle").addEventListener("click", async () => {
-  const phase = state.session ? state.session.phase : "setup";
-  const path = phase === "connected" ? "/api/disconnect" : "/api/connect";
-  $("toggle").disabled = true;
-  try {
-    const res = await api(path, { method: "POST" });
-    render(await res.json());
-  } catch (e) {
-    $("offline").hidden = false;
-    $("offline").textContent = e.message;
-  } finally {
-    $("toggle").disabled = false;
-  }
-});
+/* --- State Management & Render ----------------------------------------- */
+let state = { tunnels: [], prompts: [], rules: [], client: {}, session: {}, subscriptions: [], custom_nodes: [], all_nodes: [] };
+let draft = null;
+let shownPrompt = null;
+let renderedRules = null;
+let renderedTunnels = null;
+let latencies = {};
+let service = { supported: false };
 
-/* --- setup -------------------------------------------------------------- */
-$("bundle-pick").addEventListener("click", () => $("bundle-file").click());
-$("bundle-file").addEventListener("change", async (ev) => {
-  const file = ev.target.files[0];
-  if (file) $("bundle-text").value = await file.text();
-});
+function render(s) {
+  s.tunnels = s.tunnels || [];
+  s.rules = s.rules || [];
+  s.prompts = s.prompts || [];
+  s.subscriptions = s.subscriptions || [];
+  s.custom_nodes = s.custom_nodes || [];
+  s.all_nodes = s.all_nodes || [];
+  s.mode = s.mode || "direct";
+  state = s;
 
-$("bundle-save").addEventListener("click", async () => {
-  const note = $("setup-note");
-  const raw = $("bundle-text").value.trim();
-  if (!raw) {
-    note.className = "note bad";
-    note.textContent = t("setup.empty");
-    return;
+  renderPhase(s);
+  renderReadout(s);
+  renderHome(s);
+
+  const freshTunnels = JSON.stringify(s.tunnels);
+  if (freshTunnels !== renderedTunnels) {
+    renderedTunnels = freshTunnels;
+    renderTunnels(s.tunnels);
   }
-  note.className = "note";
-  note.textContent = "…";
-  $("bundle-save").disabled = true;
-  try {
-    const res = await api("/api/bundle", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: raw,
-    });
-    const st = await res.json();
-    const u = $("bundle-user").value.trim();
-    const p = $("bundle-pass").value.trim();
-    if (u || p) {
-      await api("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: u, password: p }),
-      });
+  renderNodes(s);
+  renderLogTunnels(s.tunnels);
+  stampTunnels(s.at);
+
+  if (draft === null) {
+    const fresh = JSON.stringify(s.rules);
+    if (fresh !== renderedRules) {
+      renderedRules = fresh;
+      renderRules(s.rules);
     }
-    note.className = "note good";
-    note.textContent = t("setup.done");
-    $("bundle-text").value = "";
-    $("bundle-user").value = "";
-    $("bundle-pass").value = "";
-    render(st);
-  } catch (e) {
-    note.className = "note bad";
-    note.textContent = e.message;
-  } finally {
-    $("bundle-save").disabled = false;
   }
-});
 
-/* --- settings ------------------------------------------------------------ */
-function fillSettings() {
-  const c = state.client || {};
-  document.querySelectorAll('input[name=ingress]').forEach((r) => {
-    r.checked = r.value === (c.tun ? "tun" : "proxy");
+  $("c-tunnels").textContent = s.tunnels.length || "";
+  $("c-nodes").textContent = s.all_nodes.length || "";
+  $("c-rules").textContent = (draft || s.rules).length || "";
+  if (s.version) {
+    $("rail-version-text").textContent = s.version;
+  }
+  renderPrompt(s.prompts);
+}
+
+let lastPhase = null;
+
+function renderPhase(st) {
+  const phase = (st.session && st.session.phase) || "setup";
+  const pill = $("bar-status-pill");
+  const text = $("bar-phase-text");
+
+  pill.className = "status-pill " + (phase === "connected" ? "live" : phase === "connecting" ? "connecting" : phase === "failed" ? "bad" : "");
+  text.textContent = t("phase." + phase);
+
+  // Home card status
+  const orb = $("home-status-orb");
+  orb.className = "status-orb " + (phase === "connected" ? "connected" : phase === "connecting" ? "connecting" : phase === "failed" ? "failed" : "");
+  $("home-phase-title").textContent = t("phase." + phase);
+
+  const subDesc = phase === "setup" ? t("home.phaseSetupSub")
+                : phase === "connecting" ? t("home.phaseConnectingSub")
+                : phase === "connected" ? t("home.phaseConnectedSub")
+                : phase === "failed" ? (st.session.last_error || t("home.phaseFailedSub"))
+                : t("home.phaseIdleSub");
+  $("home-phase-sub").textContent = subDesc;
+
+  // Master switch button on Home
+  const btn = $("home-master-btn");
+  const btnText = $("home-master-btn-text");
+  if (phase === "setup") {
+    btn.className = "master-btn connect";
+    btnText.textContent = t("home.importNow");
+  } else if (phase === "connected") {
+    btn.className = "master-btn disconnect";
+    btnText.textContent = t("home.disconnect");
+  } else if (phase === "connecting") {
+    btn.className = "master-btn connect";
+    btnText.textContent = t("phase.connecting");
+  } else if (phase === "failed") {
+    btn.className = "master-btn connect";
+    btnText.textContent = t("home.retry");
+  } else {
+    btn.className = "master-btn connect";
+    btnText.textContent = t("home.connect");
+  }
+
+  const ready = phase !== "setup";
+  document.querySelectorAll('.rail button[data-pane]').forEach((b) => {
+    b.hidden = !ready && b.dataset.pane !== "setup" && b.dataset.pane !== "home";
   });
-  $("set-username").value = c.username || "";
-  $("set-password").value = c.password || "";
-  $("set-proxy-listen").value = c.proxy_listen || "";
-  $("set-onfail").value = c.on_failure || "direct";
-  $("set-dns").value = c.dns_default || "";
-  $("set-autoroutes").checked = !!c.auto_routes;
-  $("set-autodomains").checked = !!c.auto_domains;
 
-  // The two targets are values the client parses; only the labels translate.
-  const opts = $("set-onfail").options;
-  opts[0].textContent = t("t.direct");
-  opts[1].textContent = t("t.block");
+  if (!ready && lastPhase !== "setup" && currentPane() === "") {
+    showPane("home");
+  }
+  lastPhase = phase;
+
+  if (phase === "failed" && st.session.last_error) {
+    $("home-offline").hidden = false;
+    $("home-offline").textContent = st.session.last_error;
+  } else {
+    $("home-offline").hidden = true;
+  }
+}
+
+function renderReadout(s) {
+  const activeMode = s.mode || "direct";
+
+  // Segmented mode switcher buttons
+  document.querySelectorAll(".mode-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === activeMode);
+  });
+
+  // Home mode cards
+  document.querySelectorAll(".mode-card").forEach((c) => {
+    c.classList.toggle("active", c.dataset.mode === activeMode);
+  });
+
+  if ($("r-up") && $("r-total")) {
+    const wanted = s.tunnels.filter((t) => t.wanted);
+    const up = wanted.filter((t) => t.up).length;
+    $("r-up").textContent = up;
+    $("r-total").textContent = wanted.length;
+  }
+
+  if ($("r-ingress")) {
+    const ingress = [s.client.tun && t("bar.tun"), s.client.proxy && t("bar.proxy")].filter(Boolean);
+    $("r-ingress").textContent = ingress.join(" + ") || t("bar.none");
+  }
+
+  // Bottom sidebar metadata
+  const onOff = (v) => v ? "开" : "关";
+  const bits = [];
+  if (s.client.username) bits.push(t("auth.username") + ": " + s.client.username);
+  if (s.client.proxy_listen) bits.push(t("bar.proxy") + ": " + s.client.proxy_listen);
+  if (s.client.dns_default) bits.push("DNS: " + (s.client.dns_default === "local" ? "系统默认" : s.client.dns_default));
+  bits.push(t("settings.autoroutes") + ": " + onOff(s.client.auto_routes));
+  bits.push(t("settings.autodomains") + ": " + onOff(s.client.auto_domains));
+  $("railmeta").textContent = bits.join("\n");
+}
+
+/* --- Home Overview Pane Rendering -------------------------------------- */
+function renderHome(s) {
+  const activeMode = s.mode || "direct";
+  const allNodes = s.all_nodes || [];
+  const selectedTag = s.selected_node || "";
+
+  // Stat values
+  $("h-mode-val").textContent = t("mode." + activeMode);
+  $("h-ingress-val").textContent = s.client.tun ? t("bar.tun") : s.client.proxy ? t("bar.proxy") : t("bar.none");
+
+  const wanted = s.tunnels.filter((t) => t.wanted);
+  const up = wanted.filter((t) => t.up).length;
+  $("h-tunnels-val").textContent = up + " / " + (s.tunnels.length || 0);
+
+  let activeNodeName = t("nodes.noActiveProxy");
+  let activeNodePing = null;
+  if (selectedTag) {
+    const cleanTag = selectedTag.replace(/^node-/, "");
+    const found = allNodes.find((n) => n.id === selectedTag || n.id === cleanTag || "node-" + n.id === selectedTag);
+    if (found) {
+      activeNodeName = found.name;
+      activeNodePing = latencies[found.id];
+    }
+  }
+  $("h-proxy-val").textContent = activeMode === "direct" ? t("mode.direct") : activeNodeName;
+  $("home-active-proxy-name").textContent = activeNodeName;
+
+  const pingBadge = $("home-active-proxy-ping");
+  if (activeNodePing !== null && activeNodePing !== undefined) {
+    pingBadge.hidden = false;
+    pingBadge.className = "badge ping " + (activeNodePing < 0 ? "down" : activeNodePing < 200 ? "live" : "amber");
+    pingBadge.textContent = activeNodePing < 0 ? t("nodes.timeout") : activeNodePing + " ms";
+  } else {
+    pingBadge.hidden = true;
+  }
+
+  // Quick stats
+  $("q-tunnels-sub").textContent = s.tunnels.length + " 条隧道配置";
+  $("q-nodes-sub").textContent = allNodes.length + " 个节点 · " + (s.subscriptions || []).length + " 订阅";
+  $("q-rules-sub").textContent = s.rules.length + " 条分流规则";
 
   loadService();
 }
 
-/* --- the background service ---------------------------------------------
-   Creating a TUN interface needs privileges an application opened from a
-   launcher does not have. Rather than explaining that and leaving someone to
-   find a terminal, the interface installs the service that does have them.
+/* Master Switch Toggle Event */
+$("home-master-btn").addEventListener("click", async () => {
+  const phase = state.session ? state.session.phase : "setup";
+  if (phase === "setup") {
+    showPane("setup");
+    return;
+  }
+  const path = phase === "connected" ? "/api/disconnect" : "/api/connect";
+  const btn = $("home-master-btn");
+  btn.disabled = true;
+  try {
+    const res = await api(path, { method: "POST" });
+    render(await res.json());
+  } catch (e) {
+    $("home-offline").hidden = false;
+    $("home-offline").textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
 
-   The service state is fetched on its own rather than carried in the state
-   everything else uses: answering it runs launchctl, and the tray reads that
-   state every few seconds. */
-let service = { supported: false };
+/* Mode Switching Click Handlers */
+async function switchMode(mode) {
+  if (!mode) return;
+  try {
+    const res = await api("/api/mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+    render(await res.json());
+  } catch (err) {
+    alert(err.message);
+  }
+}
 
+document.addEventListener("click", (e) => {
+  const modeBtn = e.target.closest(".mode-btn");
+  if (modeBtn) {
+    switchMode(modeBtn.dataset.mode);
+    return;
+  }
+  const modeCard = e.target.closest(".mode-card");
+  if (modeCard) {
+    switchMode(modeCard.dataset.mode);
+    return;
+  }
+});
+
+/* --- Background Helper Service ----------------------------------------- */
 async function loadService() {
   try {
     const res = await api("/api/service");
     renderService(await res.json());
   } catch (_) {
-    // An interface that cannot answer this is one where the question does
-    // not arise; the rest of the settings still work.
     $("service-field").hidden = true;
   }
 }
@@ -1380,162 +2031,125 @@ async function loadService() {
 function renderService(sv) {
   service = sv || {};
   $("service-field").hidden = !service.supported;
-  if (!service.supported) return;
+  if (!service.supported) {
+    $("home-service-banner").hidden = true;
+    return;
+  }
+  $("home-service-banner").hidden = false;
 
   const label = $("service-state");
+  const homeBadge = $("home-service-badge");
+
   if (!service.installed) {
     label.textContent = t("service.absent");
-    label.className = "off";
+    homeBadge.textContent = t("service.absent");
+    homeBadge.className = "badge down";
+  } else if (service.outdated) {
+    const txt = service.running ? t("service.running", service.pid || "?") + " · " + t("service.outdatedBadge") : t("service.outdatedBadge");
+    label.textContent = txt;
+    homeBadge.textContent = t("service.outdatedBadge");
+    homeBadge.className = "badge amber";
   } else if (service.running) {
-    label.textContent = t("service.running", service.pid || "?");
-    label.className = "on";
+    const txt = t("service.running", service.pid || "?");
+    label.textContent = txt;
+    homeBadge.textContent = txt;
+    homeBadge.className = "badge live";
   } else {
     label.textContent = t("service.stopped");
-    label.className = "off";
+    homeBadge.textContent = t("service.stopped");
+    homeBadge.className = "badge amber";
   }
 
-  // The blocker is the client's own sentence about why installing would fail,
-  // so it is shown as written rather than restated.
   const detail = [];
+  if (service.outdated) {
+    detail.push(t("service.outdatedDesc", service.installed_version || ""));
+  }
   if (!service.installed && service.blocker) detail.push(service.blocker);
   if (service.installed && service.config_path && service.config_path !== configPathOf()) {
     detail.push(t("service.elsewhere", service.config_path));
   }
   if (!detail.length) detail.push(t("service.why"));
-  $("service-detail").textContent = detail.join(" ");
+  const fullDetail = detail.join(" ");
+  $("service-detail").textContent = fullDetail;
+  $("home-service-desc").textContent = fullDetail;
 
-  $("service-install").hidden = service.installed;
-  $("service-install").disabled = !!service.blocker;
+  const canInstall = !service.installed || service.outdated;
+  const isBlocked = !!service.blocker;
+
+  const btnText = service.outdated ? t("service.update") : t("service.install");
+  $("service-install").textContent = btnText;
+  $("home-service-install").textContent = btnText;
+
+  $("service-install").hidden = !canInstall;
+  $("service-install").disabled = isBlocked;
+  $("home-service-install").hidden = !canInstall;
+  $("home-service-install").disabled = isBlocked;
+
   $("service-uninstall").hidden = !service.installed;
+  $("home-service-uninstall").hidden = !service.installed;
 }
 
-/* The configuration this interface edits. A service running a different one
-   is someone else's install, and saying so is more use than showing a state
-   that has nothing to do with what is on this screen. */
 function configPathOf() {
   return state.session ? state.session.config_path : "";
 }
 
 async function serviceAction(path, busyKey, doneKey) {
   const note = $("service-note");
-  note.className = "note";
-  note.textContent = t(busyKey);
+  if (note) {
+    note.className = "note";
+    note.textContent = t(busyKey);
+  }
   $("service-install").disabled = true;
+  $("home-service-install").disabled = true;
   $("service-uninstall").disabled = true;
+  $("home-service-uninstall").disabled = true;
+
   try {
     const res = await api(path, { method: "POST" });
-    const before = service.installed;
     renderService(await res.json());
-    note.className = "note good";
-    note.textContent = service.installed === before ? t("service.cancelled") : t(doneKey);
+    if (note) {
+      note.className = "note good";
+      note.textContent = t(doneKey);
+    }
   } catch (e) {
-    note.className = "note bad";
-    note.textContent = e.message;
+    if (note) {
+      note.className = "note bad";
+      note.textContent = e.message;
+    }
+    alert(e.message);
   } finally {
     $("service-uninstall").disabled = false;
+    $("home-service-uninstall").disabled = false;
     loadService();
   }
 }
 
 $("service-install").addEventListener("click", () =>
   serviceAction("/api/service/install", "service.installing", "service.installed"));
+$("home-service-install").addEventListener("click", () =>
+  serviceAction("/api/service/install", "service.installing", "service.installed"));
 $("service-uninstall").addEventListener("click", () =>
   serviceAction("/api/service/uninstall", "service.uninstalling", "service.removed"));
+$("home-service-uninstall").addEventListener("click", () =>
+  serviceAction("/api/service/uninstall", "service.uninstalling", "service.removed"));
 
-$("settings-save").addEventListener("click", async () => {
-  const note = $("settings-note");
-  const tun = document.querySelector('input[name=ingress]:checked').value === "tun";
-  const body = {
-    tun: { enabled: tun, auto_route: true },
-    proxy: { enabled: !tun, listen: $("set-proxy-listen").value.trim() || "127.0.0.1:1080" },
-    dns_default: $("set-dns").value.trim() || "local",
-    on_failure: $("set-onfail").value,
-    auto_routes: $("set-autoroutes").checked,
-    auto_domains: $("set-autodomains").checked,
-    username: $("set-username").value.trim(),
-    password: $("set-password").value.trim(),
-  };
-  note.className = "note";
-  note.textContent = "…";
-  $("settings-save").disabled = true;
-  try {
-    const res = await api("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    note.className = "note good";
-    note.textContent = t("settings.saved");
-    render(await res.json());
-  } catch (e) {
-    note.className = "note bad";
-    note.textContent = e.message;
-  } finally {
-    $("settings-save").disabled = false;
-  }
-});
-
-function renderReadout(s) {
-  const activeMode = s.mode || "rule";
-  document.querySelectorAll(".mode-btn").forEach((b) => {
-    b.classList.toggle("active", b.dataset.mode === activeMode);
-  });
-
-  const wanted = s.tunnels.filter((t) => t.wanted);
-  const up = wanted.filter((t) => t.up).length;
-  $("r-up").textContent = up;
-  // Counted against the tunnels that were asked for: a stopped one is not a
-  // tunnel that is failing to come up.
-  $("r-total").textContent = wanted.length;
-  const ingress = [s.client.tun && t("bar.tun"), s.client.proxy && t("bar.proxy")].filter(Boolean);
-  $("r-ingress").textContent = ingress.join(" + ") || t("bar.none");
-  // "direct" and "block" are values the client understands; only the label
-  // shown here changes with the language.
-  $("r-fail").textContent = s.client.on_failure === "block" ? t("t.block")
-                          : s.client.on_failure === "direct" ? t("t.direct")
-                          : (s.client.on_failure || "—");
-  const healthy = wanted.length > 0 && up === wanted.length;
-  $("bug").style.background = healthy ? "" : wanted.length ? "var(--down)" : "var(--faint)";
-  $("bug").style.color = healthy ? "" : wanted.length ? "var(--down)" : "var(--faint)";
-
-  const onOff = (v) => t(v ? "on" : "off");
-  const bits = [];
-  if (s.client.username) bits.push(t("auth.username") + " " + s.client.username);
-  if (s.client.proxy_listen) bits.push(t("meta.proxy") + " " + s.client.proxy_listen);
-  if (s.client.dns_default) {
-    bits.push(t("meta.dns") + " " +
-      (s.client.dns_default === "local" ? t("meta.dnsLocal") : s.client.dns_default));
-  }
-  bits.push(t("meta.autoroutes") + " " + onOff(s.client.auto_routes));
-  bits.push(t("meta.autodomains") + " " + onOff(s.client.auto_domains));
-  $("railmeta").textContent = bits.join("\n");
-}
-
-/* --- refreshing ----------------------------------------------------------
-   Tunnel state is asked for rather than pushed. Dialling takes as long as the
-   authentication behind it does, so a list that redrew itself every couple of
-   seconds spent most of that time saying nothing new while shifting under the
-   hand reaching for it. The stream still arrives on its own for a challenge
-   waiting to be answered: nobody would think to press refresh for a code they
-   were never told to expect. */
+/* --- Tunnels Rendering ------------------------------------------------- */
 async function refreshTunnels() {
   const btn = $("tunnels-refresh");
   btn.disabled = true;
   try {
     const res = await api("/api/state");
-    $("offline").hidden = true;
+    $("home-offline").hidden = true;
     render(await res.json());
   } catch (e) {
-    $("offline").hidden = false;
-    $("offline").textContent = e.message;
+    $("home-offline").hidden = false;
+    $("home-offline").textContent = e.message;
   } finally {
     btn.disabled = false;
   }
 }
 $("tunnels-refresh").addEventListener("click", refreshTunnels);
 
-/* When the reading was taken, so a list that has gone stale says so rather
-   than looking like the tunnels simply stopped changing. */
 function stampTunnels(at) {
   const d = new Date(at);
   $("tunnels-updated").textContent = isNaN(d)
@@ -1547,75 +2161,68 @@ function renderTunnels(tunnels) {
   const box = $("tunnels");
   box.textContent = "";
   if (!tunnels.length) {
-    box.appendChild(el("div", "empty", t("tunnels.empty")));
+    box.appendChild(el("div", "empty-state", t("tunnels.empty")));
     return;
   }
-  tunnels.forEach((tn, i) => {
-    const row = el("div", "tunnel");
-    row.style.animationDelay = Math.min(i * 45, 400) + "ms";
+  tunnels.forEach((tn) => {
+    const card = el("div", "tunnel-card");
 
-    // Three states, not two. A tunnel nobody has asked for is stopped on
-    // purpose; showing it as "down" beside one that failed to dial would put
-    // the same face on a decision and a fault.
-    const cls = tn.up ? "on" : tn.wanted ? "off" : "idle";
-    const label = tn.up ? t("tunnels.up") : tn.wanted ? t("tunnels.down") : t("tunnels.stopped");
-    row.appendChild(el("span", "lamp " + cls));
-    row.appendChild(el("span", "tname", tn.name));
-    row.appendChild(el("span", "tstate " + cls, label));
+    const dotCls = tn.up ? "on" : tn.wanted ? "off" : "";
+    card.appendChild(el("span", "tunnel-dot " + dotCls));
+    card.appendChild(el("span", "tunnel-name", tn.name));
 
-    const facts = el("div", "facts");
-    const add = (k, v) => {
-      if (!v || !v.length) return;
-      const wrap = el("span");
-      wrap.appendChild(el("span", "k", k + " "));
-      wrap.appendChild(el("code", null, Array.isArray(v) ? v.join(" ") : v));
-      facts.appendChild(wrap);
+    const statusBadge = el("span", "badge " + (tn.up ? "live" : tn.wanted ? "down" : ""),
+      tn.up ? t("tunnels.up") : tn.wanted ? t("tunnels.down") : t("tunnels.stopped"));
+    card.appendChild(statusBadge);
+
+    const facts = el("div", "tunnel-facts");
+    const addFact = (label, val) => {
+      if (!val || !val.length) return;
+      const tag = el("span", "fact-tag");
+      tag.appendChild(el("span", null, label + ": "));
+      tag.appendChild(el("b", null, Array.isArray(val) ? val.join(" ") : val));
+      facts.appendChild(tag);
     };
-    add(t("tunnels.routes"), tn.routes);
-    add(t("tunnels.dns"), tn.dns);
-    add(t("tunnels.search"), tn.search_domains);
-    if (!tn.udp) facts.appendChild(el("span", "k", t("tunnels.tcpdns")));
-    if (!facts.children.length) facts.appendChild(el("span", "k", t("tunnels.nothing")));
-    row.appendChild(facts);
+    addFact(t("tunnels.routes"), tn.routes);
+    addFact(t("tunnels.dns"), tn.dns);
+    addFact(t("tunnels.search"), tn.search_domains);
+    if (!tn.udp) facts.appendChild(el("span", "fact-tag", t("tunnels.tcpdns")));
+    if (!facts.children.length) facts.appendChild(el("span", "fact-tag", t("tunnels.nothing")));
+    card.appendChild(facts);
 
-    const actions = el("div", "trow-actions");
+    const actions = el("div", "toolbar", "");
+    actions.style.margin = "0";
 
-    const toggle = el("button", "act" + (tn.wanted ? " quiet" : ""),
+    const toggleBtn = el("button", "act" + (tn.wanted ? " danger" : " primary"),
       tn.wanted ? t("tunnels.stop") : t("tunnels.start"));
-    toggle.addEventListener("click", async () => {
-      toggle.disabled = true;
-      const path = "/api/tunnels/" + encodeURIComponent(tn.name) +
-        (tn.wanted ? "/stop" : "/start");
+    toggleBtn.addEventListener("click", async () => {
+      toggleBtn.disabled = true;
+      const path = "/api/tunnels/" + encodeURIComponent(tn.name) + (tn.wanted ? "/stop" : "/start");
       try {
         await api(path, { method: "POST" });
       } catch (e) {
-        $("offline").hidden = false;
-        $("offline").textContent = e.message;
+        alert(e.message);
       } finally {
-        toggle.disabled = false;
+        toggleBtn.disabled = false;
       }
-      // The server answers once it has asked, not once the tunnel is up, so
-      // this reads back the decision. Whether the dial succeeded is the next
-      // refresh's answer.
       refreshTunnels();
     });
-    actions.appendChild(toggle);
+    actions.appendChild(toggleBtn);
 
-    const go = el("button", "act quiet", t("tunnels.logs"));
-    go.addEventListener("click", () => {
-      document.querySelector('.rail button[data-pane="logs"]').click();
+    const logBtn = el("button", "act quiet", t("tunnels.logs"));
+    logBtn.addEventListener("click", () => {
+      showPane("logs");
       $("log-tunnel").value = tn.name;
       loadLogs();
     });
-    actions.appendChild(go);
+    actions.appendChild(logBtn);
 
-    row.appendChild(actions);
-    box.appendChild(row);
+    card.appendChild(actions);
+    box.appendChild(card);
   });
 }
 
-/* --- nodes & subscriptions -------------------------------------------- */
-let latencies = {};
+/* --- Nodes & Subscriptions Rendering ---------------------------------- */
 let editingNodeId = null;
 
 function renderNodes(s) {
@@ -1628,35 +2235,12 @@ function renderNodes(s) {
   const subs = s.subscriptions || [];
   const allNodes = s.all_nodes || [];
   const selectedTag = s.selected_node || "";
-  const activeMode = s.mode || "rule";
 
   $("c-nodes").textContent = allNodes.length || "";
 
-  // Update mode buttons
-  document.querySelectorAll(".mode-btn").forEach((b) => {
-    b.classList.toggle("active", b.dataset.mode === activeMode);
-  });
-
-  // Update mode description
-  const modeDesc = $("mode-desc");
-  if (modeDesc) {
-    let activeNodeName = t("nodes.noActiveProxy");
-    if (selectedTag) {
-      const cleanTag = selectedTag.replace(/^node-/, "");
-      const found = allNodes.find((n) => n.id === selectedTag || n.id === cleanTag || "node-" + n.id === selectedTag);
-      if (found) activeNodeName = found.name;
-    }
-    modeDesc.textContent = t("mode." + activeMode + "Desc") + " (" + t("nodes.activeProxy") + ": " + activeNodeName + ")";
-  }
-
-  const clearBtn = $("clear-proxy-btn");
-  if (clearBtn) {
-    clearBtn.hidden = !selectedTag;
-  }
-
   // 1. Subscriptions list
   if (!subs.length) {
-    subsBox.appendChild(el("div", "empty", t("nodes.emptySubs")));
+    subsBox.appendChild(el("div", "empty-state", t("nodes.emptySubs")));
   } else {
     subs.forEach((sub) => {
       const card = el("div", "sub-card");
@@ -1664,7 +2248,7 @@ function renderNodes(s) {
       const nameWrap = el("div", "sub-name");
       nameWrap.appendChild(el("span", null, sub.name + " "));
       const count = sub.nodes ? sub.nodes.length : 0;
-      nameWrap.appendChild(el("span", "badge custom", t("nodes.nodeCount", count)));
+      nameWrap.appendChild(el("span", "badge primary", t("nodes.nodeCount", count)));
       head.appendChild(nameWrap);
 
       const acts = el("div", null);
@@ -1720,31 +2304,27 @@ function renderNodes(s) {
 
   // 2. All Nodes list
   if (!allNodes.length) {
-    nodesBox.appendChild(el("div", "empty", t("nodes.emptyNodes")));
+    nodesBox.appendChild(el("div", "empty-state", t("nodes.emptyNodes")));
   } else {
     allNodes.forEach((n) => {
       const isSelected = selectedTag === n.id || selectedTag === "node-" + n.id || ("node-" + selectedTag) === ("node-" + n.id);
       const card = el("div", "node-card" + (isSelected ? " active" : ""));
 
       // Info
-      const info = el("div", "node-info");
+      const info = el("div", null);
       const nameLine = el("div", "node-name");
       nameLine.appendChild(el("span", null, n.name));
       if (isSelected) {
-        nameLine.appendChild(el("span", "badge active-tag", t("nodes.active")));
+        nameLine.appendChild(el("span", "badge live", t("nodes.active")));
       }
       const typeBadge = n.subscription_id ? t("t.subPrefix").trim() : t("t.customPrefix").trim();
-      nameLine.appendChild(el("span", "badge custom", typeBadge));
+      nameLine.appendChild(el("span", "badge", typeBadge));
       info.appendChild(nameLine);
 
       const details = el("div", "node-detail");
       details.appendChild(el("span", null, n.server + ":" + n.port));
-      if (n.sni && n.sni !== n.server) {
-        details.appendChild(el("span", null, "SNI: " + n.sni));
-      }
-      if (n.allow_insecure) {
-        details.appendChild(el("span", null, "Insecure"));
-      }
+      if (n.sni && n.sni !== n.server) details.appendChild(el("span", null, "SNI: " + n.sni));
+      if (n.allow_insecure) details.appendChild(el("span", null, "Insecure"));
       info.appendChild(details);
       card.appendChild(info);
 
@@ -1755,7 +2335,7 @@ function renderNodes(s) {
       pingWrap.style.gap = "8px";
       const lat = latencies[n.id];
       if (lat !== undefined) {
-        const cls = lat < 0 ? "bad" : lat < 200 ? "good" : lat < 500 ? "medium" : "bad";
+        const cls = lat < 0 ? "down" : lat < 200 ? "live" : lat < 500 ? "amber" : "down";
         const txt = lat < 0 ? t("nodes.timeout") : lat + " ms";
         pingWrap.appendChild(el("span", "badge ping " + cls, txt));
       }
@@ -1773,6 +2353,7 @@ function renderNodes(s) {
           if (data.latencies) {
             Object.assign(latencies, data.latencies);
             renderNodes(state);
+            renderHome(state);
           }
         } catch (e) {
           $("nodes-note").className = "note bad";
@@ -1870,6 +2451,7 @@ $("ping-all-btn").addEventListener("click", async () => {
     if (data.latencies) {
       Object.assign(latencies, data.latencies);
       renderNodes(state);
+      renderHome(state);
     }
     $("nodes-note").textContent = "";
   } catch (e) {
@@ -1895,42 +2477,6 @@ $("update-all-subs-btn").addEventListener("click", async () => {
     $("nodes-note").className = "note good";
     $("nodes-note").textContent = t("nodes.updated");
     render(state);
-  } catch (e) {
-    $("nodes-note").className = "note bad";
-    $("nodes-note").textContent = e.message;
-  } finally {
-    btn.disabled = false;
-  }
-});
-
-// Mode buttons click delegation
-document.addEventListener("click", async (e) => {
-  const btn = e.target.closest(".mode-btn");
-  if (!btn) return;
-  const mode = btn.dataset.mode;
-  if (!mode) return;
-  try {
-    const res = await api("/api/mode", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode }),
-    });
-    render(await res.json());
-  } catch (err) {
-    alert(err.message);
-  }
-});
-
-$("clear-proxy-btn").addEventListener("click", async () => {
-  const btn = $("clear-proxy-btn");
-  btn.disabled = true;
-  try {
-    const res = await api("/api/nodes/select", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: "" }),
-    });
-    render(await res.json());
   } catch (e) {
     $("nodes-note").className = "note bad";
     $("nodes-note").textContent = e.message;
@@ -2010,22 +2556,14 @@ $("node-modal-save").addEventListener("click", async () => {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: nameVal,
-          server: serverVal,
-          port: portVal,
-          password: passVal,
-          sni: sniVal,
-          allow_insecure: insecureVal,
+          name: nameVal, server: serverVal, port: portVal,
+          password: passVal, sni: sniVal, allow_insecure: insecureVal,
         }),
       });
     } else {
       const payload = urlVal ? { url: urlVal, name: nameVal } : {
-        name: nameVal,
-        server: serverVal,
-        port: portVal,
-        password: passVal,
-        sni: sniVal,
-        allow_insecure: insecureVal,
+        name: nameVal, server: serverVal, port: portVal,
+        password: passVal, sni: sniVal, allow_insecure: insecureVal,
       };
       res = await api("/api/nodes", {
         method: "POST",
@@ -2055,7 +2593,6 @@ $("sub-modal-save").addEventListener("click", async () => {
   const btn = $("sub-modal-save");
   const errBox = $("sub-modal-err");
   errBox.textContent = "";
-
   const nameVal = $("sub-name-input").value.trim();
   const urlVal = $("sub-url-input").value.trim();
   if (!nameVal || !urlVal) {
@@ -2063,7 +2600,6 @@ $("sub-modal-save").addEventListener("click", async () => {
     return;
   }
   btn.disabled = true;
-
   try {
     const res = await api("/api/subscriptions", {
       method: "POST",
@@ -2079,10 +2615,8 @@ $("sub-modal-save").addEventListener("click", async () => {
   }
 });
 
-/* --- rules --------------------------------------------------------------- */
+/* --- Rules Rendering --------------------------------------------------- */
 const MATCHER_KINDS = ["domain_suffix", "domain", "domain_keyword", "ip_cidr", "port"];
-
-function currentRules() { return draft !== null ? draft : state.rules; }
 
 function markDirty() {
   if (draft === null) draft = JSON.parse(JSON.stringify(state.rules || []));
@@ -2099,26 +2633,28 @@ function renderRules(rules) {
     globalBanner.hidden = (state.mode !== "global");
   }
 
-  // Counted here rather than by whoever made the change, so the badge always
-  // matches the rules on screen.
   $("c-rules").textContent = rules.length || "";
   if (!rules.length) {
-    box.appendChild(el("div", "empty", t("rules.empty")));
+    box.appendChild(el("div", "empty-state", t("rules.empty")));
     return;
   }
   rules.forEach((rule, ri) => {
-    const card = el("div", "rule" + (rule.disabled ? " disabled" : ""));
+    const card = el("div", "rule-card" + (rule.disabled ? " disabled" : ""));
 
     const head = el("div", "rule-head");
-    const badges = el("div", "rule-badges");
+    const badges = el("div", null);
+    badges.style.display = "flex";
+    badges.style.gap = "6px";
+    badges.style.alignItems = "center";
+
     if (rule.auto) {
-      badges.appendChild(el("span", "badge auto", t("rules.auto")));
+      badges.appendChild(el("span", "badge primary", t("rules.auto")));
       badges.appendChild(el("span", "badge", rule.tunnel));
     } else {
-      badges.appendChild(el("span", "badge custom", t("rules.custom")));
+      badges.appendChild(el("span", "badge", t("rules.custom")));
     }
     if (rule.disabled) {
-      badges.appendChild(el("span", "badge disabled-tag", t("rules.disabled")));
+      badges.appendChild(el("span", "badge down", t("rules.disabled")));
     }
     head.appendChild(badges);
 
@@ -2135,20 +2671,19 @@ function renderRules(rules) {
     if (!kinds.length) kinds = [MATCHER_KINDS[0]];
 
     if (rule.auto) {
-      // Auto rules: read-only matchers, no edit or delete
       kinds.forEach((kind) => {
-        const line = el("div", "matcher readonly");
-        line.appendChild(el("span", "k", t("m." + kind) + ": "));
-        line.appendChild(el("code", null, (rule[kind] || []).join(", ")));
+        const line = el("div", "matcher-row");
+        line.style.color = "var(--dim)";
+        line.appendChild(el("span", null, t("m." + kind) + ": "));
+        line.appendChild(el("b", null, (rule[kind] || []).join(", ")));
         card.appendChild(line);
       });
       const hint = el("p", "note", t("rules.autoHint"));
-      hint.style.margin = "8px 0 0";
+      hint.style.margin = "6px 0 0";
       card.appendChild(hint);
     } else {
-      // Custom rules: full edit/delete
       kinds.forEach((kind) => {
-        const line = el("div", "matcher");
+        const line = el("div", "matcher-row");
         const sel = el("select");
         MATCHER_KINDS.forEach((k) => {
           const o = el("option", null, t("m." + k));
@@ -2203,8 +2738,8 @@ function renderRules(rules) {
       targets.push(...state.tunnels.map((t) => t.name));
       targets.push(...allNodes.map((n) => "node-" + n.id));
       if (rule.tunnel && !targets.includes(rule.tunnel)) targets.push(rule.tunnel);
+
       targets.forEach((name) => {
-        // The label is translated; the value is the name the client expects.
         const label = name === "direct" ? t("t.direct")
                     : name === "block" ? t("t.block")
                     : name === "proxy" ? t("t.proxy")
@@ -2227,7 +2762,7 @@ function renderRules(rules) {
         renderRules(draft);
       });
 
-      foot.append(more, el("span", "grow"), remove, el("span", "arrow", "→"), target);
+      foot.append(more, el("span", "grow"), remove, el("span", null, "→"), target);
       card.appendChild(foot);
     }
 
@@ -2256,11 +2791,7 @@ $("revert-rules").addEventListener("click", () => {
 
 $("apply-rules").addEventListener("click", async () => {
   const rules = (draft || state.rules).map((r) => {
-    const out = {
-      tunnel: r.tunnel,
-      disabled: !!r.disabled,
-      auto: !!r.auto,
-    };
+    const out = { tunnel: r.tunnel, disabled: !!r.disabled, auto: !!r.auto };
     MATCHER_KINDS.forEach((k) => { if (r[k] && r[k].length) out[k] = r[k]; });
     return out;
   });
@@ -2275,8 +2806,6 @@ $("apply-rules").addEventListener("click", async () => {
       body: JSON.stringify(rules),
     });
     draft = null;
-    // Force the editor to redraw from what the client accepted, rather than
-    // from what was typed: the two can differ, and the accepted one is true.
     renderedRules = null;
     note.className = "note good";
     note.textContent = t("rules.saved");
@@ -2291,7 +2820,7 @@ $("apply-rules").addEventListener("click", async () => {
   }
 });
 
-/* --- logs ---------------------------------------------------------------- */
+/* --- Logs Rendering ---------------------------------------------------- */
 function renderLogTunnels(tunnels) {
   const sel = $("log-tunnel");
   const keep = sel.value;
@@ -2349,7 +2878,110 @@ async function loadGeneratedConfig() {
   }
 }
 
-/* --- prompts ------------------------------------------------------------- */
+/* --- Settings ---------------------------------------------------------- */
+function fillSettings() {
+  const c = state.client || {};
+  document.querySelectorAll('input[name=ingress]').forEach((r) => {
+    r.checked = r.value === (c.tun ? "tun" : "proxy");
+  });
+  $("set-username").value = c.username || "";
+  $("set-password").value = c.password || "";
+  $("set-proxy-listen").value = c.proxy_listen || "";
+  $("set-onfail").value = c.on_failure || "direct";
+  $("set-dns").value = c.dns_default || "";
+  $("set-autoroutes").checked = !!c.auto_routes;
+  $("set-autodomains").checked = !!c.auto_domains;
+
+  const opts = $("set-onfail").options;
+  opts[0].textContent = t("t.direct");
+  opts[1].textContent = t("t.block");
+
+  loadService();
+}
+
+$("settings-save").addEventListener("click", async () => {
+  const note = $("settings-note");
+  const tun = document.querySelector('input[name=ingress]:checked').value === "tun";
+  const body = {
+    tun: { enabled: tun, auto_route: true },
+    proxy: { enabled: !tun, listen: $("set-proxy-listen").value.trim() || "127.0.0.1:1080" },
+    dns_default: $("set-dns").value.trim() || "local",
+    on_failure: $("set-onfail").value,
+    auto_routes: $("set-autoroutes").checked,
+    auto_domains: $("set-autodomains").checked,
+    username: $("set-username").value.trim(),
+    password: $("set-password").value.trim(),
+  };
+  note.className = "note";
+  note.textContent = "…";
+  $("settings-save").disabled = true;
+  try {
+    const res = await api("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    note.className = "note good";
+    note.textContent = t("settings.saved");
+    render(await res.json());
+  } catch (e) {
+    note.className = "note bad";
+    note.textContent = e.message;
+  } finally {
+    $("settings-save").disabled = false;
+  }
+});
+
+/* --- Setup / Import Bundle --------------------------------------------- */
+$("bundle-pick").addEventListener("click", () => $("bundle-file").click());
+$("bundle-file").addEventListener("change", async (ev) => {
+  const file = ev.target.files[0];
+  if (file) $("bundle-text").value = await file.text();
+});
+
+$("bundle-save").addEventListener("click", async () => {
+  const note = $("setup-note");
+  const raw = $("bundle-text").value.trim();
+  if (!raw) {
+    note.className = "note bad";
+    note.textContent = t("setup.empty");
+    return;
+  }
+  note.className = "note";
+  note.textContent = "…";
+  $("bundle-save").disabled = true;
+  try {
+    const res = await api("/api/bundle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: raw,
+    });
+    const st = await res.json();
+    const u = $("bundle-user").value.trim();
+    const p = $("bundle-pass").value.trim();
+    if (u || p) {
+      await api("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: u, password: p }),
+      });
+    }
+    note.className = "note good";
+    note.textContent = t("setup.done");
+    $("bundle-text").value = "";
+    $("bundle-user").value = "";
+    $("bundle-pass").value = "";
+    render(st);
+    showPane("home");
+  } catch (e) {
+    note.className = "note bad";
+    note.textContent = e.message;
+  } finally {
+    $("bundle-save").disabled = false;
+  }
+});
+
+/* --- Challenges & Auth Prompts ----------------------------------------- */
 const KINDS = ["sms", "totp", "captcha", "url", "password", "vnc"];
 
 function renderPrompt(prompts) {
@@ -2365,8 +2997,6 @@ function renderPrompt(prompts) {
   const known = KINDS.includes(p.type);
   $("p-kind").textContent = p.tunnel + " · " + p.type;
   $("p-title").textContent = known ? t("k." + p.type + ".t") : t("auth.generic");
-  // The gateway's own wording is shown when there is any, because restating
-  // it in another language would be guessing at what it said.
   $("p-why").textContent = p.prompt || (known ? t("k." + p.type + ".w") : t("prompt.fallback"));
 
   const link = $("p-link");
@@ -2388,9 +3018,9 @@ function renderPrompt(prompts) {
     const left = Math.floor((new Date(p.expires_at) - Date.now()) / 1000);
     const box = $("p-expiry");
     if (!p.expires_at || isNaN(left)) { box.textContent = ""; return; }
-    if (left <= 0) { box.textContent = t("prompt.expired"); box.className = "expiry soon"; return; }
+    if (left <= 0) { box.textContent = t("prompt.expired"); box.style.color = "var(--down)"; return; }
     box.textContent = t("prompt.expires", duration(left));
-    box.className = "expiry" + (left < 30 ? " soon" : "");
+    box.style.color = left < 30 ? "var(--down)" : "var(--dim)";
   };
   tick();
   renderPrompt.timer = setInterval(tick, 1000);
@@ -2419,18 +3049,15 @@ $("p-send").addEventListener("click", sendPrompt);
 $("p-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendPrompt(); });
 $("p-skip").addEventListener("click", () => { $("veil").hidden = true; });
 
-/* --- live updates -------------------------------------------------------- */
+/* --- SSE Live Updates -------------------------------------------------- */
 function connect() {
   const src = new EventSource("/api/events?token=" + encodeURIComponent(TOKEN));
   src.onmessage = (ev) => {
-    $("offline").hidden = true;
     try { render(JSON.parse(ev.data)); } catch (_) {}
   };
   src.onerror = () => {
-    $("offline").hidden = false;
     src.close();
-    // The client may be restarting its routing engine; keep trying quietly.
-    setTimeout(connect, 2000);
+    setTimeout(connect, 3000);
   };
 }
 

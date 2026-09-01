@@ -75,6 +75,9 @@ type Status struct {
 	// would work. It is answered before anyone presses the button, so nobody
 	// is asked for a password only to be told afterwards.
 	Blocker string `json:"blocker,omitempty"`
+
+	// InstalledVersion is the version reported by the installed service executable.
+	InstalledVersion string `json:"installed_version,omitempty"`
 }
 
 // Options say what the service should be installed to run.

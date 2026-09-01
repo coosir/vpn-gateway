@@ -34,10 +34,25 @@ func Inspect(opt Options) Status {
 		st.Installed = true
 		st.ConfigPath = installedConfigPath()
 		st.PID, st.Running = jobState()
+		st.InstalledVersion = InstalledBinaryVersion()
 	}
 
 	st.Blocker = blocker(opt)
 	return st
+}
+
+// InstalledBinaryVersion runs the installed helper binary to report its version.
+func InstalledBinaryVersion() string {
+	if _, err := os.Stat(BinaryPath); err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), inspectTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, BinaryPath, "version").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // blocker answers why an install would not work, before anyone is asked for a
