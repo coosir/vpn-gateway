@@ -93,19 +93,6 @@ func run(configPath, lang string) error {
 		},
 	})
 
-	// Created hidden and reused. Rebuilding it on every open would reload the
-	// interface and lose whatever was being typed into it.
-	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:      "console",
-		Title:     t("title"),
-		URL:       link,
-		Width:     windowWidth,
-		Height:    windowHeight,
-		MinWidth:  windowMinW,
-		MinHeight: windowMinH,
-		Hidden:    true,
-	})
-
 	// Which engine is in charge is decided here, not chosen: the background
 	// service either exists or it does not, and it can be installed or removed
 	// from somewhere this application never hears about.
@@ -113,10 +100,37 @@ func run(configPath, lang string) error {
 		configPath: absPath(configPath),
 		session:    session,
 		local:      &localEngine{session: session, link: link},
-		window:     window,
 		log:        log,
 	}
 	sv.current = sv.local
+
+	// If the background service is already running, point window at it directly from the start
+	initialURL := link
+	if svcLink := sv.serviceLink(); svcLink != "" {
+		initialURL = svcLink
+		if svcEngine, err := newServiceEngine(svcLink); err == nil {
+			sv.current = svcEngine
+		}
+	}
+
+	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:      "console",
+		Title:     t("title"),
+		URL:       initialURL,
+		Width:     windowWidth,
+		Height:    windowHeight,
+		MinWidth:  windowMinW,
+		MinHeight: windowMinH,
+		Hidden:    false,
+	})
+	sv.window = window
+
+	// On close, hide to system tray instead of destroying the window so the
+	// session keeps running and can be reopened from the tray.
+	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		e.Cancel()
+		window.Hide()
+	})
 
 	tray := app.SystemTray.New()
 	tray.SetTemplateIcon(degradedIcon())
