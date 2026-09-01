@@ -149,13 +149,8 @@ func run(configPath, lang string) error {
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		// A service installed on an earlier run is already in charge, so the
 		// window opens on its interface rather than on this one.
-		e := sv.engine()
-		// Nothing is configured yet, so the window is the whole point of
-		// opening this. Show it rather than leaving a menu bar icon someone
-		// has to discover.
-		if e.Snapshot().Phase == client.PhaseSetup {
-			showWindow(window)
-		}
+		_ = sv.engine()
+		showWindow(window)
 		go refresh(sv, t, tray, status, connect, items, menu)
 	})
 

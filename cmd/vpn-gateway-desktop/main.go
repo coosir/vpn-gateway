@@ -58,6 +58,9 @@ func main() {
 	}
 
 	if err := run(*configPath, pickLanguage(*lang)); err != nil {
+		dir := filepath.Dir(*configPath)
+		_ = os.MkdirAll(dir, 0o755)
+		_ = os.WriteFile(filepath.Join(dir, "desktop.log"), []byte(err.Error()+"\n"), 0o644)
 		fmt.Fprintln(os.Stderr, "vpn-gateway-desktop:", err)
 		os.Exit(1)
 	}
