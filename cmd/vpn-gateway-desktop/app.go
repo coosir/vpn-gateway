@@ -18,6 +18,7 @@ import (
 	"github.com/vpn-gateway/vpn-gateway/internal/client"
 	"github.com/vpn-gateway/vpn-gateway/internal/client/helper"
 	"github.com/vpn-gateway/vpn-gateway/internal/client/ui"
+	"github.com/vpn-gateway/vpn-gateway/internal/version"
 )
 
 // pollInterval is how often the tray refreshes. The window streams its own
@@ -256,6 +257,13 @@ func (sv *supervisor) serviceLink() string {
 	// Attaching to it would show tunnels that have nothing to do with what
 	// this application is configured with.
 	if st.ConfigPath != "" && absPath(st.ConfigPath) != sv.configPath {
+		return ""
+	}
+	// An outdated service is running an older binary from a previous version of the app.
+	// Do not attach to it; run the local engine/UI so the user sees the latest UI and can update.
+	if st.InstalledVersion != "" && st.InstalledVersion != version.Full() {
+		sv.log.Warn("background service is running an older version, staying on local interface",
+			"service_version", st.InstalledVersion, "app_version", version.Full())
 		return ""
 	}
 	link, err := ui.ReadLink(sv.linkPath())
