@@ -5,6 +5,8 @@ package helper
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -13,14 +15,37 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+	"unicode/utf16"
 )
 
 const (
-	ServiceName = "VPNGatewayClient"
-	cliName     = "vpn-gateway.exe"
+	ServiceName    = "VPNGatewayClient"
+	cliName        = "vpn-gateway.exe"
 	inspectTimeout = 8 * time.Second
 )
+
+// hideWindow prevents spawning a black CMD/console window on Windows when executing helper commands.
+func hideWindow(cmd *exec.Cmd) *exec.Cmd {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.HideWindow = true
+	cmd.SysProcAttr.CreationFlags |= 0x08000000 // CREATE_NO_WINDOW
+	return cmd
+}
+
+// utf16LEBase64 converts a string into a UTF-16LE Base64 string for PowerShell's -EncodedCommand parameter.
+// This completely eliminates any quoting, newline, path space, or encoding/character corruption issues.
+func utf16LEBase64(s string) string {
+	runes := utf16.Encode([]rune(s))
+	buf := make([]byte, len(runes)*2)
+	for i, r := range runes {
+		binary.LittleEndian.PutUint16(buf[i*2:], r)
+	}
+	return base64.StdEncoding.EncodeToString(buf)
+}
 
 // Inspect reports what is installed and whether installing would work on Windows.
 func Inspect(opt Options) Status {
@@ -52,7 +77,7 @@ func blocker(opt Options) string {
 
 // isElevated checks if current process has administrative privileges.
 func isElevated() bool {
-	cmd := exec.Command("net", "session")
+	cmd := hideWindow(exec.Command("net", "session"))
 	return cmd.Run() == nil
 }
 
@@ -62,7 +87,7 @@ func queryWindowsService() (pid int, running bool, installed bool, configPath st
 	defer cancel()
 
 	// 1. Query service status
-	out, err := exec.CommandContext(ctx, "sc.exe", "query", ServiceName).Output()
+	out, err := hideWindow(exec.CommandContext(ctx, "sc.exe", "query", ServiceName)).Output()
 	if err != nil || !strings.Contains(string(out), ServiceName) {
 		return 0, false, false, ""
 	}
@@ -72,7 +97,7 @@ func queryWindowsService() (pid int, running bool, installed bool, configPath st
 	}
 
 	// 2. Query PID via queryex
-	if exOut, err := exec.CommandContext(ctx, "sc.exe", "queryex", ServiceName).Output(); err == nil {
+	if exOut, err := hideWindow(exec.CommandContext(ctx, "sc.exe", "queryex", ServiceName)).Output(); err == nil {
 		re := regexp.MustCompile(`PID\s*:\s*(\d+)`)
 		if matches := re.FindStringSubmatch(string(exOut)); len(matches) > 1 {
 			pid, _ = strconv.Atoi(matches[1])
@@ -80,7 +105,7 @@ func queryWindowsService() (pid int, running bool, installed bool, configPath st
 	}
 
 	// 3. Query config path via qc
-	if qcOut, err := exec.CommandContext(ctx, "sc.exe", "qc", ServiceName).Output(); err == nil {
+	if qcOut, err := hideWindow(exec.CommandContext(ctx, "sc.exe", "qc", ServiceName)).Output(); err == nil {
 		re := regexp.MustCompile(`-config\s+("([^"]+)"|([^\s]+))`)
 		if matches := re.FindStringSubmatch(string(qcOut)); len(matches) > 1 {
 			if matches[2] != "" {
@@ -142,8 +167,9 @@ func Uninstall() error {
 }
 
 func runElevatedPowerShell(psScript string) error {
+	encoded := utf16LEBase64(psScript)
 	if isElevated() {
-		cmd := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", psScript)
+		cmd := hideWindow(exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
@@ -151,11 +177,10 @@ func runElevatedPowerShell(psScript string) error {
 		return nil
 	}
 
-	// Trigger Windows UAC elevation via Start-Process -Verb RunAs
-	encoded := strings.ReplaceAll(psScript, `"`, `\"`)
-	arg := fmt.Sprintf("-NoProfile -ExecutionPolicy Bypass -Command \"%s\"", encoded)
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-		fmt.Sprintf("Start-Process powershell.exe -Verb RunAs -ArgumentList '%s' -Wait", arg))
+	// Trigger Windows UAC elevation via Start-Process -Verb RunAs with -EncodedCommand
+	elevateScript := fmt.Sprintf(`Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand','%s' -Wait`, encoded)
+	elevateEncoded := utf16LEBase64(elevateScript)
+	cmd := hideWindow(exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", elevateEncoded))
 
 	var errBuf bytes.Buffer
 	cmd.Stderr = &errBuf
@@ -197,12 +222,17 @@ func locateBinary(explicit string) (string, error) {
 		if checkFileExists(besideNoExt) == nil {
 			return besideNoExt, nil
 		}
+		// Single-executable distribution: if running as desktop executable (e.g. vpn-gateway-desktop.exe),
+		// use the running executable itself.
+		if checkFileExists(exe) == nil {
+			return exe, nil
+		}
 	}
 
 	if found, err := exec.LookPath(cliName); err == nil {
 		return found, nil
 	}
-	return "", fmt.Errorf("no %s executable was found to install; build it and put it beside the application", cliName)
+	return "", fmt.Errorf("no %s executable was found to install", cliName)
 }
 
 func checkFileExists(path string) error {
@@ -215,3 +245,4 @@ func checkFileExists(path string) error {
 	}
 	return nil
 }
+

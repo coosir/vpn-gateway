@@ -53,6 +53,10 @@ func main() {
 		return
 	}
 
+	if handleServiceCLI(*configPath) {
+		return
+	}
+
 	if err := run(*configPath, pickLanguage(*lang)); err != nil {
 		fmt.Fprintln(os.Stderr, "vpn-gateway-desktop:", err)
 		os.Exit(1)
