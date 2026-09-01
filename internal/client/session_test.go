@@ -75,8 +75,9 @@ func TestABadBundleDoesNotReplaceAGoodOne(t *testing.T) {
 	for _, bad := range []string{
 		`not json`,
 		`{"version":1}`,
-		`{"version":1,"server":{"address":"a:1"},"api_token":"t"}`,
-		`{"version":1,"server":{"address":"a:1"},"tunnels":[{"name":"x"}]}`,
+		`{"version":1,"server":{"address":""},"api_token":"t"}`,
+		`{"version":1,"server":{"address":"a:1"}}`,
+		`{"version":1,"api_token":"t"}`,
 	} {
 		if err := s.ImportBundle([]byte(bad)); err == nil {
 			t.Errorf("accepted %q", bad)
@@ -84,6 +85,22 @@ func TestABadBundleDoesNotReplaceAGoodOne(t *testing.T) {
 	}
 	if st := s.Status(); st.TunnelCount != 1 {
 		t.Errorf("the working bundle was replaced: %+v", st)
+	}
+}
+
+func TestBundleWithoutTunnelsIsAccepted(t *testing.T) {
+	s, _ := newSession(t)
+	raw := `{
+		"version": 1,
+		"server": {"address": "vpn.example:443", "server_name": "vpn.example", "api_url": "http://vpn.example:8642"},
+		"api_token": "tok"
+	}`
+	if err := s.ImportBundle([]byte(raw)); err != nil {
+		t.Fatalf("bundle without tunnels should be accepted: %v", err)
+	}
+	st := s.Status()
+	if st.Phase != PhaseIdle {
+		t.Errorf("phase = %q, want idle", st.Phase)
 	}
 }
 

@@ -109,8 +109,11 @@ func run(ctx context.Context, configPath, logLevel, command string) error {
 		fmt.Printf("configuration is valid\n")
 		fmt.Printf("  server     %s (sni %s)\n", bundle.Server.Address, bundle.Server.ServerName)
 		fmt.Printf("  api        %s\n", bundle.Server.APIURL)
-		fmt.Printf("  pinned     %t\n", bundle.Server.CertificatePEM != "")
-		fmt.Printf("  tunnels    %d in the bundle\n", len(bundle.Tunnels))
+		if len(bundle.Tunnels) > 0 {
+			fmt.Printf("  tunnels    %d in bundle (dynamic sync enabled)\n", len(bundle.Tunnels))
+		} else {
+			fmt.Printf("  tunnels    dynamic from server API\n")
+		}
 		fmt.Printf("  rules      %d explicit, auto_routes=%t auto_domains=%t\n",
 			len(cfg.Rules), cfg.AutoRoutes, cfg.AutoDomains)
 		fmt.Printf("  ingress    tun=%t proxy=%t\n", cfg.TUN.Enabled, cfg.Proxy.Enabled)

@@ -153,7 +153,7 @@ func startFullStack(t *testing.T, cfg *Config, names ...string) *fullStack {
 				state = contract.StateError
 			}
 			snaps = append(snaps, Snapshot{
-				Name: n, Reachable: true,
+				Name: n, Reachable: true, TrojanPassword: "trojan-" + n,
 				Status:  contract.Status{State: state},
 				Network: contract.Network{Routes: []string{"10.10.0.0/16"}, UDP: false},
 			})

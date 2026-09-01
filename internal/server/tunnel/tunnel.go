@@ -55,6 +55,9 @@ type Snapshot struct {
 	// not is stopped on purpose, not broken.
 	Wanted bool `json:"wanted"`
 
+	// TrojanPassword is what a client sends to select this tunnel over Trojan.
+	TrojanPassword string `json:"trojan_password,omitempty"`
+
 	// Reachable reports whether the container's control plane answered the
 	// most recent poll. When false, Status is the last known value.
 	Reachable       bool   `json:"reachable"`
@@ -390,7 +393,9 @@ func (m *Manager) Shutdown(ctx context.Context) {
 func (t *Tunnel) Snapshot() Snapshot {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.snap
+	s := t.snap
+	s.TrojanPassword = t.trojanPassword
+	return s
 }
 
 // Client exposes the container's control plane, for relaying interactive
@@ -762,6 +767,7 @@ func changed(before, after Snapshot) bool {
 
 func (t *Tunnel) publish(snap Snapshot) {
 	if t.mgr != nil {
+		snap.TrojanPassword = t.trojanPassword
 		t.mgr.publish(Event{At: time.Now(), Tunnel: snap})
 	}
 }

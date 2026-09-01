@@ -22,7 +22,7 @@ type Bundle struct {
 	// client learns tunnel state, routes and DNS.
 	APIToken     string   `json:"api_token"`
 	RequiresAuth bool     `json:"requires_auth,omitempty"`
-	Tunnels      []Tunnel `json:"tunnels"`
+	Tunnels      []Tunnel `json:"tunnels,omitempty"`
 }
 
 // ServerRef locates and authenticates the server.

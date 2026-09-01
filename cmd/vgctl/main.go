@@ -173,27 +173,12 @@ func buildBundle(cfg *server.Config, host string) (*clientcfg.Bundle, error) {
 		return nil, err
 	}
 
-	var tunnels []clientcfg.Tunnel
-	for _, t := range cfg.Tunnels {
-		if t.Disabled {
-			continue
-		}
-		password, err := readSecret(cfg.StateDir, t.Name+".trojan")
-		if err != nil {
-			return nil, fmt.Errorf("tunnel %q has no trojan password yet; start the server once to generate it: %w", t.Name, err)
-		}
-		tunnels = append(tunnels, clientcfg.Tunnel{Name: t.Name, Password: password, Provider: t.Provider})
-	}
-	if len(tunnels) == 0 {
-		return nil, errors.New("no tunnel is enabled")
-	}
-
 	// The API is bound to loopback on the server, so clients reach it through
 	// the same hostname as the listener; exposing it is the operator's
 	// decision, not something to assume here.
 	_, apiPort, _ := strings.Cut(cfg.APIListen, ":")
 	apiURL := fmt.Sprintf("http://%s:%s", host, apiPort)
-	bundle := clientcfg.Build(host+":"+port, apiURL, mat, token, tunnels)
+	bundle := clientcfg.Build(host+":"+port, apiURL, mat, token, nil)
 	bundle.RequiresAuth = true
 	return bundle, nil
 }

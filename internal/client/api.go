@@ -29,6 +29,9 @@ type Snapshot struct {
 	// is stopped on purpose rather than broken.
 	Wanted bool `json:"wanted"`
 
+	TrojanPassword string `json:"trojan_password,omitempty"`
+	Password       string `json:"password,omitempty"`
+
 	Status  contract.Status  `json:"status"`
 	Network contract.Network `json:"network"`
 	// Challenge is the interactive prompt the tunnel is blocked on, if any.

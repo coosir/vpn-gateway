@@ -147,10 +147,14 @@ func (s *Session) Status() SessionStatus {
 		LastError:  s.lastError,
 		ConfigPath: s.configPath,
 	}
+	if s.client != nil {
+		st.TunnelCount = len(s.client.Tunnels())
+	} else if s.bundle != nil {
+		st.TunnelCount = len(s.bundle.Tunnels)
+	}
 	if s.bundle != nil {
 		st.Server = s.bundle.Server.Address
 		st.ServerName = s.bundle.Server.ServerName
-		st.TunnelCount = len(s.bundle.Tunnels)
 	}
 	return st
 }
@@ -181,9 +185,6 @@ func (s *Session) ImportBundle(raw []byte) error {
 	}
 	if bundle.Server.Address == "" {
 		return errors.New("the bundle names no server address")
-	}
-	if len(bundle.Tunnels) == 0 {
-		return errors.New("the bundle carries no tunnels")
 	}
 	if bundle.APIToken == "" {
 		return errors.New("the bundle carries no API token")

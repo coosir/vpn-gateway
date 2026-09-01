@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -65,8 +66,8 @@ func LoadBundle(path string) (*clientcfg.Bundle, error) {
 	if err := json.Unmarshal(raw, &b); err != nil {
 		return nil, fmt.Errorf("parse bundle %s: %w", path, err)
 	}
-	if b.Server.Address == "" || len(b.Tunnels) == 0 {
-		return nil, fmt.Errorf("bundle %s has no server address or no tunnels", path)
+	if b.Server.Address == "" {
+		return nil, fmt.Errorf("bundle %s has no server address", path)
 	}
 	return &b, nil
 }
@@ -120,32 +121,40 @@ func (c *Client) Tunnels() []TunnelState {
 	return append([]TunnelState(nil), c.tunnels...)
 }
 
-// fetch asks the server which tunnels exist and merges that with the
-// passwords from the bundle.
-//
-// The bundle is the authority on which tunnels this client may use: a tunnel
-// the server reports but the bundle has no password for cannot be reached, so
-// it is left out rather than generating rules that could never work.
+// fetch asks the server which tunnels exist and builds the live tunnel list.
+// Tunnel credentials and routes are received directly from the server API.
 func (c *Client) fetch(ctx context.Context) ([]TunnelState, error) {
 	snapshots, err := c.api.Tunnels(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("ask the server which tunnels exist: %w", err)
 	}
-	byName := make(map[string]Snapshot, len(snapshots))
-	for _, s := range snapshots {
-		byName[s.Name] = s
+
+	bundlePasswords := make(map[string]string)
+	if c.bundle != nil {
+		for _, bt := range c.bundle.Tunnels {
+			bundlePasswords[bt.Name] = bt.Password
+		}
 	}
 
 	var out []TunnelState
-	for _, bt := range c.bundle.Tunnels {
-		s, known := byName[bt.Name]
-		if !known {
-			c.log.Warn("the bundle names a tunnel the server does not have", "tunnel", bt.Name)
+	for _, s := range snapshots {
+		if s.Disabled {
+			continue
+		}
+		pwd := s.TrojanPassword
+		if pwd == "" {
+			pwd = s.Password
+		}
+		if pwd == "" {
+			pwd = bundlePasswords[s.Name]
+		}
+		if pwd == "" {
+			c.log.Warn("tunnel has no trojan password", "tunnel", s.Name)
 			continue
 		}
 		out = append(out, TunnelState{
-			Name:          bt.Name,
-			Password:      bt.Password,
+			Name:          s.Name,
+			Password:      pwd,
 			Up:            s.Up(),
 			Wanted:        s.Wanted,
 			Routes:        s.Network.Routes,
@@ -153,9 +162,6 @@ func (c *Client) fetch(ctx context.Context) ([]TunnelState, error) {
 			SearchDomains: s.Network.SearchDomains,
 			UDP:           s.Network.UDP,
 		})
-	}
-	if len(out) == 0 {
-		return nil, errors.New("none of the bundle's tunnels exist on the server")
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
@@ -335,11 +341,40 @@ func (c *Client) Watch(ctx context.Context) {
 		}
 
 		c.mu.Lock()
+		oldTunnels := c.tunnels
 		c.tunnels = fetched
+		changed := tunnelsStructurallyChanged(oldTunnels, fetched)
 		c.mu.Unlock()
 
-		c.applySelection(fetched)
+		if changed {
+			c.log.Info("tunnel configuration changed on server, reloading routing engine",
+				"previous_tunnels", len(oldTunnels), "current_tunnels", len(fetched))
+			if err := c.Reload(ctx, c.cfg); err != nil {
+				c.log.Error("failed to reload routing engine after server tunnel update", "error", err)
+			}
+		} else {
+			c.applySelection(fetched)
+		}
 	}
+}
+
+// tunnelsStructurallyChanged reports whether tunnel list, passwords, routes or resolvers changed,
+// requiring the sing-box routing engine to be rebuilt.
+func tunnelsStructurallyChanged(old, new []TunnelState) bool {
+	if len(old) != len(new) {
+		return true
+	}
+	for i := range old {
+		if old[i].Name != new[i].Name ||
+			old[i].Password != new[i].Password ||
+			old[i].UDP != new[i].UDP ||
+			!slices.Equal(old[i].Routes, new[i].Routes) ||
+			!slices.Equal(old[i].DNS, new[i].DNS) ||
+			!slices.Equal(old[i].SearchDomains, new[i].SearchDomains) {
+			return true
+		}
+	}
+	return false
 }
 
 // applySelection points each tunnel's selector at the tunnel or at the
