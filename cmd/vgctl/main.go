@@ -116,6 +116,15 @@ func run(configPath, host, probe, command string, args []string) error {
 		}
 		var out []byte
 		if command == "outbounds" {
+			var tunnels []clientcfg.Tunnel
+			for _, t := range cfg.Tunnels {
+				if t.Disabled {
+					continue
+				}
+				pw, _ := readSecret(cfg.StateDir, t.Name+".trojan")
+				tunnels = append(tunnels, clientcfg.Tunnel{Name: t.Name, Password: pw, Provider: t.Provider})
+			}
+			bundle.Tunnels = tunnels
 			out, err = bundle.SingBoxOutbounds()
 		} else {
 			out, err = bundle.JSON()
@@ -198,11 +207,30 @@ func verify(cfg *server.Config, bundle *clientcfg.Bundle, probe string) error {
 	}
 	fmt.Println()
 
+	var activeTunnels []server.TunnelConfig
+	for _, t := range cfg.Tunnels {
+		if !t.Disabled {
+			activeTunnels = append(activeTunnels, t)
+		}
+	}
+	if len(activeTunnels) == 0 {
+		fmt.Println("no active tunnels configured to verify")
+		return nil
+	}
+
 	failed := 0
 	var reasons []string
-	for _, t := range bundle.Tunnels {
+	for _, t := range activeTunnels {
+		password, err := readSecret(cfg.StateDir, t.Name+".trojan")
+		if err != nil {
+			failed++
+			reasons = append(reasons, err.Error())
+			fmt.Printf("  %-20s %-8s %s\n", t.Name, "FAILED", err)
+			continue
+		}
+
 		state, uptime := tunnelState(ctx, apiURL, bundle.APIToken, t.Name)
-		egress, err := probeEgress(ctx, bundle, t.Name, probe)
+		egress, err := probeEgress(ctx, bundle, t.Name, password, probe)
 
 		status := "ok"
 		detail := egress
@@ -222,12 +250,12 @@ func verify(cfg *server.Config, bundle *clientcfg.Bundle, probe string) error {
 		// the probe than about the tunnels: an address this server cannot
 		// reach at all fails the same way through every one of them. One
 		// tunnel failing says nothing of the sort, so it is left alone.
-		if failed == len(bundle.Tunnels) && len(reasons) > 1 && allSame(reasons) {
+		if failed == len(activeTunnels) && len(reasons) > 1 && allSame(reasons) {
 			fmt.Printf("every tunnel failed for the same reason; check that %s is reachable from this server, or name another with -probe\n\n", probe)
 		}
-		return fmt.Errorf("%d of %d tunnels did not carry traffic", failed, len(bundle.Tunnels))
+		return fmt.Errorf("%d of %d tunnels did not carry traffic", failed, len(activeTunnels))
 	}
-	fmt.Printf("all %d tunnels carried traffic\n", len(bundle.Tunnels))
+	fmt.Printf("all %d tunnels carried traffic\n", len(activeTunnels))
 	return nil
 }
 
@@ -284,8 +312,8 @@ const defaultProbeURL = "https://api.ipify.org"
 
 // probeEgress sends one request through the tunnel and reports the address it
 // came out of, which is the only real proof the path works end to end.
-func probeEgress(ctx context.Context, bundle *clientcfg.Bundle, name, probe string) (string, error) {
-	sess, err := clientbox.Open(ctx, bundle, name)
+func probeEgress(ctx context.Context, bundle *clientcfg.Bundle, name, password, probe string) (string, error) {
+	sess, err := clientbox.Open(ctx, bundle, name, password)
 	if err != nil {
 		return "", err
 	}

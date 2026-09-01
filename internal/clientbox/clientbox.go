@@ -55,18 +55,19 @@ func (s *Session) Close() error {
 	return s.instance.Close()
 }
 
-// Open starts a client for one tunnel in the bundle, listening on a free
+// Open starts a client for one tunnel, listening on a free
 // loopback port.
-func Open(ctx context.Context, bundle *clientcfg.Bundle, tunnelName string) (*Session, error) {
-	var selected *clientcfg.Tunnel
-	for i := range bundle.Tunnels {
-		if bundle.Tunnels[i].Name == tunnelName {
-			selected = &bundle.Tunnels[i]
-			break
+func Open(ctx context.Context, bundle *clientcfg.Bundle, tunnelName, password string) (*Session, error) {
+	if password == "" {
+		for i := range bundle.Tunnels {
+			if bundle.Tunnels[i].Name == tunnelName {
+				password = bundle.Tunnels[i].Password
+				break
+			}
 		}
 	}
-	if selected == nil {
-		return nil, fmt.Errorf("clientbox: the bundle has no tunnel named %q", tunnelName)
+	if password == "" {
+		return nil, fmt.Errorf("clientbox: no trojan password for tunnel %q", tunnelName)
 	}
 
 	port, err := freePort()
@@ -94,7 +95,7 @@ func Open(ctx context.Context, bundle *clientcfg.Bundle, tunnelName string) (*Se
 		"outbounds": []map[string]any{{
 			"type": "trojan", "tag": "tunnel",
 			"server": host, "server_port": serverPort,
-			"password": selected.Password,
+			"password": password,
 			"tls":      tls,
 		}},
 	}
