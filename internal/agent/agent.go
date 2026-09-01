@@ -47,6 +47,7 @@ type Agent struct {
 	cfg      Config
 	provider Provider
 	log      *slog.Logger
+	baseNet  *BaseNetwork
 	// secret authenticates both planes. Empty disables authentication, which
 	// is only appropriate for local development.
 	secret string
@@ -96,6 +97,7 @@ func NewAgent(cfg Config, log *slog.Logger) (*Agent, error) {
 		cfg:         cfg,
 		provider:    p,
 		log:         log,
+		baseNet:     CaptureBaseNetwork(),
 		secret:      cfg.Secret,
 		maxAttempts: attempts,
 		state:       contract.StateConnecting,
@@ -326,6 +328,9 @@ func (a *Agent) Supervise(ctx context.Context) {
 		a.drainRedial()
 		dialStarted := time.Now()
 
+		// Ensure container base network (default route & resolv.conf) is intact before dial
+		a.baseNet.Restore(a.log)
+
 		runCtx, cancel := context.WithCancel(ctx)
 		done := make(chan error, 1)
 		go func() { done <- a.provider.Run(runCtx, a.cfg, a) }()
@@ -338,6 +343,7 @@ func (a *Agent) Supervise(ctx context.Context) {
 			case <-ctx.Done():
 				cancel()
 				<-done
+				a.baseNet.Restore(a.log)
 				return
 
 			case <-a.redial:
@@ -360,6 +366,9 @@ func (a *Agent) Supervise(ctx context.Context) {
 			}
 		}
 
+		// Restore base network immediately when provider exits
+		a.baseNet.Restore(a.log)
+
 		if restart {
 			cancel()
 			<-done
@@ -368,6 +377,21 @@ func (a *Agent) Supervise(ctx context.Context) {
 			continue
 		}
 		cancel()
+
+		// If the tunnel was previously established and working, this exit was
+		// a runtime disconnect (e.g. server 8-hour auth timeout, network glitch),
+		// not an initial dial failure with bad credentials. Reset attempts and backoff.
+		a.mu.RLock()
+		wasConnected := a.connectedAt != nil
+		a.mu.RUnlock()
+		if wasConnected {
+			a.mu.Lock()
+			a.connectedAt = nil
+			a.mu.Unlock()
+			a.log.Info("tunnel was connected, resetting retry counter for immediate reconnection")
+			backoff = retryMin
+			attempts = 0
+		}
 
 		switch {
 		case ctx.Err() != nil:

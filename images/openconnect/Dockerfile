@@ -32,7 +32,8 @@ FROM alpine:3.22
 # iptables is not installed: nothing here filters, and the routes the script
 # writes are confined to this container's namespace anyway.
 RUN apk add --no-cache openconnect ca-certificates iproute2 \
- && test -x /etc/vpnc/vpnc-script
+ && test -x /etc/vpnc/vpnc-script \
+ && sed -i 's/\$IPROUTE route flush cache/\$IPROUTE route flush cache 2>\/dev\/null || true/g' /etc/vpnc/vpnc-script
 
 COPY --from=agent /out/vg-agent /usr/local/bin/vg-agent
 
