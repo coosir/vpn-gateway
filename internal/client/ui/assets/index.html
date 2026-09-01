@@ -205,10 +205,19 @@ a:hover { text-decoration: underline; }
   box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
   animation: pulse-green 2s infinite;
 }
+.status-pill.connecting .pulse-dot {
+  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.6);
+  animation: pulse-amber 1.2s infinite;
+}
 @keyframes pulse-green {
   0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
   70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
   100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+@keyframes pulse-amber {
+  0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+  70% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
 }
 
 .bar .readout {
@@ -517,7 +526,12 @@ input:checked + .slider:before { transform: translateX(18px); }
 }
 .status-orb.connecting {
   background: var(--amber); color: #ffffff;
-  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4);
+  animation: orb-pulse 1.5s infinite ease-in-out;
+}
+@keyframes orb-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
 }
 .status-orb.failed {
   background: var(--down); color: #ffffff;
@@ -549,6 +563,12 @@ input:checked + .slider:before { transform: translateX(18px); }
   box-shadow: 0 6px 18px rgba(32, 128, 240, 0.38);
   transform: translateY(-1px);
 }
+.master-btn.connecting {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);
+  cursor: wait;
+}
 .master-btn.disconnect {
   background: linear-gradient(135deg, #ef4444, #dc2626);
   color: #ffffff;
@@ -558,6 +578,13 @@ input:checked + .slider:before { transform: translateX(18px); }
   background: linear-gradient(135deg, #f87171, #ef4444);
   box-shadow: 0 6px 18px rgba(239, 68, 68, 0.38);
   transform: translateY(-1px);
+}
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 .master-btn svg { width: 18px; height: 18px; fill: currentColor; }
 
@@ -1434,7 +1461,7 @@ const STRINGS = {
     "home.phaseConnectedSub": "隧道及路由引擎正常运行中",
     "home.phaseFailedSub": "网关连接发生错误，请检查网络或配置",
 
-    "home.connect": "一键连接", "home.disconnect": "断开连接", "home.retry": "重试连接", "home.importNow": "去导入配置",
+    "home.connect": "一键连接", "home.disconnect": "断开连接", "home.connecting": "连接中…", "home.disconnecting": "正在断开…", "home.retry": "重试连接", "home.importNow": "去导入配置",
     "home.statMode": "路由模式", "home.statIngress": "流量入口", "home.statTunnels": "在线隧道", "home.statProxy": "代理出口",
     "home.modeSelectTitle": "路由模式切换",
     "home.modeSelectSub": "支持全局直连、规则分流与全局代理，默认推荐全局直连",
@@ -1571,7 +1598,7 @@ const STRINGS = {
     "home.phaseConnectedSub": "VPN Gateway and routing engine are running normally",
     "home.phaseFailedSub": "Connection error occurred, check server and network status",
 
-    "home.connect": "Connect Now", "home.disconnect": "Disconnect", "home.retry": "Retry Connection", "home.importNow": "Import Bundle",
+    "home.connect": "Connect Now", "home.disconnect": "Disconnect", "home.connecting": "Connecting…", "home.disconnecting": "Disconnecting…", "home.retry": "Retry Connection", "home.importNow": "Import Bundle",
     "home.statMode": "Mode", "home.statIngress": "Ingress", "home.statTunnels": "Active Tunnels", "home.statProxy": "Proxy Outbound",
     "home.modeSelectTitle": "Traffic Routing Mode",
     "home.modeSelectSub": "Switch between Direct, Rule, and Global modes. Direct mode is default.",
@@ -1854,21 +1881,32 @@ function renderPhase(st) {
   // Master switch button on Home
   const btn = $("home-master-btn");
   const btnText = $("home-master-btn-text");
+  const btnSvg = btn.querySelector("svg");
   if (phase === "setup") {
     btn.className = "master-btn connect";
+    btn.disabled = false;
     btnText.textContent = t("home.importNow");
+    if (btnSvg) btnSvg.outerHTML = `<svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`;
   } else if (phase === "connected") {
     btn.className = "master-btn disconnect";
+    btn.disabled = false;
     btnText.textContent = t("home.disconnect");
+    if (btnSvg) btnSvg.outerHTML = `<svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z"/></svg>`;
   } else if (phase === "connecting") {
-    btn.className = "master-btn connect";
-    btnText.textContent = t("phase.connecting");
+    btn.className = "master-btn connecting";
+    btn.disabled = true;
+    btnText.textContent = t("home.connecting");
+    if (btnSvg) btnSvg.outerHTML = `<svg class="spin" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>`;
   } else if (phase === "failed") {
     btn.className = "master-btn connect";
+    btn.disabled = false;
     btnText.textContent = t("home.retry");
+    if (btnSvg) btnSvg.outerHTML = `<svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>`;
   } else {
     btn.className = "master-btn connect";
+    btn.disabled = false;
     btnText.textContent = t("home.connect");
+    if (btnSvg) btnSvg.outerHTML = `<svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z"/></svg>`;
   }
 
   const ready = phase !== "setup";
@@ -1971,22 +2009,39 @@ function renderHome(s) {
 
 /* Master Switch Toggle Event */
 $("home-master-btn").addEventListener("click", async () => {
-  const phase = state.session ? state.session.phase : "setup";
-  if (phase === "setup") {
+  const currentPhase = state.session ? state.session.phase : "setup";
+  if (currentPhase === "setup") {
     showPane("setup");
     return;
   }
-  const path = phase === "connected" ? "/api/disconnect" : "/api/connect";
-  const btn = $("home-master-btn");
-  btn.disabled = true;
+  const isConnected = currentPhase === "connected";
+  const path = isConnected ? "/api/disconnect" : "/api/connect";
+
+  // Immediately render intermediate connecting / disconnecting state
+  if (state && state.session) {
+    state.session.phase = isConnected ? "idle" : "connecting";
+    renderPhase(state);
+    if (isConnected) {
+      const btn = $("home-master-btn");
+      btn.disabled = true;
+      $("home-master-btn-text").textContent = t("home.disconnecting");
+    }
+  }
+
   try {
     const res = await api(path, { method: "POST" });
+    $("home-offline").hidden = true;
     render(await res.json());
   } catch (e) {
     $("home-offline").hidden = false;
     $("home-offline").textContent = e.message;
-  } finally {
-    btn.disabled = false;
+    if (state) {
+      if (state.session && !isConnected) {
+        state.session.phase = "failed";
+        state.session.last_error = e.message;
+      }
+      render(state);
+    }
   }
 });
 
