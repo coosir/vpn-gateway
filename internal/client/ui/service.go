@@ -91,7 +91,16 @@ func (s *Server) postServiceInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("installed the background service", "config", s.configPath)
-	writeJSON(w, http.StatusOK, s.serviceState())
+	// Give the service a brief moment to be reported as running.
+	var stAfter serviceStatus
+	for i := 0; i < 10; i++ {
+		stAfter = s.serviceState()
+		if stAfter.Running {
+			break
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	writeJSON(w, http.StatusOK, stAfter)
 }
 
 // prepareForService turns on the parts of the configuration only a service

@@ -3,7 +3,6 @@
 package helper
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
@@ -143,57 +142,103 @@ func Install(opt Options) error {
 
 	binDir := filepath.Join(os.Getenv("ProgramFiles"), "VPNGateway")
 	targetExe := filepath.Join(binDir, cliName)
+	logFile := filepath.Join(os.TempDir(), "vpngateway-install.log")
 
 	script := fmt.Sprintf(`$ErrorActionPreference = 'Stop';
+$logPath = '%s';
 $binDir = '%s';
-if (!(Test-Path $binDir)) { New-Item -ItemType Directory -Path $binDir -Force | Out-Null };
-Copy-Item -Path '%s' -Destination '%s' -Force;
-& sc.exe create %s binPath= "\"%s\" -config \"%s\" run" start= auto DisplayName= "VPN Gateway Service";
-& sc.exe description %s "VPN Gateway background privileged TUN helper service";
-& sc.exe failure %s reset= 86400 actions= restart/5000/restart/10000/restart/20000;
-& sc.exe start %s;`,
-		binDir, absSrc, targetExe, ServiceName, targetExe, absConfig, ServiceName, ServiceName, ServiceName)
+$targetExe = '%s';
+$srcExe = '%s';
+$absConfig = '%s';
+$svcName = '%s';
 
-	return runElevatedPowerShell(script)
+try {
+    if (!(Test-Path $binDir)) {
+        New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+    }
+
+    & sc.exe stop $svcName 2>&1 | Out-Null
+    Start-Sleep -Milliseconds 500
+    & sc.exe delete $svcName 2>&1 | Out-Null
+    Start-Sleep -Milliseconds 500
+
+    if ($srcExe -ne $targetExe) {
+        Copy-Item -Path $srcExe -Destination $targetExe -Force
+    }
+
+    $binPath = '\"' + $targetExe + '\" -config \"' + $absConfig + '\" run'
+    $createOut = & sc.exe create $svcName binPath= $binPath start= auto DisplayName= "VPN Gateway Service" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "sc.exe create failed: $createOut"
+    }
+
+    & sc.exe description $svcName "VPN Gateway background privileged TUN helper service" 2>&1 | Out-Null
+    & sc.exe failure $svcName reset= 86400 actions= restart/5000/restart/10000/restart/20000 2>&1 | Out-Null
+
+    $startOut = & sc.exe start $svcName 2>&1
+    if ($LASTEXITCODE -ne 0 -and ($startOut -notmatch '1056')) {
+        throw "sc.exe start failed: $startOut"
+    }
+
+    for ($i = 0; $i -lt 10; $i++) {
+        Start-Sleep -Milliseconds 300
+        $query = & sc.exe query $svcName
+        if ($query -match 'RUNNING') { break }
+    }
+
+    Set-Content -Path $logPath -Value "SUCCESS" -Encoding UTF8 -Force
+} catch {
+    Set-Content -Path $logPath -Value "ERROR: $($_.Exception.Message)" -Encoding UTF8 -Force
+    exit 1
+}`,
+		logFile, binDir, targetExe, absSrc, absConfig, ServiceName)
+
+	return runElevatedPowerShell(script, logFile)
 }
 
 // Uninstall stops the Windows Service and removes it.
 func Uninstall() error {
+	logFile := filepath.Join(os.TempDir(), "vpngateway-uninstall.log")
 	script := fmt.Sprintf(`$ErrorActionPreference = 'SilentlyContinue';
-& sc.exe stop %s;
-& sc.exe delete %s;`, ServiceName, ServiceName)
+$logPath = '%s';
+$svcName = '%s';
+try {
+    & sc.exe stop $svcName 2>&1 | Out-Null
+    Start-Sleep -Milliseconds 500
+    & sc.exe delete $svcName 2>&1 | Out-Null
+    Set-Content -Path $logPath -Value "SUCCESS" -Encoding UTF8 -Force
+} catch {
+    Set-Content -Path $logPath -Value "ERROR: $($_.Exception.Message)" -Encoding UTF8 -Force
+}`, logFile, ServiceName)
 
-	return runElevatedPowerShell(script)
+	return runElevatedPowerShell(script, logFile)
 }
 
-func runElevatedPowerShell(psScript string) error {
+func runElevatedPowerShell(psScript string, logPath string) error {
+	_ = os.Remove(logPath)
 	encoded := utf16LEBase64(psScript)
+
 	if isElevated() {
 		cmd := hideWindow(exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded))
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
-		}
-		return nil
+		_ = cmd.Run()
+	} else {
+		elevateScript := fmt.Sprintf(`Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand','%s' -Wait`, encoded)
+		elevateEncoded := utf16LEBase64(elevateScript)
+		cmd := hideWindow(exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", elevateEncoded))
+		_ = cmd.Run()
 	}
 
-	// Trigger Windows UAC elevation via Start-Process -Verb RunAs with -EncodedCommand
-	elevateScript := fmt.Sprintf(`Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand','%s' -Wait`, encoded)
-	elevateEncoded := utf16LEBase64(elevateScript)
-	cmd := hideWindow(exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", elevateEncoded))
-
-	var errBuf bytes.Buffer
-	cmd.Stderr = &errBuf
-	out, err := cmd.Output()
+	// Read log file
+	data, err := os.ReadFile(logPath)
 	if err != nil {
-		combined := strings.TrimSpace(errBuf.String() + " " + string(out))
-		if strings.Contains(combined, "canceled by the user") || strings.Contains(combined, "0x800704C7") || strings.Contains(combined, "1223") {
-			return ErrCancelled
-		}
-		if combined != "" {
-			return errors.New(combined)
-		}
-		return err
+		// Log file was not created, which means UAC was cancelled by user
+		return ErrCancelled
+	}
+	defer os.Remove(logPath)
+
+	content := strings.TrimSpace(string(data))
+	if strings.HasPrefix(content, "ERROR:") {
+		return errors.New(strings.TrimSpace(strings.TrimPrefix(content, "ERROR:")))
 	}
 	return nil
 }

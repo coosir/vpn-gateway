@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -965,6 +966,9 @@ func WriteLink(path, addr, token, owner string) error {
 // chownTo gives a path to a named user, so a link written by an elevated
 // client can be read by the desktop session it was written for.
 func chownTo(path, owner string) error {
+	if runtime.GOOS == "windows" || owner == "" {
+		return nil
+	}
 	u, err := user.Lookup(owner)
 	if err != nil {
 		return fmt.Errorf("ui.link_owner: %w", err)
