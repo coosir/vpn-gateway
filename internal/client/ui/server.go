@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/client"
@@ -110,6 +111,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tunnels/{name}/reconnect", s.auth(s.postReconnect))
 	mux.HandleFunc("POST /api/prompts/{id}", s.auth(s.postPromptAnswer))
 
+	mux.HandleFunc("GET /api/nodes", s.auth(s.getNodes))
+	mux.HandleFunc("POST /api/nodes", s.auth(s.postNode))
+	mux.HandleFunc("PUT /api/nodes/{id}", s.auth(s.putNode))
+	mux.HandleFunc("DELETE /api/nodes/{id}", s.auth(s.deleteNode))
+	mux.HandleFunc("POST /api/nodes/select", s.auth(s.postSelectNode))
+	mux.HandleFunc("POST /api/nodes/ping", s.auth(s.postPingNodes))
+	mux.HandleFunc("POST /api/subscriptions", s.auth(s.postSubscription))
+	mux.HandleFunc("POST /api/subscriptions/{id}/update", s.auth(s.postUpdateSubscription))
+	mux.HandleFunc("DELETE /api/subscriptions/{id}", s.auth(s.deleteSubscription))
+
 	return mux
 }
 
@@ -131,12 +142,16 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 
 // State is everything the interface needs to draw itself.
 type State struct {
-	Session client.SessionStatus `json:"session"`
-	Tunnels []TunnelView         `json:"tunnels"`
-	Prompts []PromptView         `json:"prompts"`
-	Client  ClientView           `json:"client"`
-	At      time.Time            `json:"at"`
-	Rules   []client.Rule        `json:"rules"`
+	Session       client.SessionStatus  `json:"session"`
+	Tunnels       []TunnelView          `json:"tunnels"`
+	Prompts       []PromptView          `json:"prompts"`
+	Client        ClientView            `json:"client"`
+	At            time.Time             `json:"at"`
+	Rules         []client.Rule         `json:"rules"`
+	Subscriptions []client.Subscription `json:"subscriptions"`
+	CustomNodes   []client.CustomNode   `json:"custom_nodes"`
+	AllNodes      []client.CustomNode   `json:"all_nodes"`
+	SelectedNode  string                `json:"selected_node"`
 }
 
 // TunnelView is one tunnel as the interface shows it.
@@ -206,11 +221,28 @@ func (s *Server) state() State {
 	allRules = append(allRules, userRules...)
 	allRules = append(allRules, autoRules...)
 
+	subs := cfg.Subscriptions
+	if subs == nil {
+		subs = []client.Subscription{}
+	}
+	customNodes := cfg.CustomNodes
+	if customNodes == nil {
+		customNodes = []client.CustomNode{}
+	}
+	allNodes := cfg.AllNodes()
+	if allNodes == nil {
+		allNodes = []client.CustomNode{}
+	}
+
 	return State{
-		Session: s.ctl.Status(),
-		Tunnels: views,
-		Prompts: s.prompts.pending(),
-		Rules:   allRules,
+		Session:       s.ctl.Status(),
+		Tunnels:       views,
+		Prompts:       s.prompts.pending(),
+		Rules:         allRules,
+		Subscriptions: subs,
+		CustomNodes:   customNodes,
+		AllNodes:      allNodes,
+		SelectedNode:  cfg.SelectedNode,
 		Client: ClientView{
 			TUN:         cfg.TUN.Enabled,
 			Proxy:       cfg.Proxy.Enabled,
@@ -514,6 +546,328 @@ func (s *Server) postPromptAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) getNodes(w http.ResponseWriter, r *http.Request) {
+	st := s.state()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"subscriptions": st.Subscriptions,
+		"custom_nodes":  st.CustomNodes,
+		"all_nodes":     st.AllNodes,
+		"selected_node": st.SelectedNode,
+	})
+}
+
+type createNodeReq struct {
+	URL           string `json:"url,omitempty"`
+	Name          string `json:"name,omitempty"`
+	Server        string `json:"server,omitempty"`
+	Port          int    `json:"port,omitempty"`
+	Password      string `json:"password,omitempty"`
+	SNI           string `json:"sni,omitempty"`
+	AllowInsecure bool   `json:"allow_insecure,omitempty"`
+}
+
+func (s *Server) postNode(w http.ResponseWriter, r *http.Request) {
+	var in createNodeReq
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
+		return
+	}
+
+	var node *client.CustomNode
+	if in.URL != "" {
+		n, err := client.ParseTrojanURL(in.URL)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid trojan URL: "+err.Error())
+			return
+		}
+		if in.Name != "" {
+			n.Name = in.Name
+		}
+		node = n
+	} else {
+		if in.Server == "" || in.Password == "" {
+			writeErr(w, http.StatusBadRequest, "server and password are required")
+			return
+		}
+		port := in.Port
+		if port <= 0 || port > 65535 {
+			port = 443
+		}
+		name := in.Name
+		if name == "" {
+			name = fmt.Sprintf("%s:%d", in.Server, port)
+		}
+		sni := in.SNI
+		if sni == "" {
+			sni = in.Server
+		}
+		node = &client.CustomNode{
+			ID:            client.GenerateNodeID(),
+			Name:          name,
+			Type:          "trojan",
+			Server:        in.Server,
+			Port:          port,
+			Password:      in.Password,
+			SNI:           sni,
+			AllowInsecure: in.AllowInsecure,
+		}
+	}
+
+	next := *s.ctl.Settings()
+	next.CustomNodes = append(next.CustomNodes, *node)
+	if next.SelectedNode == "" {
+		next.SelectedNode = node.OutboundTag()
+	}
+	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.log.Info("custom node added", "id", node.ID, "name", node.Name)
+	writeJSON(w, http.StatusOK, s.state())
+}
+
+func (s *Server) putNode(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var in createNodeReq
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
+		return
+	}
+
+	next := *s.ctl.Settings()
+	found := false
+	for i, n := range next.CustomNodes {
+		if n.ID == id {
+			if in.Name != "" {
+				next.CustomNodes[i].Name = in.Name
+			}
+			if in.Server != "" {
+				next.CustomNodes[i].Server = in.Server
+			}
+			if in.Port > 0 && in.Port <= 65535 {
+				next.CustomNodes[i].Port = in.Port
+			}
+			if in.Password != "" {
+				next.CustomNodes[i].Password = in.Password
+			}
+			if in.SNI != "" {
+				next.CustomNodes[i].SNI = in.SNI
+			}
+			next.CustomNodes[i].AllowInsecure = in.AllowInsecure
+			found = true
+			break
+		}
+	}
+	if !found {
+		writeErr(w, http.StatusNotFound, "custom node not found")
+		return
+	}
+
+	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.state())
+}
+
+func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	next := *s.ctl.Settings()
+	var remaining []client.CustomNode
+	for _, n := range next.CustomNodes {
+		if n.ID != id {
+			remaining = append(remaining, n)
+		}
+	}
+	next.CustomNodes = remaining
+	if next.SelectedNode == id || next.SelectedNode == "node-"+id {
+		next.SelectedNode = ""
+	}
+
+	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.state())
+}
+
+func (s *Server) postSelectNode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
+		return
+	}
+
+	next := *s.ctl.Settings()
+	targetTag := body.ID
+	if !strings.HasPrefix(targetTag, "node-") && targetTag != "" {
+		targetTag = "node-" + targetTag
+	}
+	next.SelectedNode = targetTag
+
+	if c := s.ctl.Client(); c != nil {
+		c.SelectProxyNode(targetTag)
+	}
+
+	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.state())
+}
+
+func (s *Server) postPingNodes(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID string `json:"id,omitempty"`
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body)
+
+	cfg := s.ctl.Settings()
+	allNodes := cfg.AllNodes()
+	var toPing []client.CustomNode
+	if body.ID != "" {
+		if n, ok := cfg.FindNode(body.ID); ok {
+			toPing = append(toPing, n)
+		} else {
+			writeErr(w, http.StatusNotFound, "node not found")
+			return
+		}
+	} else {
+		toPing = allNodes
+	}
+
+	latencies := map[string]int{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, n := range toPing {
+		wg.Add(1)
+		go func(node client.CustomNode) {
+			defer wg.Done()
+			pingCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+			defer cancel()
+			dur, err := client.PingNode(pingCtx, node)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				latencies[node.ID] = -1
+			} else {
+				latencies[node.ID] = int(dur.Milliseconds())
+			}
+		}(n)
+	}
+	wg.Wait()
+
+	writeJSON(w, http.StatusOK, map[string]any{"latencies": latencies})
+}
+
+func (s *Server) postSubscription(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name       string `json:"name"`
+		URL        string `json:"url"`
+		AutoUpdate bool   `json:"auto_update,omitempty"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
+		return
+	}
+	if body.Name == "" || body.URL == "" {
+		writeErr(w, http.StatusBadRequest, "name and url are required")
+		return
+	}
+
+	nodes, err := client.FetchSubscription(r.Context(), body.URL)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "fetch subscription failed: "+err.Error())
+		return
+	}
+
+	subID := client.GenerateNodeID()
+	for i := range nodes {
+		nodes[i].SubscriptionID = subID
+	}
+
+	sub := client.Subscription{
+		ID:         subID,
+		Name:       body.Name,
+		URL:        body.URL,
+		AutoUpdate: body.AutoUpdate,
+		UpdatedAt:  time.Now().Format(time.RFC3339),
+		Nodes:      nodes,
+	}
+
+	next := *s.ctl.Settings()
+	next.Subscriptions = append(next.Subscriptions, sub)
+	if next.SelectedNode == "" && len(nodes) > 0 {
+		next.SelectedNode = nodes[0].OutboundTag()
+	}
+
+	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.log.Info("subscription added", "id", sub.ID, "name", sub.Name, "nodes", len(nodes))
+	writeJSON(w, http.StatusOK, s.state())
+}
+
+func (s *Server) postUpdateSubscription(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	next := *s.ctl.Settings()
+
+	idx := -1
+	for i, sub := range next.Subscriptions {
+		if sub.ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		writeErr(w, http.StatusNotFound, "subscription not found")
+		return
+	}
+
+	nodes, err := client.FetchSubscription(r.Context(), next.Subscriptions[idx].URL)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "fetch subscription failed: "+err.Error())
+		return
+	}
+	for i := range nodes {
+		nodes[i].SubscriptionID = id
+	}
+
+	next.Subscriptions[idx].Nodes = nodes
+	next.Subscriptions[idx].UpdatedAt = time.Now().Format(time.RFC3339)
+
+	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.log.Info("subscription updated", "id", id, "nodes", len(nodes))
+	writeJSON(w, http.StatusOK, s.state())
+}
+
+func (s *Server) deleteSubscription(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	next := *s.ctl.Settings()
+
+	var remaining []client.Subscription
+	for _, sub := range next.Subscriptions {
+		if sub.ID != id {
+			remaining = append(remaining, sub)
+		}
+	}
+	next.Subscriptions = remaining
+
+	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.log.Info("subscription deleted", "id", id)
+	writeJSON(w, http.StatusOK, s.state())
 }
 
 // NewToken generates an interface token. An application that keeps its own

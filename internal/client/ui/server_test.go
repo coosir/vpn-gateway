@@ -529,3 +529,115 @@ func TestReadLinkRejectsAnEmptyFile(t *testing.T) {
 		t.Fatal("an empty link file was accepted")
 	}
 }
+
+func TestNodesAPI(t *testing.T) {
+	_, ctl, _, srv := testServer(t)
+	token := "tok"
+
+	// 1. Add node via Trojan URL
+	body := `{"url": "trojan://mypass@hk.example.com:443?sni=hk.example.com&allowInsecure=1#HK-Node"}`
+	resp := do(t, srv, http.MethodPost, "/api/nodes", token, body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/nodes: %d", resp.StatusCode)
+	}
+	var st State
+	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if len(st.CustomNodes) != 1 {
+		t.Fatalf("expected 1 custom node, got %d", len(st.CustomNodes))
+	}
+	node := st.CustomNodes[0]
+	if node.Name != "HK-Node" || node.Server != "hk.example.com" || node.Port != 443 || node.Password != "mypass" {
+		t.Errorf("unexpected node properties: %+v", node)
+	}
+
+	// 2. Select node
+	selectBody := `{"id": "` + node.ID + `"}`
+	resp = do(t, srv, http.MethodPost, "/api/nodes/select", token, selectBody)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/nodes/select: %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	if ctl.Settings().SelectedNode != "node-"+node.ID {
+		t.Errorf("SelectedNode = %q, want %q", ctl.Settings().SelectedNode, "node-"+node.ID)
+	}
+
+	// 3. Update node
+	updateBody := `{"name": "HK-Node-Updated", "port": 8443}`
+	resp = do(t, srv, http.MethodPut, "/api/nodes/"+node.ID, token, updateBody)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT /api/nodes/%s: %d", node.ID, resp.StatusCode)
+	}
+	var updateSt State
+	json.NewDecoder(resp.Body).Decode(&updateSt)
+	resp.Body.Close()
+
+	if len(updateSt.CustomNodes) != 1 || updateSt.CustomNodes[0].Name != "HK-Node-Updated" || updateSt.CustomNodes[0].Port != 8443 {
+		t.Errorf("unexpected updated node: %+v", updateSt.CustomNodes)
+	}
+
+	// 4. Delete node
+	resp = do(t, srv, http.MethodDelete, "/api/nodes/"+node.ID, token, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE /api/nodes/%s: %d", node.ID, resp.StatusCode)
+	}
+	var deleteSt State
+	json.NewDecoder(resp.Body).Decode(&deleteSt)
+	resp.Body.Close()
+
+	if len(deleteSt.CustomNodes) != 0 {
+		t.Errorf("expected 0 custom nodes after delete, got %d", len(deleteSt.CustomNodes))
+	}
+}
+
+func TestSubscriptionsAPI(t *testing.T) {
+	// Serve a mock subscription endpoint
+	subServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("trojan://pass1@sub1.com:443#SubNode1\ntrojan://pass2@sub2.com:443#SubNode2\n"))
+	}))
+	defer subServer.Close()
+
+	_, _, _, srv := testServer(t)
+	token := "tok"
+
+	// Add subscription
+	body := `{"name": "Test Sub", "url": "` + subServer.URL + `"}`
+	resp := do(t, srv, http.MethodPost, "/api/subscriptions", token, body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/subscriptions: %d", resp.StatusCode)
+	}
+	var st State
+	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if len(st.Subscriptions) != 1 {
+		t.Fatalf("expected 1 subscription, got %d", len(st.Subscriptions))
+	}
+	sub := st.Subscriptions[0]
+	if sub.Name != "Test Sub" || len(sub.Nodes) != 2 {
+		t.Errorf("unexpected subscription: %+v", sub)
+	}
+	if len(st.AllNodes) != 2 {
+		t.Errorf("expected 2 all_nodes, got %d", len(st.AllNodes))
+	}
+
+	// Delete subscription
+	resp = do(t, srv, http.MethodDelete, "/api/subscriptions/"+sub.ID, token, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE /api/subscriptions: %d", resp.StatusCode)
+	}
+	var delSt State
+	json.NewDecoder(resp.Body).Decode(&delSt)
+	resp.Body.Close()
+
+	if len(delSt.Subscriptions) != 0 {
+		t.Errorf("expected 0 subscriptions, got %d", len(delSt.Subscriptions))
+	}
+}

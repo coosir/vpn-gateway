@@ -12,6 +12,7 @@ import (
 var settingsKeys = []string{
 	"bundle", "tun", "proxy", "dns", "auth", "on_failure",
 	"auto_routes", "auto_domains", "rules", "disabled_auto_rules", "ui", "log_level",
+	"subscriptions", "custom_nodes", "selected_node",
 }
 
 // SaveSettings writes a configuration back, replacing only the keys the

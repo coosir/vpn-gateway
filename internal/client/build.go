@@ -15,6 +15,7 @@ import (
 const (
 	tagDirect  = "direct"
 	tagBlock   = "block"
+	tagProxy   = "proxy"
 	tagTUNIn   = "tun-in"
 	tagProxyIn = "proxy-in"
 
@@ -74,7 +75,7 @@ func BuildConfig(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState) (
 	for _, t := range tunnels {
 		byName[t.Name] = t
 	}
-	if err := validateRuleTargets(cfg.Rules, byName); err != nil {
+	if err := validateRuleTargets(cfg.Rules, byName, cfg); err != nil {
 		return nil, err
 	}
 
@@ -118,21 +119,34 @@ func BuildConfig(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState) (
 	return json.MarshalIndent(out, "", "  ")
 }
 
-func validateRuleTargets(rules []Rule, byName map[string]TunnelState) error {
+func validateRuleTargets(rules []Rule, byName map[string]TunnelState, cfg *Config) error {
 	var unknown []string
 	for _, r := range rules {
 		switch r.Tunnel {
-		case TargetDirect, TargetBlock:
+		case TargetDirect, TargetBlock, TargetProxy:
 			continue
 		}
-		if _, ok := byName[r.Tunnel]; !ok {
-			unknown = append(unknown, r.Tunnel)
+		if _, ok := byName[r.Tunnel]; ok {
+			continue
 		}
+		if cfg != nil {
+			if _, ok := cfg.FindNode(r.Tunnel); ok {
+				continue
+			}
+			target := r.Tunnel
+			if strings.HasPrefix(target, "node-") || strings.HasPrefix(target, "node:") {
+				nodeID := strings.TrimPrefix(strings.TrimPrefix(target, "node:"), "node-")
+				if _, ok := cfg.FindNode(nodeID); ok {
+					continue
+				}
+			}
+		}
+		unknown = append(unknown, r.Tunnel)
 	}
 	if len(unknown) > 0 {
 		// Silently dropping the rule would send intranet traffic to the
 		// internet, so a typo has to be loud.
-		return fmt.Errorf("rules reference unknown tunnels: %s", strings.Join(dedupe(unknown), ", "))
+		return fmt.Errorf("rules reference unknown tunnels or nodes: %s", strings.Join(dedupe(unknown), ", "))
 	}
 	return nil
 }
@@ -183,51 +197,116 @@ func buildOutbounds(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState
 		{"type": "direct", "tag": tagDirect},
 		{"type": "block", "tag": tagBlock},
 	}
-	if len(tunnels) == 0 {
-		return outbounds, nil
-	}
 
-	host, port, err := net.SplitHostPort(bundle.Server.Address)
-	if err != nil {
-		return nil, fmt.Errorf("bundle server address %q is not host:port: %w", bundle.Server.Address, err)
-	}
-	portNum, err := strconv.Atoi(port)
-	if err != nil {
-		return nil, fmt.Errorf("bundle server address %q has no valid port", bundle.Server.Address)
-	}
-
-	tls := map[string]any{"enabled": true, "server_name": bundle.Server.ServerName}
-	if pem := bundle.Server.CertificatePEM; pem != "" {
-		// Trust exactly the server's certificate. Turning verification off
-		// instead would accept any certificate at all.
-		tls["certificate"] = strings.Split(strings.TrimSpace(pem), "\n")
-	}
-
-	fallback := tagDirect
-	if cfg.OnFailure == TargetBlock {
-		fallback = tagBlock
-	}
-
-	for _, t := range tunnels {
-		outbounds = append(outbounds, map[string]any{
-			"type": "trojan", "tag": tunnelPrefix + t.Name,
-			"server": host, "server_port": portNum,
-			"password": t.Password,
-			"tls":      tls,
-		})
-		// The selector is what rules target. Switching it when a tunnel goes
-		// down leaves every other tunnel's connections untouched, which
-		// restarting the whole client would not.
-		current := tunnelPrefix + t.Name
-		if !t.Up {
-			current = fallback
+	if bundle != nil && len(tunnels) > 0 {
+		host, port, err := net.SplitHostPort(bundle.Server.Address)
+		if err != nil {
+			return nil, fmt.Errorf("bundle server address %q is not host:port: %w", bundle.Server.Address, err)
 		}
+		portNum, err := strconv.Atoi(port)
+		if err != nil {
+			return nil, fmt.Errorf("bundle server address %q has no valid port", bundle.Server.Address)
+		}
+
+		tls := map[string]any{"enabled": true, "server_name": bundle.Server.ServerName}
+		if pem := bundle.Server.CertificatePEM; pem != "" {
+			// Trust exactly the server's certificate. Turning verification off
+			// instead would accept any certificate at all.
+			tls["certificate"] = strings.Split(strings.TrimSpace(pem), "\n")
+		}
+
+		fallback := tagDirect
+		if cfg.OnFailure == TargetBlock {
+			fallback = tagBlock
+		}
+
+		for _, t := range tunnels {
+			outbounds = append(outbounds, map[string]any{
+				"type": "trojan", "tag": tunnelPrefix + t.Name,
+				"server": host, "server_port": portNum,
+				"password": t.Password,
+				"tls":      tls,
+			})
+			// The selector is what rules target. Switching it when a tunnel goes
+			// down leaves every other tunnel's connections untouched, which
+			// restarting the whole client would not.
+			current := tunnelPrefix + t.Name
+			if !t.Up {
+				current = fallback
+			}
+			outbounds = append(outbounds, map[string]any{
+				"type": "selector", "tag": t.RouteTag(),
+				"outbounds": []string{tunnelPrefix + t.Name, fallback},
+				"default":   current,
+			})
+		}
+	}
+
+	// Add custom and subscription nodes
+	allNodes := cfg.AllNodes()
+	var proxyTags []string
+	for _, n := range allNodes {
+		tag := n.OutboundTag()
+		proxyTags = append(proxyTags, tag)
+
+		sni := n.SNI
+		if sni == "" {
+			sni = n.Server
+		}
+		tls := map[string]any{"enabled": true, "server_name": sni}
+		if n.AllowInsecure {
+			tls["insecure"] = true
+		}
+
 		outbounds = append(outbounds, map[string]any{
-			"type": "selector", "tag": t.RouteTag(),
-			"outbounds": []string{tunnelPrefix + t.Name, fallback},
-			"default":   current,
+			"type":        "trojan",
+			"tag":         tag,
+			"server":      n.Server,
+			"server_port": n.Port,
+			"password":    n.Password,
+			"tls":         tls,
 		})
 	}
+
+	needsProxySelector := len(proxyTags) > 0
+	if !needsProxySelector {
+		for _, r := range cfg.Rules {
+			if r.Tunnel == TargetProxy {
+				needsProxySelector = true
+				break
+			}
+		}
+	}
+
+	if needsProxySelector {
+		if len(proxyTags) > 0 {
+			proxyOutbounds := append([]string(nil), proxyTags...)
+			proxyOutbounds = append(proxyOutbounds, tagDirect)
+			defaultOutbound := proxyTags[0]
+			if cfg.SelectedNode != "" {
+				for _, pt := range proxyTags {
+					if pt == cfg.SelectedNode || pt == "node-"+cfg.SelectedNode {
+						defaultOutbound = pt
+						break
+					}
+				}
+			}
+			outbounds = append(outbounds, map[string]any{
+				"type":      "selector",
+				"tag":       tagProxy,
+				"outbounds": proxyOutbounds,
+				"default":   defaultOutbound,
+			})
+		} else {
+			outbounds = append(outbounds, map[string]any{
+				"type":      "selector",
+				"tag":       tagProxy,
+				"outbounds": []string{tagDirect},
+				"default":   tagDirect,
+			})
+		}
+	}
+
 	return outbounds, nil
 }
 
@@ -279,7 +358,7 @@ func buildRouteRules(cfg *Config, tunnels []TunnelState, byName map[string]Tunne
 		if r.Disabled {
 			continue
 		}
-		if rule := compileRule(r, r.Tunnel, byName); rule != nil {
+		if rule := compileRule(r, r.Tunnel, byName, cfg); rule != nil {
 			rules = append(rules, rule)
 		}
 	}
@@ -319,7 +398,7 @@ func buildRouteRules(cfg *Config, tunnels []TunnelState, byName map[string]Tunne
 
 // compileRule turns one configured rule into a sing-box rule, or nil when it
 // matches nothing.
-func compileRule(r Rule, target string, byName map[string]TunnelState) map[string]any {
+func compileRule(r Rule, target string, byName map[string]TunnelState, cfg *Config) map[string]any {
 	if !r.hasMatcher() {
 		return nil
 	}
@@ -345,9 +424,27 @@ func compileRule(r Rule, target string, byName map[string]TunnelState) map[strin
 		rule["action"] = "reject"
 	case TargetDirect:
 		rule["outbound"] = tagDirect
+	case TargetProxy:
+		rule["outbound"] = tagProxy
 	default:
-		t := byName[target]
-		rule["outbound"] = t.RouteTag()
+		if t, ok := byName[target]; ok {
+			rule["outbound"] = t.RouteTag()
+		} else if cfg != nil {
+			if n, ok := cfg.FindNode(target); ok {
+				rule["outbound"] = n.OutboundTag()
+			} else if strings.HasPrefix(target, "node-") || strings.HasPrefix(target, "node:") {
+				nodeID := strings.TrimPrefix(strings.TrimPrefix(target, "node:"), "node-")
+				if n, ok := cfg.FindNode(nodeID); ok {
+					rule["outbound"] = n.OutboundTag()
+				} else {
+					rule["outbound"] = "node-" + nodeID
+				}
+			} else {
+				rule["outbound"] = target
+			}
+		} else {
+			rule["outbound"] = target
+		}
 	}
 	return rule
 }
@@ -368,11 +465,11 @@ func buildDNSRules(cfg *Config, tunnels []TunnelState, byName map[string]TunnelS
 			continue
 		}
 		switch r.Tunnel {
-		case TargetDirect, TargetBlock:
+		case TargetDirect, TargetBlock, TargetProxy:
 			continue
 		}
-		t := byName[r.Tunnel]
-		if t.DNSTag() == "" {
+		t, ok := byName[r.Tunnel]
+		if !ok || t.DNSTag() == "" {
 			continue
 		}
 		rule := map[string]any{"server": t.DNSTag()}

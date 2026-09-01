@@ -401,6 +401,32 @@ func (c *Client) wantedOutbound(t TunnelState) string {
 	return tagDirect
 }
 
+// SelectProxyNode switches the proxy group selector to targetTag (e.g. "node-xxx").
+func (c *Client) SelectProxyNode(targetTag string) bool {
+	c.instanceMu.Lock()
+	instance := c.instance
+	c.instanceMu.Unlock()
+	if instance == nil {
+		return false
+	}
+	manager := instance.Outbound()
+	ob, ok := manager.Outbound(tagProxy)
+	if !ok {
+		return false
+	}
+	selector, ok := ob.(*group.Selector)
+	if !ok {
+		return false
+	}
+	if !selector.SelectOutbound(targetTag) {
+		return false
+	}
+	c.mu.Lock()
+	c.cfg.SelectedNode = targetTag
+	c.mu.Unlock()
+	return true
+}
+
 func countUp(tunnels []TunnelState) int {
 	n := 0
 	for _, t := range tunnels {

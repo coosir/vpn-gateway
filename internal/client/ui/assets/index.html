@@ -265,6 +265,42 @@ button.act:disabled { opacity: .45; cursor: default; }
 .note.bad { color: var(--down); }
 .note.good { color: var(--live); }
 
+/* --- nodes & subscriptions -------------------------------------------- */
+.node-card {
+  border: 1px solid var(--hair); background: var(--surface);
+  padding: 10px 14px; margin-bottom: 8px;
+  display: grid; grid-template-columns: 1fr auto auto;
+  gap: 12px; align-items: center;
+  transition: border-color .15s ease, background .15s ease;
+}
+.node-card.active {
+  border-color: var(--live);
+  background: var(--raised);
+}
+.node-info { min-width: 0; }
+.node-name { font-weight: 600; margin-bottom: 3px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.node-detail { font-size: 11px; color: var(--dim); display: flex; gap: 10px; }
+.node-detail span { color: var(--faint); }
+.badge.active-tag {
+  background: var(--live-bg); color: var(--live); border: 1px solid currentColor;
+}
+.badge.ping { font-family: var(--mono); }
+.badge.ping.good { background: var(--live-bg); color: var(--live); border: 1px solid currentColor; }
+.badge.ping.medium { background: var(--amber-bg); color: var(--amber); border: 1px solid currentColor; }
+.badge.ping.bad { background: var(--down-bg); color: var(--down); border: 1px solid currentColor; }
+
+.sub-card {
+  border: 1px solid var(--hair); background: var(--surface);
+  padding: 12px 14px; margin-bottom: 12px;
+}
+.sub-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 8px;
+}
+.sub-name { font-weight: 600; font-size: 13px; }
+.sub-url { font-size: 11px; color: var(--dim); overflow-wrap: anywhere; margin-bottom: 6px; }
+.sub-meta { font-size: 11px; color: var(--faint); display: flex; gap: 14px; align-items: center; }
+
 /* --- setup and settings ------------------------------------------------- */
 .phase { font-size: 11px; color: var(--dim); margin-right: 4px; }
 .phase b { color: var(--ink); font-weight: 600; }
@@ -397,6 +433,7 @@ textarea::placeholder { color: var(--faint); }
   <div class="body">
     <nav class="rail">
       <button data-pane="tunnels" aria-current="true"><span data-i18n="nav.tunnels"></span><span class="count" id="c-tunnels"></span></button>
+      <button data-pane="nodes"><span data-i18n="nav.nodes"></span><span class="count" id="c-nodes"></span></button>
       <button data-pane="rules"><span data-i18n="nav.rules"></span><span class="count" id="c-rules"></span></button>
       <button data-pane="logs" data-i18n="nav.logs"></button>
       <button data-pane="settings" data-i18n="nav.settings"></button>
@@ -407,6 +444,28 @@ textarea::placeholder { color: var(--faint); }
     </nav>
 
     <main>
+      <section class="pane" id="pane-nodes" hidden>
+        <h2 data-i18n="nodes.title"></h2>
+        <p class="sub" data-i18n="nodes.sub"></p>
+        <div class="toolbar" style="margin:0 0 16px">
+          <button class="act primary" id="add-node-btn" data-i18n="nodes.addNode"></button>
+          <button class="act" id="add-sub-btn" data-i18n="nodes.addSub"></button>
+          <button class="act quiet" id="ping-all-btn" data-i18n="nodes.pingAll"></button>
+          <button class="act quiet" id="update-all-subs-btn" data-i18n="nodes.updateAllSubs"></button>
+          <span class="note" id="nodes-note"></span>
+        </div>
+
+        <div style="margin-bottom: 24px;">
+          <h3 style="font-size:11px;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--dim)" data-i18n="nodes.subsTitle"></h3>
+          <div id="subscriptions-list"></div>
+        </div>
+
+        <div>
+          <h3 style="font-size:11px;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--dim)" data-i18n="nodes.nodesTitle"></h3>
+          <div id="nodes-list"></div>
+        </div>
+      </section>
+
       <section class="pane" id="pane-setup" hidden>
         <h2 data-i18n="setup.title"></h2>
         <p class="sub" data-i18n="setup.sub"></p>
@@ -571,6 +630,71 @@ textarea::placeholder { color: var(--faint); }
   </div>
 </div>
 
+<div class="veil" id="node-modal-veil" hidden>
+  <div class="prompt" role="dialog" aria-modal="true" style="max-width:480px">
+    <div class="kind" id="node-modal-title"></div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+      <div>
+        <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.pasteLink"></label>
+        <input type="text" id="node-url-input" placeholder="trojan://password@server:443#Name" style="width:100%">
+      </div>
+      <div style="font-size:11px;color:var(--faint);text-align:center" data-i18n="nodes.orManual"></div>
+      <div>
+        <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.nodeName"></label>
+        <input type="text" id="node-name-input" placeholder="HongKong-01" style="width:100%">
+      </div>
+      <div style="display:flex;gap:8px">
+        <div style="flex:2">
+          <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.server"></label>
+          <input type="text" id="node-server-input" placeholder="example.com" style="width:100%">
+        </div>
+        <div style="flex:1">
+          <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.port"></label>
+          <input type="text" id="node-port-input" placeholder="443" style="width:100%">
+        </div>
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.password"></label>
+        <input type="text" id="node-pass-input" placeholder="password" style="width:100%">
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.sni"></label>
+        <input type="text" id="node-sni-input" placeholder="example.com" style="width:100%">
+      </div>
+      <label class="check" style="margin-top:4px">
+        <input type="checkbox" id="node-insecure-input">
+        <span data-i18n="nodes.allowInsecure"></span>
+      </label>
+    </div>
+    <div class="foot" style="margin-top:16px;display:flex;gap:8px;align-items:center">
+      <span class="note bad" id="node-modal-err" style="flex:1"></span>
+      <button class="act quiet" id="node-modal-cancel" data-i18n="nodes.cancel"></button>
+      <button class="act primary" id="node-modal-save" data-i18n="nodes.save"></button>
+    </div>
+  </div>
+</div>
+
+<div class="veil" id="sub-modal-veil" hidden>
+  <div class="prompt" role="dialog" aria-modal="true" style="max-width:480px">
+    <div class="kind" data-i18n="nodes.modalAddSub"></div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+      <div>
+        <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.subName"></label>
+        <input type="text" id="sub-name-input" placeholder="My Airport Sub" style="width:100%">
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;color:var(--dim);margin-bottom:4px" data-i18n="nodes.subURL"></label>
+        <input type="text" id="sub-url-input" placeholder="https://example.com/sub/trojan" style="width:100%">
+      </div>
+    </div>
+    <div class="foot" style="margin-top:16px;display:flex;gap:8px;align-items:center">
+      <span class="note bad" id="sub-modal-err" style="flex:1"></span>
+      <button class="act quiet" id="sub-modal-cancel" data-i18n="nodes.cancel"></button>
+      <button class="act primary" id="sub-modal-save" data-i18n="nodes.save"></button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 
@@ -676,7 +800,7 @@ const STRINGS = {
     "service.elsewhere": "这个服务运行的是另一份配置：%s",
 
     "need.connect": "尚未连接。",
-    "nav.tunnels": "隧道", "nav.rules": "分流规则", "nav.logs": "日志", "nav.config": "配置",
+    "nav.tunnels": "隧道", "nav.nodes": "节点与订阅", "nav.rules": "分流规则", "nav.logs": "日志", "nav.config": "配置",
     "nav.setup": "导入 bundle",
     "offline": "已断开与客户端的连接。",
     "loading": "加载中…",
@@ -691,6 +815,27 @@ const STRINGS = {
     "tunnels.tcpdns": "DNS 走 TCP", "tunnels.nothing": "尚未上报任何信息",
     "tunnels.logs": "日志",
     "tunnels.refresh": "刷新", "tunnels.updated": "更新于 %s", "tunnels.never": "尚未读取",
+
+    "nodes.title": "节点与订阅",
+    "nodes.sub": "管理用于访问外网的自建 Trojan 节点与订阅。可作为分流规则的目标或默认代理出口。",
+    "nodes.addNode": "添加节点", "nodes.addSub": "添加订阅",
+    "nodes.pingAll": "一键测速", "nodes.updateAllSubs": "更新全部订阅",
+    "nodes.subsTitle": "订阅列表", "nodes.nodesTitle": "所有节点",
+    "nodes.emptySubs": "暂无订阅，点击上方按钮添加订阅链接。",
+    "nodes.emptyNodes": "暂无可用节点。可添加自建 Trojan 节点或导入订阅。",
+    "nodes.active": "当前代理", "nodes.select": "设为出口",
+    "nodes.ping": "测速", "nodes.edit": "编辑", "nodes.delete": "删除", "nodes.update": "更新",
+    "nodes.nodeCount": "%d 个节点", "nodes.lastUpdated": "更新于 %s", "nodes.neverUpdated": "尚未更新",
+    "nodes.testing": "测速中…", "nodes.timeout": "超时",
+    "nodes.modalAddNode": "添加自建 Trojan 节点", "nodes.modalEditNode": "编辑 Trojan 节点",
+    "nodes.pasteLink": "粘贴 trojan:// 链接（自动解析）", "nodes.orManual": "或手动填写参数",
+    "nodes.nodeName": "节点名称", "nodes.server": "服务器地址", "nodes.port": "端口",
+    "nodes.password": "密码", "nodes.sni": "SNI (域名)",
+    "nodes.allowInsecure": "允许不安全证书 (Skip Cert Verify)",
+    "nodes.modalAddSub": "添加节点订阅",
+    "nodes.subName": "订阅名称", "nodes.subURL": "订阅 URL (支持 Trojan 节点/Base64/Clash)",
+    "nodes.save": "保存", "nodes.cancel": "取消",
+    "nodes.updating": "正在更新订阅…", "nodes.updated": "订阅已更新",
 
     "rules.title": "分流规则",
     "rules.sub": "按顺序匹配，且排在隧道上报的规则之前，所以显式设置总能胜出。应用会重建路由引擎，已建立的连接会短暂中断。",
@@ -707,7 +852,8 @@ const STRINGS = {
     "m.ip_cidr": "IP 网段", "m.port": "端口",
     "ph.domain": "corp.example.com, internal.corp", "ph.ip_cidr": "10.20.0.0/16, 192.168.1.0/24",
     "ph.port": "443, 8443",
-    "t.direct": "直连", "t.block": "阻断",
+    "t.direct": "直连", "t.block": "阻断", "t.proxy": "代理",
+    "t.tunnelPrefix": "[隧道] ", "t.subPrefix": "[订阅] ", "t.customPrefix": "[自建] ",
 
     "logs.title": "容器日志", "logs.sub": "读取服务端上该隧道容器的输出。",
     "logs.refresh": "刷新", "logs.reconnect": "重连该隧道",
@@ -792,7 +938,7 @@ const STRINGS = {
     "service.elsewhere": "This service runs a different configuration: %s",
 
     "need.connect": "Nothing is connected.",
-    "nav.tunnels": "tunnels", "nav.rules": "rules", "nav.logs": "logs", "nav.config": "config",
+    "nav.tunnels": "tunnels", "nav.nodes": "proxies", "nav.rules": "rules", "nav.logs": "logs", "nav.config": "config",
     "nav.setup": "bundle",
     "offline": "Not receiving updates from the client.",
     "loading": "Loading…",
@@ -807,6 +953,27 @@ const STRINGS = {
     "tunnels.tcpdns": "dns over tcp", "tunnels.nothing": "nothing reported yet",
     "tunnels.logs": "logs",
     "tunnels.refresh": "refresh", "tunnels.updated": "read at %s", "tunnels.never": "not read yet",
+
+    "nodes.title": "Proxies & Subscriptions",
+    "nodes.sub": "Manage custom Trojan nodes and subscriptions for outbound traffic, available as routing targets.",
+    "nodes.addNode": "Add node", "nodes.addSub": "Add subscription",
+    "nodes.pingAll": "Test latencies", "nodes.updateAllSubs": "Update subscriptions",
+    "nodes.subsTitle": "Subscriptions", "nodes.nodesTitle": "Nodes",
+    "nodes.emptySubs": "No subscriptions yet. Click above to add one.",
+    "nodes.emptyNodes": "No nodes available. Add a custom Trojan node or subscription.",
+    "nodes.active": "Active", "nodes.select": "Select",
+    "nodes.ping": "Ping", "nodes.edit": "Edit", "nodes.delete": "Delete", "nodes.update": "Update",
+    "nodes.nodeCount": "%d nodes", "nodes.lastUpdated": "Updated %s", "nodes.neverUpdated": "Not updated yet",
+    "nodes.testing": "Testing…", "nodes.timeout": "Timeout",
+    "nodes.modalAddNode": "Add Trojan Node", "nodes.modalEditNode": "Edit Trojan Node",
+    "nodes.pasteLink": "Paste trojan:// link (auto parse)", "nodes.orManual": "or fill in details manually",
+    "nodes.nodeName": "Node name", "nodes.server": "Server address", "nodes.port": "Port",
+    "nodes.password": "Password", "nodes.sni": "SNI (Server Name)",
+    "nodes.allowInsecure": "Allow insecure certificate (Skip Cert Verify)",
+    "nodes.modalAddSub": "Add Subscription",
+    "nodes.subName": "Subscription name", "nodes.subURL": "Subscription URL (Trojan/Base64/Clash)",
+    "nodes.save": "Save", "nodes.cancel": "Cancel",
+    "nodes.updating": "Updating subscription…", "nodes.updated": "Subscription updated",
 
     "rules.title": "Routing rules",
     "rules.sub": "Matched in order, before anything derived from what a tunnel reports, so an explicit choice always wins. Applying rebuilds the routing engine and briefly interrupts open connections.",
@@ -823,7 +990,8 @@ const STRINGS = {
     "m.ip_cidr": "ip cidr", "m.port": "port",
     "ph.domain": "corp.example.com, internal.corp", "ph.ip_cidr": "10.20.0.0/16, 192.168.1.0/24",
     "ph.port": "443, 8443",
-    "t.direct": "direct", "t.block": "block",
+    "t.direct": "direct", "t.block": "block", "t.proxy": "proxy",
+    "t.tunnelPrefix": "[tunnel] ", "t.subPrefix": "[sub] ", "t.customPrefix": "[custom] ",
 
     "logs.title": "Container logs", "logs.sub": "Read from the tunnel's container on the server.",
     "logs.refresh": "refresh", "logs.reconnect": "reconnect tunnel",
@@ -933,6 +1101,9 @@ function render(s) {
   s.tunnels = s.tunnels || [];
   s.rules = s.rules || [];
   s.prompts = s.prompts || [];
+  s.subscriptions = s.subscriptions || [];
+  s.custom_nodes = s.custom_nodes || [];
+  s.all_nodes = s.all_nodes || [];
   state = s;
   renderPhase(s);
   renderReadout(s);
@@ -941,6 +1112,7 @@ function render(s) {
     renderedTunnels = freshTunnels;
     renderTunnels(s.tunnels);
   }
+  renderNodes(s);
   renderLogTunnels(s.tunnels);
   stampTunnels(s.at);
   if (draft === null) {
@@ -951,6 +1123,7 @@ function render(s) {
     }
   }
   $("c-tunnels").textContent = s.tunnels.length || "";
+  $("c-nodes").textContent = s.all_nodes.length || "";
   $("c-rules").textContent = (draft || s.rules).length || "";
   renderPrompt(s.prompts);
 }
@@ -1008,6 +1181,7 @@ function showPane(name) {
     o.setAttribute("aria-current", String(o.dataset.pane === name)));
   document.querySelectorAll(".pane").forEach((p) => (p.hidden = p.id !== "pane-" + name));
   if (name === "tunnels") refreshTunnels();
+  if (name === "nodes") renderNodes(state);
   if (name === "config") loadGeneratedConfig();
   if (name === "logs" && $("log-tunnel").value) loadLogs();
   if (name === "settings") fillSettings();
@@ -1351,6 +1525,393 @@ function renderTunnels(tunnels) {
   });
 }
 
+/* --- nodes & subscriptions -------------------------------------------- */
+let latencies = {};
+let editingNodeId = null;
+
+function renderNodes(s) {
+  const subsBox = $("subscriptions-list");
+  const nodesBox = $("nodes-list");
+  if (!subsBox || !nodesBox) return;
+  subsBox.textContent = "";
+  nodesBox.textContent = "";
+
+  const subs = s.subscriptions || [];
+  const allNodes = s.all_nodes || [];
+  const selectedTag = s.selected_node || "";
+
+  $("c-nodes").textContent = allNodes.length || "";
+
+  // 1. Subscriptions list
+  if (!subs.length) {
+    subsBox.appendChild(el("div", "empty", t("nodes.emptySubs")));
+  } else {
+    subs.forEach((sub) => {
+      const card = el("div", "sub-card");
+      const head = el("div", "sub-head");
+      const nameWrap = el("div", "sub-name");
+      nameWrap.appendChild(el("span", null, sub.name + " "));
+      const count = sub.nodes ? sub.nodes.length : 0;
+      nameWrap.appendChild(el("span", "badge custom", t("nodes.nodeCount", count)));
+      head.appendChild(nameWrap);
+
+      const acts = el("div", null);
+      const updateBtn = el("button", "act", t("nodes.update"));
+      updateBtn.addEventListener("click", async () => {
+        updateBtn.disabled = true;
+        const note = $("nodes-note");
+        note.className = "note";
+        note.textContent = t("nodes.updating");
+        try {
+          const res = await api("/api/subscriptions/" + encodeURIComponent(sub.id) + "/update", { method: "POST" });
+          note.className = "note good";
+          note.textContent = t("nodes.updated");
+          render(await res.json());
+        } catch (e) {
+          note.className = "note bad";
+          note.textContent = e.message;
+        } finally {
+          updateBtn.disabled = false;
+        }
+      });
+
+      const delBtn = el("button", "act quiet", t("nodes.delete"));
+      delBtn.addEventListener("click", async () => {
+        if (!confirm(t("nodes.delete") + ": " + sub.name + "?")) return;
+        delBtn.disabled = true;
+        try {
+          const res = await api("/api/subscriptions/" + encodeURIComponent(sub.id), { method: "DELETE" });
+          render(await res.json());
+        } catch (e) {
+          $("nodes-note").className = "note bad";
+          $("nodes-note").textContent = e.message;
+        } finally {
+          delBtn.disabled = false;
+        }
+      });
+
+      acts.append(updateBtn, " ", delBtn);
+      head.appendChild(acts);
+      card.appendChild(head);
+
+      const urlEl = el("div", "sub-url", sub.url);
+      card.appendChild(urlEl);
+
+      const meta = el("div", "sub-meta");
+      const updatedStr = sub.updated_at ? t("nodes.lastUpdated", new Date(sub.updated_at).toLocaleString()) : t("nodes.neverUpdated");
+      meta.appendChild(el("span", null, updatedStr));
+      card.appendChild(meta);
+
+      subsBox.appendChild(card);
+    });
+  }
+
+  // 2. All Nodes list
+  if (!allNodes.length) {
+    nodesBox.appendChild(el("div", "empty", t("nodes.emptyNodes")));
+  } else {
+    allNodes.forEach((n) => {
+      const isSelected = selectedTag === n.id || selectedTag === "node-" + n.id;
+      const card = el("div", "node-card" + (isSelected ? " active" : ""));
+
+      // Info
+      const info = el("div", "node-info");
+      const nameLine = el("div", "node-name");
+      nameLine.appendChild(el("span", null, n.name));
+      if (isSelected) {
+        nameLine.appendChild(el("span", "badge active-tag", t("nodes.active")));
+      }
+      const typeBadge = n.subscription_id ? t("t.subPrefix").trim() : t("t.customPrefix").trim();
+      nameLine.appendChild(el("span", "badge custom", typeBadge));
+      info.appendChild(nameLine);
+
+      const details = el("div", "node-detail");
+      details.appendChild(el("span", null, n.server + ":" + n.port));
+      if (n.sni && n.sni !== n.server) {
+        details.appendChild(el("span", null, "SNI: " + n.sni));
+      }
+      if (n.allow_insecure) {
+        details.appendChild(el("span", null, "Insecure"));
+      }
+      info.appendChild(details);
+      card.appendChild(info);
+
+      // Latency Ping
+      const pingWrap = el("div", null);
+      pingWrap.style.display = "flex";
+      pingWrap.style.alignItems = "center";
+      pingWrap.style.gap = "8px";
+      const lat = latencies[n.id];
+      if (lat !== undefined) {
+        const cls = lat < 0 ? "bad" : lat < 200 ? "good" : lat < 500 ? "medium" : "bad";
+        const txt = lat < 0 ? t("nodes.timeout") : lat + " ms";
+        pingWrap.appendChild(el("span", "badge ping " + cls, txt));
+      }
+      const pingBtn = el("button", "act quiet", t("nodes.ping"));
+      pingBtn.addEventListener("click", async () => {
+        pingBtn.disabled = true;
+        pingBtn.textContent = "…";
+        try {
+          const res = await api("/api/nodes/ping", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: n.id }),
+          });
+          const data = await res.json();
+          if (data.latencies) {
+            Object.assign(latencies, data.latencies);
+            renderNodes(state);
+          }
+        } catch (e) {
+          $("nodes-note").className = "note bad";
+          $("nodes-note").textContent = e.message;
+        } finally {
+          pingBtn.disabled = false;
+          pingBtn.textContent = t("nodes.ping");
+        }
+      });
+      pingWrap.appendChild(pingBtn);
+      card.appendChild(pingWrap);
+
+      // Actions
+      const acts = el("div", null);
+      if (!isSelected) {
+        const selectBtn = el("button", "act primary", t("nodes.select"));
+        selectBtn.addEventListener("click", async () => {
+          selectBtn.disabled = true;
+          try {
+            const res = await api("/api/nodes/select", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: n.id }),
+            });
+            render(await res.json());
+          } catch (e) {
+            $("nodes-note").className = "note bad";
+            $("nodes-note").textContent = e.message;
+          } finally {
+            selectBtn.disabled = false;
+          }
+        });
+        acts.appendChild(selectBtn);
+      }
+
+      if (!n.subscription_id) {
+        const editBtn = el("button", "act quiet", t("nodes.edit"));
+        editBtn.addEventListener("click", () => openEditNodeModal(n));
+        acts.append(" ", editBtn);
+
+        const delBtn = el("button", "act quiet", t("nodes.delete"));
+        delBtn.addEventListener("click", async () => {
+          if (!confirm(t("nodes.delete") + ": " + n.name + "?")) return;
+          delBtn.disabled = true;
+          try {
+            const res = await api("/api/nodes/" + encodeURIComponent(n.id), { method: "DELETE" });
+            render(await res.json());
+          } catch (e) {
+            $("nodes-note").className = "note bad";
+            $("nodes-note").textContent = e.message;
+          } finally {
+            delBtn.disabled = false;
+          }
+        });
+        acts.append(" ", delBtn);
+      }
+
+      card.appendChild(acts);
+      nodesBox.appendChild(card);
+    });
+  }
+}
+
+$("ping-all-btn").addEventListener("click", async () => {
+  const btn = $("ping-all-btn");
+  btn.disabled = true;
+  $("nodes-note").className = "note";
+  $("nodes-note").textContent = t("nodes.testing");
+  try {
+    const res = await api("/api/nodes/ping", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (data.latencies) {
+      Object.assign(latencies, data.latencies);
+      renderNodes(state);
+    }
+    $("nodes-note").textContent = "";
+  } catch (e) {
+    $("nodes-note").className = "note bad";
+    $("nodes-note").textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("update-all-subs-btn").addEventListener("click", async () => {
+  const subs = state.subscriptions || [];
+  if (!subs.length) return;
+  const btn = $("update-all-subs-btn");
+  btn.disabled = true;
+  $("nodes-note").className = "note";
+  $("nodes-note").textContent = t("nodes.updating");
+  try {
+    for (const sub of subs) {
+      const res = await api("/api/subscriptions/" + encodeURIComponent(sub.id) + "/update", { method: "POST" });
+      state = await res.json();
+    }
+    $("nodes-note").className = "note good";
+    $("nodes-note").textContent = t("nodes.updated");
+    render(state);
+  } catch (e) {
+    $("nodes-note").className = "note bad";
+    $("nodes-note").textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function openAddNodeModal() {
+  editingNodeId = null;
+  $("node-modal-title").textContent = t("nodes.modalAddNode");
+  $("node-url-input").value = "";
+  $("node-name-input").value = "";
+  $("node-server-input").value = "";
+  $("node-port-input").value = "443";
+  $("node-pass-input").value = "";
+  $("node-sni-input").value = "";
+  $("node-insecure-input").checked = false;
+  $("node-modal-err").textContent = "";
+  $("node-modal-veil").hidden = false;
+  $("node-url-input").focus();
+}
+
+function openEditNodeModal(node) {
+  editingNodeId = node.id;
+  $("node-modal-title").textContent = t("nodes.modalEditNode");
+  $("node-url-input").value = "";
+  $("node-name-input").value = node.name || "";
+  $("node-server-input").value = node.server || "";
+  $("node-port-input").value = String(node.port || 443);
+  $("node-pass-input").value = node.password || "";
+  $("node-sni-input").value = node.sni || "";
+  $("node-insecure-input").checked = !!node.allow_insecure;
+  $("node-modal-err").textContent = "";
+  $("node-modal-veil").hidden = false;
+  $("node-name-input").focus();
+}
+
+$("add-node-btn").addEventListener("click", openAddNodeModal);
+$("node-modal-cancel").addEventListener("click", () => { $("node-modal-veil").hidden = true; });
+
+$("node-url-input").addEventListener("input", () => {
+  const val = $("node-url-input").value.trim();
+  if (val.startsWith("trojan://")) {
+    try {
+      const u = new URL(val);
+      if (u.username) $("node-pass-input").value = decodeURIComponent(u.username);
+      if (u.hostname) $("node-server-input").value = u.hostname;
+      if (u.port) $("node-port-input").value = u.port;
+      if (u.hash) $("node-name-input").value = decodeURIComponent(u.hash.replace(/^#/, ""));
+      const sni = u.searchParams.get("sni") || u.searchParams.get("peer");
+      if (sni) $("node-sni-input").value = sni;
+      const allowInsecure = u.searchParams.get("allowInsecure");
+      if (allowInsecure === "1" || allowInsecure === "true") $("node-insecure-input").checked = true;
+    } catch (_) {}
+  }
+});
+
+$("node-modal-save").addEventListener("click", async () => {
+  const btn = $("node-modal-save");
+  const errBox = $("node-modal-err");
+  errBox.textContent = "";
+  btn.disabled = true;
+
+  const urlVal = $("node-url-input").value.trim();
+  const nameVal = $("node-name-input").value.trim();
+  const serverVal = $("node-server-input").value.trim();
+  const portVal = parseInt($("node-port-input").value.trim() || "443", 10);
+  const passVal = $("node-pass-input").value.trim();
+  const sniVal = $("node-sni-input").value.trim();
+  const insecureVal = $("node-insecure-input").checked;
+
+  try {
+    let res;
+    if (editingNodeId) {
+      res = await api("/api/nodes/" + encodeURIComponent(editingNodeId), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: nameVal,
+          server: serverVal,
+          port: portVal,
+          password: passVal,
+          sni: sniVal,
+          allow_insecure: insecureVal,
+        }),
+      });
+    } else {
+      const payload = urlVal ? { url: urlVal, name: nameVal } : {
+        name: nameVal,
+        server: serverVal,
+        port: portVal,
+        password: passVal,
+        sni: sniVal,
+        allow_insecure: insecureVal,
+      };
+      res = await api("/api/nodes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }
+    $("node-modal-veil").hidden = true;
+    render(await res.json());
+  } catch (e) {
+    errBox.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("add-sub-btn").addEventListener("click", () => {
+  $("sub-name-input").value = "";
+  $("sub-url-input").value = "";
+  $("sub-modal-err").textContent = "";
+  $("sub-modal-veil").hidden = false;
+  $("sub-name-input").focus();
+});
+$("sub-modal-cancel").addEventListener("click", () => { $("sub-modal-veil").hidden = true; });
+
+$("sub-modal-save").addEventListener("click", async () => {
+  const btn = $("sub-modal-save");
+  const errBox = $("sub-modal-err");
+  errBox.textContent = "";
+
+  const nameVal = $("sub-name-input").value.trim();
+  const urlVal = $("sub-url-input").value.trim();
+  if (!nameVal || !urlVal) {
+    errBox.textContent = "Please enter name and URL";
+    return;
+  }
+  btn.disabled = true;
+
+  try {
+    const res = await api("/api/subscriptions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: nameVal, url: urlVal }),
+    });
+    $("sub-modal-veil").hidden = true;
+    render(await res.json());
+  } catch (e) {
+    errBox.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 /* --- rules --------------------------------------------------------------- */
 const MATCHER_KINDS = ["domain_suffix", "domain", "domain_keyword", "ip_cidr", "port"];
 
@@ -1463,11 +2024,22 @@ function renderRules(rules) {
       });
 
       const target = el("select");
-      const targets = ["direct", "block", ...state.tunnels.map((t) => t.name)];
+      const allNodes = state.all_nodes || [];
+      const targets = ["direct", "block"];
+      if (allNodes.length > 0) targets.push("proxy");
+      targets.push(...state.tunnels.map((t) => t.name));
+      targets.push(...allNodes.map((n) => "node-" + n.id));
       if (rule.tunnel && !targets.includes(rule.tunnel)) targets.push(rule.tunnel);
       targets.forEach((name) => {
         // The label is translated; the value is the name the client expects.
-        const label = name === "direct" ? t("t.direct") : name === "block" ? t("t.block") : name;
+        const label = name === "direct" ? t("t.direct")
+                    : name === "block" ? t("t.block")
+                    : name === "proxy" ? t("t.proxy")
+                    : name.startsWith("node-") && allNodes.find((n) => n.id === name.slice(5))
+                    ? (allNodes.find((n) => n.id === name.slice(5)).subscription_id ? t("t.subPrefix") : t("t.customPrefix")) + allNodes.find((n) => n.id === name.slice(5)).name
+                    : state.tunnels && state.tunnels.some((t) => t.name === name)
+                    ? t("t.tunnelPrefix") + name
+                    : name;
         const o = el("option", null, label);
         o.value = name;
         if (name === rule.tunnel) o.selected = true;

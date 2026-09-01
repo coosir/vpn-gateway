@@ -22,6 +22,8 @@ const (
 	TargetDirect = "direct"
 	// TargetBlock refuses the connection.
 	TargetBlock = "block"
+	// TargetProxy sends traffic out through the active proxy node group.
+	TargetProxy = "proxy"
 )
 
 // Config is the client configuration, normally
@@ -57,6 +59,15 @@ type Config struct {
 	AutoRoutes bool `yaml:"auto_routes,omitempty"`
 	// AutoDomains does the same for the search domains a tunnel reports.
 	AutoDomains bool `yaml:"auto_domains,omitempty"`
+
+	// Subscriptions holds remote node subscriptions.
+	Subscriptions []Subscription `yaml:"subscriptions,omitempty" json:"subscriptions,omitempty"`
+
+	// CustomNodes holds manually added proxy nodes.
+	CustomNodes []CustomNode `yaml:"custom_nodes,omitempty" json:"custom_nodes,omitempty"`
+
+	// SelectedNode is the tag/ID of the selected proxy node, or empty for the first node.
+	SelectedNode string `yaml:"selected_node,omitempty" json:"selected_node,omitempty"`
 
 	// LogLevel is sing-box's log level.
 	LogLevel string `yaml:"log_level,omitempty"`
@@ -168,6 +179,41 @@ type Rule struct {
 // AutoRuleKey returns a unique identifier for an auto-generated rule.
 func AutoRuleKey(tunnel, kind, value string) string {
 	return fmt.Sprintf("%s:%s:%s", tunnel, kind, value)
+}
+
+// AllNodes returns a flat list of all custom nodes and subscription nodes.
+func (c *Config) AllNodes() []CustomNode {
+	var all []CustomNode
+	for _, n := range c.CustomNodes {
+		all = append(all, n)
+	}
+	for _, sub := range c.Subscriptions {
+		for _, n := range sub.Nodes {
+			n.SubscriptionID = sub.ID
+			all = append(all, n)
+		}
+	}
+	return all
+}
+
+// FindNode finds a node by ID, Name, or Outbound Tag.
+func (c *Config) FindNode(idOrTag string) (CustomNode, bool) {
+	for _, n := range c.AllNodes() {
+		if n.ID == idOrTag || n.OutboundTag() == idOrTag || n.Name == idOrTag {
+			return n, true
+		}
+	}
+	return CustomNode{}, false
+}
+
+// FindSubscription finds a subscription by ID.
+func (c *Config) FindSubscription(id string) (Subscription, bool) {
+	for _, s := range c.Subscriptions {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return Subscription{}, false
 }
 
 // IsAutoRuleDisabled checks if an auto rule with the given params is disabled.
