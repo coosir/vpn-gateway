@@ -118,6 +118,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/nodes/{id}", s.auth(s.deleteNode))
 	mux.HandleFunc("POST /api/nodes/select", s.auth(s.postSelectNode))
 	mux.HandleFunc("POST /api/nodes/ping", s.auth(s.postPingNodes))
+	mux.HandleFunc("POST /api/mode", s.auth(s.postMode))
 	mux.HandleFunc("POST /api/subscriptions", s.auth(s.postSubscription))
 	mux.HandleFunc("POST /api/subscriptions/{id}/update", s.auth(s.postUpdateSubscription))
 	mux.HandleFunc("DELETE /api/subscriptions/{id}", s.auth(s.deleteSubscription))
@@ -153,6 +154,7 @@ type State struct {
 	CustomNodes   []client.CustomNode   `json:"custom_nodes"`
 	AllNodes      []client.CustomNode   `json:"all_nodes"`
 	SelectedNode  string                `json:"selected_node"`
+	Mode          string                `json:"mode"`
 }
 
 // TunnelView is one tunnel as the interface shows it.
@@ -244,6 +246,7 @@ func (s *Server) state() State {
 		CustomNodes:   customNodes,
 		AllNodes:      allNodes,
 		SelectedNode:  cfg.SelectedNode,
+		Mode:          cfg.EffectiveMode(),
 		Client: ClientView{
 			TUN:         cfg.TUN.Enabled,
 			Proxy:       cfg.Proxy.Enabled,
@@ -696,7 +699,8 @@ func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) postSelectNode(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ID string `json:"id"`
+		ID   string `json:"id"`
+		Mode string `json:"mode,omitempty"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
@@ -704,14 +708,44 @@ func (s *Server) postSelectNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	next := *s.ctl.Settings()
+	if body.Mode != "" {
+		next.Mode = body.Mode
+	}
+
 	targetTag := body.ID
-	if !strings.HasPrefix(targetTag, "node-") && targetTag != "" {
+	if targetTag == "" || targetTag == "none" || targetTag == "direct" || targetTag == "clear" {
+		targetTag = ""
+	} else if !strings.HasPrefix(targetTag, "node-") {
 		targetTag = "node-" + targetTag
 	}
 	next.SelectedNode = targetTag
 
 	if c := s.ctl.Client(); c != nil {
 		c.SelectProxyNode(targetTag)
+	}
+
+	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.state())
+}
+
+func (s *Server) postMode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
+		return
+	}
+
+	next := *s.ctl.Settings()
+	switch body.Mode {
+	case client.ModeGlobal, client.ModeDirect:
+		next.Mode = body.Mode
+	default:
+		next.Mode = client.ModeRule
 	}
 
 	if err := s.ctl.Apply(r.Context(), &next); err != nil {

@@ -461,3 +461,75 @@ func TestUserRulesPrecedeAutoRules(t *testing.T) {
 		t.Error("auto rule should be at the bottom")
 	}
 }
+
+func TestGlobalModeRouteFinal(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Mode = ModeGlobal
+	cfg.CustomNodes = []CustomNode{
+		{ID: "hk1", Name: "Hong Kong 01", Server: "hk.example.com", Port: 443, Password: "pass"},
+	}
+	cfg.SelectedNode = "node-hk1"
+
+	built := build(t, cfg, testTunnels())
+	route, ok := built["route"].(map[string]any)
+	if !ok {
+		t.Fatal("missing route section")
+	}
+	if route["final"] != tagProxy {
+		t.Errorf("route.final = %v, want %v in global mode", route["final"], tagProxy)
+	}
+
+	// In rule mode, route.final should be tagDirect
+	cfg.Mode = ModeRule
+	builtRule := build(t, cfg, testTunnels())
+	routeRule, _ := builtRule["route"].(map[string]any)
+	if routeRule["final"] != tagDirect {
+		t.Errorf("route.final = %v, want %v in rule mode", routeRule["final"], tagDirect)
+	}
+}
+
+func TestProxySelectorNodeSelectionAndDeselection(t *testing.T) {
+	cfg := baseConfig()
+	cfg.CustomNodes = []CustomNode{
+		{ID: "hk1", Name: "Hong Kong 01", Server: "hk.example.com", Port: 443, Password: "pass"},
+		{ID: "jp1", Name: "Tokyo 01", Server: "jp.example.com", Port: 443, Password: "pass"},
+	}
+
+	// 1. With selected node
+	cfg.SelectedNode = "node-jp1"
+	built := build(t, cfg, testTunnels())
+	outbounds, _ := built["outbounds"].([]any)
+	var proxySelector map[string]any
+	for _, o := range outbounds {
+		om := o.(map[string]any)
+		if om["tag"] == tagProxy {
+			proxySelector = om
+			break
+		}
+	}
+	if proxySelector == nil {
+		t.Fatal("proxy selector outbound not found")
+	}
+	if proxySelector["default"] != "node-jp1" {
+		t.Errorf("proxy selector default = %v, want node-jp1", proxySelector["default"])
+	}
+
+	// 2. Deselected (empty / direct)
+	cfg.SelectedNode = ""
+	builtDeselected := build(t, cfg, testTunnels())
+	outboundsDeselected, _ := builtDeselected["outbounds"].([]any)
+	var proxySelectorDeselected map[string]any
+	for _, o := range outboundsDeselected {
+		om := o.(map[string]any)
+		if om["tag"] == tagProxy {
+			proxySelectorDeselected = om
+			break
+		}
+	}
+	if proxySelectorDeselected == nil {
+		t.Fatal("proxy selector outbound not found when deselected")
+	}
+	if proxySelectorDeselected["default"] != tagDirect {
+		t.Errorf("proxy selector default when deselected = %v, want %v", proxySelectorDeselected["default"], tagDirect)
+	}
+}

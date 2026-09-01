@@ -412,6 +412,38 @@ textarea::placeholder { color: var(--faint); }
   border: 1px solid currentColor; padding: 7px 11px;
   font-size: 11px; margin-bottom: 16px;
 }
+/* --- mode switcher segmented control --- */
+.mode-group {
+  display: inline-flex;
+  background: var(--bg);
+  border: 1px solid var(--hair-firm);
+  border-radius: 4px;
+  padding: 2px;
+  gap: 2px;
+}
+.mode-btn {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--dim);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.mode-btn:hover {
+  color: var(--ink);
+  background: var(--surface);
+}
+.mode-btn.active {
+  color: var(--ink);
+  background: var(--surface);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0,0,0,.1);
+}
 </style>
 </head>
 <body>
@@ -422,6 +454,11 @@ textarea::placeholder { color: var(--faint); }
       <span><b id="r-up">0</b>/<span id="r-total">0</span> <span data-i18n="bar.up"></span></span>
       <span><span data-i18n="bar.ingress"></span> <b id="r-ingress">—</b></span>
       <span><span data-i18n="bar.onfail"></span> <b id="r-fail">—</b></span>
+    </div>
+    <div class="mode-group" id="bar-mode-group">
+      <button class="mode-btn" data-mode="rule" data-i18n="mode.rule"></button>
+      <button class="mode-btn" data-mode="global" data-i18n="mode.global"></button>
+      <button class="mode-btn" data-mode="direct" data-i18n="mode.direct"></button>
     </div>
     <div class="gap"></div>
     <span class="phase" id="phase"></span>
@@ -447,6 +484,24 @@ textarea::placeholder { color: var(--faint); }
       <section class="pane" id="pane-nodes" hidden>
         <h2 data-i18n="nodes.title"></h2>
         <p class="sub" data-i18n="nodes.sub"></p>
+
+        <div style="margin-bottom: 20px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--hair-firm); border-radius: 6px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <div style="font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); margin-bottom: 3px;" data-i18n="nodes.modeCardTitle"></div>
+              <div style="font-size: 12px;" id="mode-desc"></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div class="mode-group" id="pane-mode-group">
+                <button class="mode-btn" data-mode="rule" data-i18n="mode.rule"></button>
+                <button class="mode-btn" data-mode="global" data-i18n="mode.global"></button>
+                <button class="mode-btn" data-mode="direct" data-i18n="mode.direct"></button>
+              </div>
+              <button class="act quiet" id="clear-proxy-btn" data-i18n="nodes.deselect" style="font-size: 11px;" hidden></button>
+            </div>
+          </div>
+        </div>
+
         <div class="toolbar" style="margin:0 0 16px">
           <button class="act primary" id="add-node-btn" data-i18n="nodes.addNode"></button>
           <button class="act" id="add-sub-btn" data-i18n="nodes.addSub"></button>
@@ -517,6 +572,7 @@ textarea::placeholder { color: var(--faint); }
       <section class="pane" id="pane-rules" hidden>
         <h2 data-i18n="rules.title"></h2>
         <p class="sub" data-i18n="rules.sub"></p>
+        <div id="rules-global-banner" class="banner info" style="margin-bottom:14px;padding:8px 12px;background:var(--amber-bg);border:1px solid var(--amber);font-size:11px;" hidden data-i18n="rules.globalBanner"></div>
         <div id="rules"></div>
         <div class="toolbar">
           <button class="act" id="add-rule" data-i18n="rules.add"></button>
@@ -816,6 +872,20 @@ const STRINGS = {
     "tunnels.logs": "日志",
     "tunnels.refresh": "刷新", "tunnels.updated": "更新于 %s", "tunnels.never": "尚未读取",
 
+    "mode.title": "路由模式",
+    "mode.rule": "规则分流",
+    "mode.global": "全局代理",
+    "mode.direct": "全局直连",
+    "mode.ruleDesc": "公司内网走 VPN 隧道，匹配规则走代理，其余外网流量直连。",
+    "mode.globalDesc": "公司内网走 VPN 隧道，其余所有外网流量统一走选中的代理节点。",
+    "mode.directDesc": "仅公司内网走 VPN 隧道，不走任何代理，其余外网流量全部直连。",
+    "nodes.activeProxy": "当前代理",
+    "nodes.noActiveProxy": "未选用（默认直连）",
+    "nodes.deselect": "取消选用",
+    "nodes.select": "选用",
+    "nodes.active": "当前选用",
+    "nodes.modeCardTitle": "路由模式与代理出口",
+
     "nodes.title": "节点与订阅",
     "nodes.sub": "管理用于访问外网的自建 Trojan 节点与订阅。可作为分流规则的目标或默认代理出口。",
     "nodes.addNode": "添加节点", "nodes.addSub": "添加订阅",
@@ -823,7 +893,6 @@ const STRINGS = {
     "nodes.subsTitle": "订阅列表", "nodes.nodesTitle": "所有节点",
     "nodes.emptySubs": "暂无订阅，点击上方按钮添加订阅链接。",
     "nodes.emptyNodes": "暂无可用节点。可添加自建 Trojan 节点或导入订阅。",
-    "nodes.active": "当前代理", "nodes.select": "设为出口",
     "nodes.ping": "测速", "nodes.edit": "编辑", "nodes.delete": "删除", "nodes.update": "更新",
     "nodes.nodeCount": "%d 个节点", "nodes.lastUpdated": "更新于 %s", "nodes.neverUpdated": "尚未更新",
     "nodes.testing": "测速中…", "nodes.timeout": "超时",
@@ -839,6 +908,7 @@ const STRINGS = {
 
     "rules.title": "分流规则",
     "rules.sub": "按顺序匹配，且排在隧道上报的规则之前，所以显式设置总能胜出。应用会重建路由引擎，已建立的连接会短暂中断。",
+    "rules.globalBanner": "当前处于全局代理模式：所有未匹配公司内网规则的外网流量将统一走当前选中的代理节点。",
     "rules.empty": "没有显式规则。流量按各隧道上报的路由走，其余直连。",
     "rules.add": "新增规则", "rules.apply": "应用并保存", "rules.revert": "撤销",
     "rules.matcher": "+ 匹配条件", "rules.delete": "删除规则",
@@ -954,6 +1024,21 @@ const STRINGS = {
     "tunnels.logs": "logs",
     "tunnels.refresh": "refresh", "tunnels.updated": "read at %s", "tunnels.never": "not read yet",
 
+    "mode.title": "Routing Mode",
+    "mode.rule": "Rule Mode",
+    "mode.global": "Global Proxy",
+    "mode.direct": "Direct Mode",
+    "mode.ruleDesc": "Intranet via VPN tunnels, rules via proxy, other internet traffic direct.",
+    "mode.globalDesc": "Intranet via VPN tunnels, all other internet traffic via selected proxy.",
+    "mode.directDesc": "Intranet via VPN tunnels only, no proxy used, all other traffic direct.",
+    "nodes.activeProxy": "Active Proxy",
+    "nodes.noActiveProxy": "None (Direct)",
+    "nodes.deselect": "Deselect",
+    "nodes.select": "Select",
+    "nodes.active": "Active",
+    "nodes.modeCardTitle": "Routing Mode & Proxy Outbound",
+    "rules.globalBanner": "Currently in Global Proxy mode: all non-tunnel traffic is routed through the active proxy node.",
+
     "nodes.title": "Proxies & Subscriptions",
     "nodes.sub": "Manage custom Trojan nodes and subscriptions for outbound traffic, available as routing targets.",
     "nodes.addNode": "Add node", "nodes.addSub": "Add subscription",
@@ -961,7 +1046,6 @@ const STRINGS = {
     "nodes.subsTitle": "Subscriptions", "nodes.nodesTitle": "Nodes",
     "nodes.emptySubs": "No subscriptions yet. Click above to add one.",
     "nodes.emptyNodes": "No nodes available. Add a custom Trojan node or subscription.",
-    "nodes.active": "Active", "nodes.select": "Select",
     "nodes.ping": "Ping", "nodes.edit": "Edit", "nodes.delete": "Delete", "nodes.update": "Update",
     "nodes.nodeCount": "%d nodes", "nodes.lastUpdated": "Updated %s", "nodes.neverUpdated": "Not updated yet",
     "nodes.testing": "Testing…", "nodes.timeout": "Timeout",
@@ -1392,6 +1476,11 @@ $("settings-save").addEventListener("click", async () => {
 });
 
 function renderReadout(s) {
+  const activeMode = s.mode || "rule";
+  document.querySelectorAll(".mode-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === activeMode);
+  });
+
   const wanted = s.tunnels.filter((t) => t.wanted);
   const up = wanted.filter((t) => t.up).length;
   $("r-up").textContent = up;
@@ -1539,8 +1628,31 @@ function renderNodes(s) {
   const subs = s.subscriptions || [];
   const allNodes = s.all_nodes || [];
   const selectedTag = s.selected_node || "";
+  const activeMode = s.mode || "rule";
 
   $("c-nodes").textContent = allNodes.length || "";
+
+  // Update mode buttons
+  document.querySelectorAll(".mode-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === activeMode);
+  });
+
+  // Update mode description
+  const modeDesc = $("mode-desc");
+  if (modeDesc) {
+    let activeNodeName = t("nodes.noActiveProxy");
+    if (selectedTag) {
+      const cleanTag = selectedTag.replace(/^node-/, "");
+      const found = allNodes.find((n) => n.id === selectedTag || n.id === cleanTag || "node-" + n.id === selectedTag);
+      if (found) activeNodeName = found.name;
+    }
+    modeDesc.textContent = t("mode." + activeMode + "Desc") + " (" + t("nodes.activeProxy") + ": " + activeNodeName + ")";
+  }
+
+  const clearBtn = $("clear-proxy-btn");
+  if (clearBtn) {
+    clearBtn.hidden = !selectedTag;
+  }
 
   // 1. Subscriptions list
   if (!subs.length) {
@@ -1611,7 +1723,7 @@ function renderNodes(s) {
     nodesBox.appendChild(el("div", "empty", t("nodes.emptyNodes")));
   } else {
     allNodes.forEach((n) => {
-      const isSelected = selectedTag === n.id || selectedTag === "node-" + n.id;
+      const isSelected = selectedTag === n.id || selectedTag === "node-" + n.id || ("node-" + selectedTag) === ("node-" + n.id);
       const card = el("div", "node-card" + (isSelected ? " active" : ""));
 
       // Info
@@ -1675,7 +1787,26 @@ function renderNodes(s) {
 
       // Actions
       const acts = el("div", null);
-      if (!isSelected) {
+      if (isSelected) {
+        const deselectBtn = el("button", "act quiet", t("nodes.deselect"));
+        deselectBtn.addEventListener("click", async () => {
+          deselectBtn.disabled = true;
+          try {
+            const res = await api("/api/nodes/select", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: "" }),
+            });
+            render(await res.json());
+          } catch (e) {
+            $("nodes-note").className = "note bad";
+            $("nodes-note").textContent = e.message;
+          } finally {
+            deselectBtn.disabled = false;
+          }
+        });
+        acts.appendChild(deselectBtn);
+      } else {
         const selectBtn = el("button", "act primary", t("nodes.select"));
         selectBtn.addEventListener("click", async () => {
           selectBtn.disabled = true;
@@ -1764,6 +1895,42 @@ $("update-all-subs-btn").addEventListener("click", async () => {
     $("nodes-note").className = "note good";
     $("nodes-note").textContent = t("nodes.updated");
     render(state);
+  } catch (e) {
+    $("nodes-note").className = "note bad";
+    $("nodes-note").textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// Mode buttons click delegation
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".mode-btn");
+  if (!btn) return;
+  const mode = btn.dataset.mode;
+  if (!mode) return;
+  try {
+    const res = await api("/api/mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+    render(await res.json());
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+$("clear-proxy-btn").addEventListener("click", async () => {
+  const btn = $("clear-proxy-btn");
+  btn.disabled = true;
+  try {
+    const res = await api("/api/nodes/select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "" }),
+    });
+    render(await res.json());
   } catch (e) {
     $("nodes-note").className = "note bad";
     $("nodes-note").textContent = e.message;
@@ -1926,6 +2093,12 @@ function markDirty() {
 function renderRules(rules) {
   const box = $("rules");
   box.textContent = "";
+
+  const globalBanner = $("rules-global-banner");
+  if (globalBanner) {
+    globalBanner.hidden = (state.mode !== "global");
+  }
+
   // Counted here rather than by whoever made the change, so the badge always
   // matches the rules on screen.
   $("c-rules").textContent = rules.length || "";

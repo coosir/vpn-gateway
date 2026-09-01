@@ -95,6 +95,11 @@ func BuildConfig(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState) (
 	routeRules := buildRouteRules(cfg, tunnels, byName)
 	dnsRules := buildDNSRules(cfg, tunnels, byName)
 
+	finalOutbound := tagDirect
+	if cfg.EffectiveMode() == ModeGlobal {
+		finalOutbound = tagProxy
+	}
+
 	out := map[string]any{
 		"log": map[string]any{"level": cfg.LogLevel, "timestamp": true},
 		"dns": map[string]any{
@@ -110,7 +115,7 @@ func BuildConfig(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState) (
 			// Outbounds need to resolve their own server names, and must do
 			// so outside the tunnels they are dialing.
 			"default_domain_resolver": map[string]any{"server": tagDNSDefault},
-			"final":                   tagDirect,
+			"final":                   finalOutbound,
 			// Without this the connection to the vpn-gateway server would be
 			// captured by our own TUN routes and loop back into itself.
 			"auto_detect_interface": true,
@@ -268,7 +273,7 @@ func buildOutbounds(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState
 		})
 	}
 
-	needsProxySelector := len(proxyTags) > 0
+	needsProxySelector := len(proxyTags) > 0 || cfg.EffectiveMode() == ModeGlobal
 	if !needsProxySelector {
 		for _, r := range cfg.Rules {
 			if r.Tunnel == TargetProxy {
@@ -282,10 +287,10 @@ func buildOutbounds(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState
 		if len(proxyTags) > 0 {
 			proxyOutbounds := append([]string(nil), proxyTags...)
 			proxyOutbounds = append(proxyOutbounds, tagDirect)
-			defaultOutbound := proxyTags[0]
+			defaultOutbound := tagDirect
 			if cfg.SelectedNode != "" {
 				for _, pt := range proxyTags {
-					if pt == cfg.SelectedNode || pt == "node-"+cfg.SelectedNode {
+					if pt == cfg.SelectedNode || pt == "node-"+cfg.SelectedNode || "node-"+pt == cfg.SelectedNode {
 						defaultOutbound = pt
 						break
 					}

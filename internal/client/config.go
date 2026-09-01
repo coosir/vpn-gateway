@@ -24,6 +24,10 @@ const (
 	TargetBlock = "block"
 	// TargetProxy sends traffic out through the active proxy node group.
 	TargetProxy = "proxy"
+
+	ModeRule   = "rule"
+	ModeGlobal = "global"
+	ModeDirect = "direct"
 )
 
 // Config is the client configuration, normally
@@ -60,17 +64,28 @@ type Config struct {
 	// AutoDomains does the same for the search domains a tunnel reports.
 	AutoDomains bool `yaml:"auto_domains,omitempty"`
 
+	// Mode controls general traffic routing: "rule" (default), "global" (all non-tunnel traffic via selected proxy), or "direct".
+	Mode string `yaml:"mode,omitempty" json:"mode,omitempty"`
+
 	// Subscriptions holds remote node subscriptions.
 	Subscriptions []Subscription `yaml:"subscriptions,omitempty" json:"subscriptions,omitempty"`
 
 	// CustomNodes holds manually added proxy nodes.
 	CustomNodes []CustomNode `yaml:"custom_nodes,omitempty" json:"custom_nodes,omitempty"`
 
-	// SelectedNode is the tag/ID of the selected proxy node, or empty for the first node.
+	// SelectedNode is the tag/ID of the selected proxy node, or empty for no proxy / direct.
 	SelectedNode string `yaml:"selected_node,omitempty" json:"selected_node,omitempty"`
 
 	// LogLevel is sing-box's log level.
 	LogLevel string `yaml:"log_level,omitempty"`
+}
+
+// EffectiveMode returns the normalized mode ("rule", "global", "direct").
+func (c *Config) EffectiveMode() string {
+	if c.Mode == ModeGlobal || c.Mode == ModeDirect {
+		return c.Mode
+	}
+	return ModeRule
 }
 
 // AuthConfig holds user credentials for server authentication.
