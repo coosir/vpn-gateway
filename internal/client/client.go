@@ -208,8 +208,8 @@ func (c *Client) Start(ctx context.Context) error {
 // startError explains the most common reason starting fails.
 func startError(cfg *Config, err error) error {
 	msg := strings.ToLower(err.Error())
-	if cfg.TUN.Enabled && (strings.Contains(msg, "permission denied") || strings.Contains(msg, "operation not permitted")) {
-		return fmt.Errorf("creating the TUN interface needs elevated privileges: %w", err)
+	if cfg.TUN.Enabled && (strings.Contains(msg, "permission denied") || strings.Contains(msg, "operation not permitted") || strings.Contains(msg, "privileges") || strings.Contains(msg, "unable to create tun")) {
+		return errors.New("TUN 模式需要系统管理员权限：请在首页安装“后台提权服务”，或在设置中切换为本地代理端口模式")
 	}
 	return err
 }

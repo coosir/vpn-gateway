@@ -1338,6 +1338,27 @@ input:checked + .slider:before { transform: translateX(18px); }
   </div>
 </div>
 
+<!-- 4. TUN Service Requirement Modal -->
+<div class="veil" id="tun-service-modal-veil" hidden>
+  <div class="prompt-box" role="dialog" aria-modal="true" style="max-width:500px">
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
+      <div style="width:38px; height:38px; border-radius:10px; background:var(--primary-bg); color:var(--primary); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+        <svg viewBox="0 0 24 24" style="width:22px; height:22px; fill:currentColor;"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>
+      </div>
+      <div>
+        <div style="font-size:16px; font-weight:700; color:var(--ink);" data-i18n="service.tunNeedsServiceTitle"></div>
+        <div style="font-size:12px; color:var(--dim);" data-i18n="service.tunNeedsServiceSub"></div>
+      </div>
+    </div>
+    <div style="font-size:13px; color:var(--dim); line-height:1.6; margin-bottom:18px; white-space:pre-line;" data-i18n="service.tunNeedsServiceDesc"></div>
+    <div style="display:flex; gap:8px; align-items:center; justify-content:flex-end; flex-wrap:wrap;">
+      <button class="act quiet" id="tun-modal-cancel" data-i18n="nodes.cancel"></button>
+      <button class="act" id="tun-modal-proxy" data-i18n="service.switchToProxy"></button>
+      <button class="act primary" id="tun-modal-install" data-i18n="service.installNow"></button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 
@@ -1426,6 +1447,11 @@ const STRINGS = {
     "service.removed": "服务已卸载，客户端重新使用内置引擎。",
     "service.cancelled": "操作已取消。",
     "service.elsewhere": "该服务运行的是另一份配置：%s",
+    "service.tunNeedsServiceTitle": "需要安装后台提权服务",
+    "service.tunNeedsServiceSub": "TUN 虚拟网卡模式需要管理员权限",
+    "service.tunNeedsServiceDesc": "当前处于 TUN 虚拟网卡接管模式，创建虚拟网卡和路由表需要系统管理员权限。\n\n建议点击“立即安装服务”，在弹出的系统窗口输入密码完成安装；或者切换为无需系统权限的“本地代理端口”模式。",
+    "service.installNow": "立即安装服务 (推荐)",
+    "service.switchToProxy": "切换为代理端口模式",
 
     "nodes.title": "节点与订阅",
     "nodes.sub": "管理用于访问外网的自建 Trojan 节点与订阅，可作为分流规则的目标或默认代理出口。",
@@ -1563,6 +1589,11 @@ const STRINGS = {
     "service.removed": "Service uninstalled, running standalone engine.",
     "service.cancelled": "Cancelled.",
     "service.elsewhere": "This service runs a different config: %s",
+    "service.tunNeedsServiceTitle": "Privileged Helper Service Required",
+    "service.tunNeedsServiceSub": "TUN interface mode requires elevated privileges",
+    "service.tunNeedsServiceDesc": "TUN virtual network interface mode is enabled. Creating TUN adapters and configuring routes require system administrator privileges.\n\nClick 'Install Service Now' to authorize in the system prompt, or switch to 'Local Proxy Port' mode without privileges.",
+    "service.installNow": "Install Service Now",
+    "service.switchToProxy": "Switch to Proxy Port",
 
     "nodes.title": "Nodes & Subscriptions",
     "nodes.sub": "Manage outbound Trojan nodes and subscriptions for proxy routing.",
@@ -1937,6 +1968,13 @@ $("home-master-btn").addEventListener("click", async () => {
     return;
   }
   const isConnected = currentPhase === "connected";
+
+  // If TUN mode is enabled on a system supporting helper service, but service is not installed:
+  if (!isConnected && state.client && state.client.tun && service.supported && !service.installed) {
+    $("tun-service-modal-veil").hidden = false;
+    return;
+  }
+
   const path = isConnected ? "/api/disconnect" : "/api/connect";
 
   // Immediately render intermediate connecting / disconnecting state
@@ -1956,11 +1994,15 @@ $("home-master-btn").addEventListener("click", async () => {
     render(await res.json());
   } catch (e) {
     $("home-offline").hidden = false;
-    $("home-offline").textContent = e.message;
+    let errMsg = e.message;
+    if (errMsg && (errMsg.includes("permission denied") || errMsg.includes("operation not permitted") || errMsg.includes("elevated privileges") || errMsg.includes("提权服务"))) {
+      errMsg = t("service.tunNeedsServiceSub") + "：" + t("service.tunNeedsServiceDesc").replace(/\n+/g, " ");
+    }
+    $("home-offline").textContent = errMsg;
     if (state) {
       if (state.session && !isConnected) {
         state.session.phase = "failed";
-        state.session.last_error = e.message;
+        state.session.last_error = errMsg;
       }
       render(state);
     }
@@ -2109,6 +2151,34 @@ $("service-uninstall").addEventListener("click", () =>
   serviceAction("/api/service/uninstall", "service.uninstalling", "service.removed"));
 $("home-service-uninstall").addEventListener("click", () =>
   serviceAction("/api/service/uninstall", "service.uninstalling", "service.removed"));
+
+/* --- TUN Service Requirement Modal Events ------------------------------- */
+$("tun-modal-cancel").addEventListener("click", () => {
+  $("tun-service-modal-veil").hidden = true;
+});
+$("tun-modal-install").addEventListener("click", () => {
+  $("tun-service-modal-veil").hidden = true;
+  serviceAction("/api/service/install", "service.installing", "service.installed");
+});
+$("tun-modal-proxy").addEventListener("click", async () => {
+  $("tun-service-modal-veil").hidden = true;
+  try {
+    const res = await api("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tun: { enabled: false, auto_route: false },
+        proxy: { enabled: true, listen: (state.client && state.client.proxy_listen) || "127.0.0.1:1080" },
+      }),
+    });
+    render(await res.json());
+    // Auto-connect in proxy mode
+    const connectRes = await api("/api/connect", { method: "POST" });
+    render(await connectRes.json());
+  } catch (err) {
+    alert(err.message);
+  }
+});
 
 /* --- Tunnels Rendering ------------------------------------------------- */
 async function refreshTunnels() {
