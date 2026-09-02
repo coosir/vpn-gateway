@@ -23,8 +23,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 // ErrUnsupported is returned on platforms with no service to install.
@@ -238,4 +241,43 @@ func configFromPlist(plutilJSON []byte) string {
 		}
 	}
 	return ""
+}
+
+var (
+	verCacheMu    sync.Mutex
+	verCachePath  string
+	verCacheMTime time.Time
+	verCacheSize  int64
+	verCacheVal   string
+)
+
+// cachedBinaryVersion avoids spawning a subprocess on every inspect tick
+// if the binary on disk hasn't been modified.
+func cachedBinaryVersion(path string, runVersion func(string) (string, error)) string {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	verCacheMu.Lock()
+	if verCachePath == path && verCacheMTime.Equal(fi.ModTime()) && verCacheSize == fi.Size() && verCacheVal != "" {
+		v := verCacheVal
+		verCacheMu.Unlock()
+		return v
+	}
+	verCacheMu.Unlock()
+
+	out, err := runVersion(path)
+	if err != nil {
+		return ""
+	}
+	ver := strings.TrimSpace(out)
+	if ver != "" {
+		verCacheMu.Lock()
+		verCachePath = path
+		verCacheMTime = fi.ModTime()
+		verCacheSize = fi.Size()
+		verCacheVal = ver
+		verCacheMu.Unlock()
+	}
+	return ver
 }

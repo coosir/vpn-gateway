@@ -77,9 +77,18 @@ func run(configPath, lang string) error {
 	// from a launcher, which is why nothing depends on it.
 	fmt.Println("interface:", link)
 
+	var sv *supervisor
 	app := application.New(application.Options{
 		Name:        t("title"),
 		Description: t("description"),
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: "com.vpn-gateway.desktop",
+			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
+				if sv != nil && sv.window != nil {
+					showWindow(sv.window)
+				}
+			},
+		},
 		Mac: application.MacOptions{
 			// A menu bar tool: no Dock icon, and closing the window leaves it
 			// running rather than quitting.
@@ -99,7 +108,7 @@ func run(configPath, lang string) error {
 	// Which engine is in charge is decided here, not chosen: the background
 	// service either exists or it does not, and it can be installed or removed
 	// from somewhere this application never hears about.
-	sv := &supervisor{
+	sv = &supervisor{
 		configPath: absPath(configPath),
 		session:    session,
 		local:      &localEngine{session: session, link: link},

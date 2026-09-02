@@ -72,16 +72,12 @@ func InstalledBinaryVersion(binaryPath string) string {
 	if binaryPath == "" {
 		binaryPath = filepath.Join(os.Getenv("ProgramFiles"), "VPNGateway", cliName)
 	}
-	if _, err := os.Stat(binaryPath); err != nil {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), inspectTimeout)
-	defer cancel()
-	out, err := hideWindow(exec.CommandContext(ctx, binaryPath, "version")).Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	return cachedBinaryVersion(binaryPath, func(bin string) (string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), inspectTimeout)
+		defer cancel()
+		out, err := hideWindow(exec.CommandContext(ctx, bin, "version")).Output()
+		return string(out), err
+	})
 }
 
 func blocker(opt Options) string {

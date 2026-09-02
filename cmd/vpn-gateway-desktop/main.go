@@ -20,12 +20,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/vpn-gateway/vpn-gateway/internal/version"
 )
 
 const usage = `vpn-gateway-desktop runs the vpn-gateway client with a tray and a window.
 
 Usage:
-  vpn-gateway-desktop [-config path] [-lang zh|en]
+  vpn-gateway-desktop [-config path] [-lang zh|en] [version|run]
 
 Everything it needs is configured in the interface, so it takes no arguments
 in normal use. Opening it is enough.
@@ -35,6 +37,14 @@ still runs as a local proxy, which is what it starts as.
 `
 
 func main() {
+	// Fast path for version queries before anything else initializes.
+	for _, arg := range os.Args[1:] {
+		if arg == "version" || arg == "-v" || arg == "--version" || arg == "-version" {
+			fmt.Println(version.Full())
+			return
+		}
+	}
+
 	var (
 		configPath = flag.String("config", defaultConfigPath(), "where to keep the configuration")
 		lang       = flag.String("lang", "", "zh or en; defaults to the system language")
@@ -42,6 +52,11 @@ func main() {
 	)
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
+
+	if len(flag.Args()) > 0 && flag.Arg(0) == "version" {
+		fmt.Println(version.Full())
+		return
+	}
 
 	// Packaging calls this to produce the launcher icon, so the drawing lives
 	// in one place rather than as a binary blob checked in beside it.
