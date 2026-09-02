@@ -104,6 +104,18 @@ func TestAPIUserManagementAndRevocation(t *testing.T) {
 	}
 	res.Body.Close()
 
+	// 4b. Bob (non-admin) trying to start tunnel should get 403 Forbidden
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/api/v1/tunnels/mock/start", nil)
+	req.Header.Set("Authorization", "Bearer "+bobToken)
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /api/v1/tunnels/mock/start: %v", err)
+	}
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("non-admin start tunnel status = %d, want 403 Forbidden", res.StatusCode)
+	}
+	res.Body.Close()
+
 	// 5. Open SSE stream for bob
 	req, _ = http.NewRequest(http.MethodGet, ts.URL+"/api/v1/events", nil)
 	req.Header.Set("Authorization", "Bearer "+bobToken)

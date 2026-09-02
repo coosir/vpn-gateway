@@ -23,7 +23,10 @@ import (
 
 type contextKey string
 
-const userContextKey contextKey = "username"
+const (
+	userContextKey    contextKey = "username"
+	isAdminContextKey contextKey = "isAdmin"
+)
 
 // Server exposes the control API.
 type Server struct {
@@ -49,6 +52,7 @@ type LoginResponse struct {
 	OK       bool   `json:"ok"`
 	Username string `json:"username,omitempty"`
 	Token    string `json:"token,omitempty"`
+	IsAdmin  bool   `json:"is_admin,omitempty"`
 	Error    string `json:"error,omitempty"`
 }
 
@@ -83,9 +87,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/tunnels/{name}/logs", s.auth(s.getLogs))
 	mux.HandleFunc("GET /api/v1/tunnels/{name}/challenge", s.auth(s.getChallenge))
 	mux.HandleFunc("POST /api/v1/tunnels/{name}/auth", s.auth(s.postAuth))
-	mux.HandleFunc("POST /api/v1/tunnels/{name}/start", s.auth(s.postStart))
-	mux.HandleFunc("POST /api/v1/tunnels/{name}/stop", s.auth(s.postStop))
-	mux.HandleFunc("POST /api/v1/tunnels/{name}/reconnect", s.auth(s.postReconnect))
+
+	// Tunnel control endpoints (Admin only)
+	mux.HandleFunc("POST /api/v1/tunnels/{name}/start", s.adminAuth(s.postStart))
+	mux.HandleFunc("POST /api/v1/tunnels/{name}/stop", s.adminAuth(s.postStop))
+	mux.HandleFunc("POST /api/v1/tunnels/{name}/reconnect", s.adminAuth(s.postReconnect))
 
 	return mux
 }
@@ -105,7 +111,7 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := s.usersMgr.Authenticate(req.Username, req.Password)
+	token, isAdmin, err := s.usersMgr.Authenticate(req.Username, req.Password)
 	if err != nil {
 		s.log.Warn("user authentication failed", "username", req.Username, "error", err)
 		writeJSON(w, http.StatusUnauthorized, LoginResponse{
@@ -115,39 +121,34 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.log.Info("user authenticated successfully", "username", req.Username)
+	s.log.Info("user authenticated successfully", "username", req.Username, "is_admin", isAdmin)
 	writeJSON(w, http.StatusOK, LoginResponse{
 		OK:       true,
 		Username: req.Username,
 		Token:    token,
+		IsAdmin:  isAdmin,
 	})
 }
 
-// adminAuth requires the admin API token.
+// adminAuth requires the admin API token or an authenticated user with IsAdmin=true.
 func (s *Server) adminAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// 1. Master admin token
 		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if ok && subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) == 1 {
-			next(w, r)
-			return
-		}
-		writeErr(w, http.StatusUnauthorized, "admin authorization required")
-	}
-}
-
-func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// 1. Admin API token
-		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if ok && subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) == 1 {
+			r = r.WithContext(context.WithValue(context.WithValue(r.Context(), userContextKey, "admin"), isAdminContextKey, true))
 			next(w, r)
 			return
 		}
 
 		// 2. User session token
 		if ok && s.usersMgr != nil {
-			if username, valid := s.usersMgr.Validate(got); valid {
-				r = r.WithContext(context.WithValue(r.Context(), userContextKey, username))
+			if username, isAdmin, valid := s.usersMgr.Validate(got); valid {
+				if !isAdmin {
+					writeErr(w, http.StatusForbidden, "administrator privileges required")
+					return
+				}
+				r = r.WithContext(context.WithValue(context.WithValue(r.Context(), userContextKey, username), isAdminContextKey, true))
 				next(w, r)
 				return
 			}
@@ -157,8 +158,47 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 		if s.usersMgr != nil {
 			username, password, ok := r.BasicAuth()
 			if ok {
-				if _, err := s.usersMgr.Authenticate(username, password); err == nil {
-					r = r.WithContext(context.WithValue(r.Context(), userContextKey, username))
+				if _, isAdmin, err := s.usersMgr.Authenticate(username, password); err == nil {
+					if !isAdmin {
+						writeErr(w, http.StatusForbidden, "administrator privileges required")
+						return
+					}
+					r = r.WithContext(context.WithValue(context.WithValue(r.Context(), userContextKey, username), isAdminContextKey, true))
+					next(w, r)
+					return
+				}
+			}
+		}
+
+		writeErr(w, http.StatusUnauthorized, "admin authorization required")
+	}
+}
+
+func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// 1. Admin API token
+		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if ok && subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) == 1 {
+			r = r.WithContext(context.WithValue(context.WithValue(r.Context(), userContextKey, "admin"), isAdminContextKey, true))
+			next(w, r)
+			return
+		}
+
+		// 2. User session token
+		if ok && s.usersMgr != nil {
+			if username, isAdmin, valid := s.usersMgr.Validate(got); valid {
+				r = r.WithContext(context.WithValue(context.WithValue(r.Context(), userContextKey, username), isAdminContextKey, isAdmin))
+				next(w, r)
+				return
+			}
+		}
+
+		// 3. Basic Auth
+		if s.usersMgr != nil {
+			username, password, ok := r.BasicAuth()
+			if ok {
+				if _, isAdmin, err := s.usersMgr.Authenticate(username, password); err == nil {
+					r = r.WithContext(context.WithValue(context.WithValue(r.Context(), userContextKey, username), isAdminContextKey, isAdmin))
 					next(w, r)
 					return
 				}
@@ -181,6 +221,7 @@ func (s *Server) postUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		IsAdmin  bool   `json:"is_admin"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
@@ -190,17 +231,18 @@ func (s *Server) postUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "user manager not available")
 		return
 	}
-	if err := s.usersMgr.Add(req.Username, req.Password); err != nil {
+	if err := s.usersMgr.Add(req.Username, req.Password, req.IsAdmin); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "username": req.Username})
+	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "username": req.Username, "is_admin": req.IsAdmin})
 }
 
 func (s *Server) putUser(w http.ResponseWriter, r *http.Request) {
 	username := r.PathValue("username")
 	var req struct {
-		Password string `json:"password"`
+		Password *string `json:"password,omitempty"`
+		IsAdmin  *bool   `json:"is_admin,omitempty"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
@@ -210,9 +252,17 @@ func (s *Server) putUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "user manager not available")
 		return
 	}
-	if err := s.usersMgr.UpdatePassword(username, req.Password); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
+	if req.Password != nil && *req.Password != "" {
+		if err := s.usersMgr.UpdatePassword(username, *req.Password); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.IsAdmin != nil {
+		if err := s.usersMgr.SetAdmin(username, *req.IsAdmin); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "username": username})
 }

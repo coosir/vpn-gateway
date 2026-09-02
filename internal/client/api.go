@@ -49,6 +49,7 @@ func (s Snapshot) Up() bool {
 type API struct {
 	BaseURL string
 	Token   string
+	IsAdmin bool
 	HTTP    *http.Client
 }
 
@@ -88,12 +89,14 @@ func (a *API) Login(ctx context.Context, username, password string) error {
 		return fmt.Errorf("login failed (status %d): %s", res.StatusCode, strings.TrimSpace(string(b)))
 	}
 	var reply struct {
-		OK    bool   `json:"ok"`
-		Token string `json:"token"`
-		Error string `json:"error"`
+		OK      bool   `json:"ok"`
+		Token   string `json:"token"`
+		IsAdmin bool   `json:"is_admin"`
+		Error   string `json:"error"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&reply); err == nil && reply.Token != "" {
 		a.Token = reply.Token
+		a.IsAdmin = reply.IsAdmin
 	}
 	return nil
 }

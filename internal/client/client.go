@@ -114,6 +114,11 @@ func (c *Client) Config() ([]byte, error) {
 // API exposes the server's control API, for answering prompts.
 func (c *Client) API() *API { return c.api }
 
+// IsAdmin reports whether the currently authenticated user has administrator privileges.
+func (c *Client) IsAdmin() bool {
+	return c.api != nil && c.api.IsAdmin
+}
+
 // Tunnels returns the client's current view.
 func (c *Client) Tunnels() []TunnelState {
 	c.mu.RLock()

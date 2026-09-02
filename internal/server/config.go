@@ -57,6 +57,7 @@ type Config struct {
 type UserConfig struct {
 	Username     string `yaml:"username" json:"username"`
 	PasswordHash string `yaml:"password_hash" json:"password_hash"`
+	IsAdmin      bool   `yaml:"is_admin,omitempty" json:"is_admin,omitempty"`
 }
 
 // Authenticate verifies the plaintext password against the configured password hash.

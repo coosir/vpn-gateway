@@ -28,9 +28,21 @@ func handleUserCommand(cfg *server.Config, args []string) error {
 		return runUserList(cfg)
 	case "add":
 		if len(args) < 3 {
-			return errors.New("usage: vgctl user add <username> <password>")
+			return errors.New("usage: vgctl user add <username> <password> [--admin]")
 		}
-		return runUserAdd(cfg, args[1], args[2])
+		isAdmin := false
+		for _, a := range args[3:] {
+			if a == "--admin" || a == "-admin" || a == "admin" {
+				isAdmin = true
+			}
+		}
+		return runUserAdd(cfg, args[1], args[2], isAdmin)
+	case "set-admin":
+		if len(args) < 3 {
+			return errors.New("usage: vgctl user set-admin <username> <true|false>")
+		}
+		isAdmin := strings.EqualFold(args[2], "true") || args[2] == "1" || strings.EqualFold(args[2], "yes")
+		return runUserSetAdmin(cfg, args[1], isAdmin)
 	case "passwd", "update", "set-password":
 		if len(args) < 3 {
 			return errors.New("usage: vgctl user passwd <username> <new-password>")
@@ -42,7 +54,7 @@ func handleUserCommand(cfg *server.Config, args []string) error {
 		}
 		return runUserDelete(cfg, args[1])
 	default:
-		return fmt.Errorf("unknown user subcommand %q; use list, add, passwd, or delete", sub)
+		return fmt.Errorf("unknown user subcommand %q; use list, add, set-admin, passwd, or delete", sub)
 	}
 }
 
@@ -50,10 +62,11 @@ func printUserHelp() error {
 	fmt.Println("Usage: vgctl user <subcommand> [args...]")
 	fmt.Println()
 	fmt.Println("Subcommands:")
-	fmt.Println("  list                          List all registered users")
-	fmt.Println("  add <username> <password>     Create a new user")
-	fmt.Println("  passwd <username> <password>  Update a user's password (disconnects active sessions)")
-	fmt.Println("  delete <username>             Delete a user (disconnects active sessions immediately)")
+	fmt.Println("  list                              List all registered users")
+	fmt.Println("  add <username> <password> [--admin] Create a new user (with optional admin privileges)")
+	fmt.Println("  set-admin <username> <true|false> Grant or revoke admin privileges for a user")
+	fmt.Println("  passwd <username> <password>      Update a user's password (disconnects active sessions)")
+	fmt.Println("  delete <username>                 Delete a user (disconnects active sessions immediately)")
 	return nil
 }
 
@@ -123,18 +136,22 @@ func printUsers(list []users.UserSummary) {
 		fmt.Println("no registered users found")
 		return
 	}
-	fmt.Printf("%-20s %-25s %s\n", "USERNAME", "CREATED_AT", "UPDATED_AT")
+	fmt.Printf("%-20s %-10s %-22s %s\n", "USERNAME", "ADMIN", "CREATED_AT", "UPDATED_AT")
 	for _, u := range list {
 		created := u.CreatedAt.Format("2006-01-02 15:04:05")
 		updated := u.UpdatedAt.Format("2006-01-02 15:04:05")
-		fmt.Printf("%-20s %-25s %s\n", u.Username, created, updated)
+		adminStr := "no"
+		if u.IsAdmin {
+			adminStr = "yes"
+		}
+		fmt.Printf("%-20s %-10s %-22s %s\n", u.Username, adminStr, created, updated)
 	}
 }
 
-func runUserAdd(cfg *server.Config, username, password string) error {
+func runUserAdd(cfg *server.Config, username, password string, isAdmin bool) error {
 	apiURL, token, online := getAPIClient(cfg)
 	if online {
-		body, _ := json.Marshal(map[string]string{"username": username, "password": password})
+		body, _ := json.Marshal(map[string]any{"username": username, "password": password, "is_admin": isAdmin})
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, apiURL+"/api/v1/users", bytes.NewReader(body))
@@ -149,7 +166,11 @@ func runUserAdd(cfg *server.Config, username, password string) error {
 			b, _ := io.ReadAll(res.Body)
 			return fmt.Errorf("failed to add user: %s", strings.TrimSpace(string(b)))
 		}
-		fmt.Printf("user %q added successfully (online)\n", username)
+		adminNote := ""
+		if isAdmin {
+			adminNote = " (admin)"
+		}
+		fmt.Printf("user %q%s added successfully (online)\n", username, adminNote)
 		return nil
 	}
 
@@ -159,10 +180,57 @@ func runUserAdd(cfg *server.Config, username, password string) error {
 	if err != nil {
 		return err
 	}
-	if err := mgr.Add(username, password); err != nil {
+	if err := mgr.Add(username, password, isAdmin); err != nil {
 		return err
 	}
-	fmt.Printf("user %q added successfully (offline database updated)\n", username)
+	adminNote := ""
+	if isAdmin {
+		adminNote = " (admin)"
+	}
+	fmt.Printf("user %q%s added successfully (offline database updated)\n", username, adminNote)
+	return nil
+}
+
+func runUserSetAdmin(cfg *server.Config, username string, isAdmin bool) error {
+	apiURL, token, online := getAPIClient(cfg)
+	if online {
+		body, _ := json.Marshal(map[string]any{"is_admin": isAdmin})
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPut, apiURL+"/api/v1/users/"+username, bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(res.Body)
+			return fmt.Errorf("failed to update admin role: %s", strings.TrimSpace(string(b)))
+		}
+		statusStr := "revoked from"
+		if isAdmin {
+			statusStr = "granted to"
+		}
+		fmt.Printf("admin privileges %s user %q (online)\n", statusStr, username)
+		return nil
+	}
+
+	// Offline fallback
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	mgr, err := users.NewManager(cfg.StateDir, cfg.Users, log)
+	if err != nil {
+		return err
+	}
+	if err := mgr.SetAdmin(username, isAdmin); err != nil {
+		return err
+	}
+	statusStr := "revoked from"
+	if isAdmin {
+		statusStr = "granted to"
+	}
+	fmt.Printf("admin privileges %s user %q (offline database updated)\n", statusStr, username)
 	return nil
 }
 

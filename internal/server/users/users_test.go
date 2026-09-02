@@ -26,7 +26,7 @@ func TestUserManager(t *testing.T) {
 	}
 
 	// Add a new user
-	if err := m.Add("alice", "alicepassword"); err != nil {
+	if err := m.Add("alice", "alicepassword", false); err != nil {
 		t.Fatalf("Add alice: %v", err)
 	}
 	if m.Count() != 2 {
@@ -34,22 +34,36 @@ func TestUserManager(t *testing.T) {
 	}
 
 	// Duplicate user should fail
-	if err := m.Add("alice", "anotherpass"); err == nil {
+	if err := m.Add("alice", "anotherpass", false); err == nil {
 		t.Error("Add duplicate user alice should fail")
 	}
 
 	// Authenticate alice with wrong password
-	if _, err := m.Authenticate("alice", "wrong"); err == nil {
+	if _, _, err := m.Authenticate("alice", "wrong"); err == nil {
 		t.Error("Authenticate with wrong password should fail")
 	}
 
 	// Authenticate alice with correct password
-	tok1, err := m.Authenticate("alice", "alicepassword")
+	tok1, isAdmin, err := m.Authenticate("alice", "alicepassword")
 	if err != nil {
 		t.Fatalf("Authenticate alice: %v", err)
 	}
-	if user, ok := m.Validate(tok1); !ok || user != "alice" {
-		t.Fatalf("Validate tok1: got %q, %v; want alice, true", user, ok)
+	if isAdmin {
+		t.Fatalf("alice isAdmin = true, want false")
+	}
+	if user, validAdmin, ok := m.Validate(tok1); !ok || user != "alice" || validAdmin {
+		t.Fatalf("Validate tok1: got %q, %v, %v; want alice, false, true", user, validAdmin, ok)
+	}
+
+	// Grant admin to alice
+	if err := m.SetAdmin("alice", true); err != nil {
+		t.Fatalf("SetAdmin alice true: %v", err)
+	}
+	if !m.IsAdmin("alice") {
+		t.Fatalf("m.IsAdmin(alice) = false, want true")
+	}
+	if user, validAdmin, ok := m.Validate(tok1); !ok || user != "alice" || !validAdmin {
+		t.Fatalf("Validate tok1 after SetAdmin: got %q, %v, %v; want alice, true, true", user, validAdmin, ok)
 	}
 
 	// Register cancel hook for alice
@@ -78,17 +92,20 @@ func TestUserManager(t *testing.T) {
 	}
 
 	// Old session token should be revoked
-	if _, ok := m.Validate(tok1); ok {
+	if _, _, ok := m.Validate(tok1); ok {
 		t.Error("old session token should be invalid after password update")
 	}
 
 	// New login with updated password
-	tok2, err := m.Authenticate("alice", "newpassword123")
+	tok2, isAdmin2, err := m.Authenticate("alice", "newpassword123")
 	if err != nil {
 		t.Fatalf("Authenticate alice with new password: %v", err)
 	}
-	if user, ok := m.Validate(tok2); !ok || user != "alice" {
-		t.Fatalf("Validate tok2: got %q, %v; want alice, true", user, ok)
+	if !isAdmin2 {
+		t.Fatalf("alice isAdmin2 = false, want true")
+	}
+	if user, validAdmin2, ok := m.Validate(tok2); !ok || user != "alice" || !validAdmin2 {
+		t.Fatalf("Validate tok2: got %q, %v, %v; want alice, true, true", user, validAdmin2, ok)
 	}
 
 	// Register cancel hook again for deletion test
@@ -115,7 +132,7 @@ func TestUserManager(t *testing.T) {
 	}
 
 	// Session tok2 should now be invalid
-	if _, ok := m.Validate(tok2); ok {
+	if _, _, ok := m.Validate(tok2); ok {
 		t.Error("session token should be invalid after user deletion")
 	}
 

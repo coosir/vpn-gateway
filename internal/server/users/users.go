@@ -27,6 +27,7 @@ var usernameRE = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,31}$`)
 type User struct {
 	Username     string    `json:"username"`
 	PasswordHash string    `json:"password_hash"`
+	IsAdmin      bool      `json:"is_admin"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -34,6 +35,7 @@ type User struct {
 // UserSummary is a safe representation of a user without sensitive hashes.
 type UserSummary struct {
 	Username  string    `json:"username"`
+	IsAdmin   bool      `json:"is_admin"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -42,6 +44,7 @@ type UserSummary struct {
 type Session struct {
 	Username  string    `json:"username"`
 	Token     string    `json:"token"`
+	IsAdmin   bool      `json:"is_admin"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -102,6 +105,7 @@ func (m *Manager) load(initialUsers []server.UserConfig) error {
 				m.users[u.Username] = User{
 					Username:     u.Username,
 					PasswordHash: u.PasswordHash,
+					IsAdmin:      u.IsAdmin,
 					CreatedAt:    now,
 					UpdatedAt:    now,
 				}
@@ -125,6 +129,7 @@ func (m *Manager) load(initialUsers []server.UserConfig) error {
 			m.users[u.Username] = User{
 				Username:     u.Username,
 				PasswordHash: u.PasswordHash,
+				IsAdmin:      u.IsAdmin,
 				CreatedAt:    now,
 				UpdatedAt:    now,
 			}
@@ -155,8 +160,8 @@ func (m *Manager) saveLocked() error {
 	return nil
 }
 
-// Add creates a new user.
-func (m *Manager) Add(username, password string) error {
+// Add creates a new user with optional administrator role.
+func (m *Manager) Add(username, password string, isAdmin bool) error {
 	username = strings.TrimSpace(username)
 	if !usernameRE.MatchString(username) {
 		return fmt.Errorf("invalid username %q: must be 1-32 alphanumeric characters, dot, underscore or hyphen", username)
@@ -181,6 +186,7 @@ func (m *Manager) Add(username, password string) error {
 	m.users[username] = User{
 		Username:     username,
 		PasswordHash: string(hash),
+		IsAdmin:      isAdmin,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
@@ -189,7 +195,37 @@ func (m *Manager) Add(username, password string) error {
 		delete(m.users, username)
 		return err
 	}
-	m.log.Info("created user", "username", username)
+	m.log.Info("created user", "username", username, "is_admin", isAdmin)
+	return nil
+}
+
+// SetAdmin updates whether a user has administrator privileges.
+func (m *Manager) SetAdmin(username string, isAdmin bool) error {
+	username = strings.TrimSpace(username)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	user, exists := m.users[username]
+	if !exists {
+		return fmt.Errorf("user %q does not exist", username)
+	}
+
+	user.IsAdmin = isAdmin
+	user.UpdatedAt = time.Now().UTC()
+	m.users[username] = user
+
+	for tok, sess := range m.sessions {
+		if sess.Username == username {
+			sess.IsAdmin = isAdmin
+			m.sessions[tok] = sess
+		}
+	}
+
+	if err := m.saveLocked(); err != nil {
+		return err
+	}
+
+	m.log.Info("updated admin status for user", "username", username, "is_admin", isAdmin)
 	return nil
 }
 
@@ -263,6 +299,7 @@ func (m *Manager) List() []UserSummary {
 	for _, u := range m.users {
 		out = append(out, UserSummary{
 			Username:  u.Username,
+			IsAdmin:   u.IsAdmin,
 			CreatedAt: u.CreatedAt,
 			UpdatedAt: u.UpdatedAt,
 		})
@@ -278,52 +315,64 @@ func (m *Manager) Count() int {
 	return len(m.users)
 }
 
-// Authenticate verifies user credentials and generates a new session token.
-func (m *Manager) Authenticate(username, password string) (string, error) {
+// Authenticate verifies user credentials and generates a new session token, returning (token, isAdmin, error).
+func (m *Manager) Authenticate(username, password string) (string, bool, error) {
 	username = strings.TrimSpace(username)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	user, exists := m.users[username]
 	if !exists {
-		return "", errors.New("invalid username or password")
+		return "", false, errors.New("invalid username or password")
 	}
 
 	if !verifyPassword(user.PasswordHash, password) {
-		return "", errors.New("invalid username or password")
+		return "", false, errors.New("invalid username or password")
 	}
 
 	raw := make([]byte, 24)
 	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("generate session token: %w", err)
+		return "", false, fmt.Errorf("generate session token: %w", err)
 	}
 	token := "sess_" + hex.EncodeToString(raw)
 
 	m.sessions[token] = Session{
 		Username:  username,
 		Token:     token,
+		IsAdmin:   user.IsAdmin,
 		CreatedAt: time.Now().UTC(),
 	}
 
-	return token, nil
+	return token, user.IsAdmin, nil
 }
 
-// Validate checks if a session token is valid and belongs to an active user.
-func (m *Manager) Validate(token string) (string, bool) {
+// Validate checks if a session token is valid and belongs to an active user, returning (username, isAdmin, valid).
+func (m *Manager) Validate(token string) (string, bool, bool) {
 	if token == "" {
-		return "", false
+		return "", false, false
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	sess, exists := m.sessions[token]
 	if !exists {
-		return "", false
+		return "", false, false
 	}
-	if _, userExists := m.users[sess.Username]; !userExists {
-		return "", false
+	user, userExists := m.users[sess.Username]
+	if !userExists {
+		return "", false, false
 	}
-	return sess.Username, true
+	return sess.Username, user.IsAdmin, true
+}
+
+// IsAdmin checks if a username belongs to an active administrator user.
+func (m *Manager) IsAdmin(username string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if u, ok := m.users[username]; ok {
+		return u.IsAdmin
+	}
+	return false
 }
 
 // RegisterCancel registers a context cancel function for an active user connection.

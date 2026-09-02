@@ -157,6 +157,7 @@ type State struct {
 	SelectedNode  string                `json:"selected_node"`
 	Mode          string                `json:"mode"`
 	Version       string                `json:"version"`
+	IsAdmin       bool                  `json:"is_admin"`
 }
 
 // TunnelView is one tunnel as the interface shows it.
@@ -206,7 +207,9 @@ func (s *Server) state() State {
 
 	var tunnels []client.TunnelState
 	views := []TunnelView{}
+	var isAdmin bool
 	if c := s.ctl.Client(); c != nil {
+		isAdmin = c.IsAdmin()
 		tunnels = c.Tunnels()
 		for _, t := range tunnels {
 			views = append(views, TunnelView{
@@ -250,6 +253,7 @@ func (s *Server) state() State {
 		SelectedNode:  cfg.SelectedNode,
 		Mode:          cfg.EffectiveMode(),
 		Version:       version.Full(),
+		IsAdmin:       isAdmin,
 		Client: ClientView{
 			TUN:         cfg.TUN.Enabled,
 			Proxy:       cfg.Proxy.Enabled,
@@ -524,6 +528,10 @@ func (s *Server) postTunnelStart(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "nothing is connected")
 		return
 	}
+	if !c.IsAdmin() {
+		writeErr(w, http.StatusForbidden, "administrator privileges required to start tunnels")
+		return
+	}
 	if err := c.API().StartTunnel(r.Context(), r.PathValue("name")); err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -537,6 +545,10 @@ func (s *Server) postTunnelStop(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "nothing is connected")
 		return
 	}
+	if !c.IsAdmin() {
+		writeErr(w, http.StatusForbidden, "administrator privileges required to stop tunnels")
+		return
+	}
 	if err := c.API().StopTunnel(r.Context(), r.PathValue("name")); err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -548,6 +560,10 @@ func (s *Server) postReconnect(w http.ResponseWriter, r *http.Request) {
 	c := s.ctl.Client()
 	if c == nil {
 		writeErr(w, http.StatusConflict, "nothing is connected")
+		return
+	}
+	if !c.IsAdmin() {
+		writeErr(w, http.StatusForbidden, "administrator privileges required to reconnect tunnels")
 		return
 	}
 	if err := c.API().Reconnect(r.Context(), r.PathValue("name")); err != nil {

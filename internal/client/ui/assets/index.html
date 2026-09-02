@@ -913,7 +913,7 @@ input:checked + .slider:before { transform: translateX(18px); }
         <span data-i18n="nav.tunnels"></span>
         <span class="count" id="c-tunnels"></span>
       </button>
-      <button data-pane="nodes">
+      <button data-pane="nodes" id="nav-nodes" style="display:none">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
         <span data-i18n="nav.nodes"></span>
         <span class="count" id="c-nodes"></span>
@@ -976,7 +976,7 @@ input:checked + .slider:before { transform: translateX(18px); }
           </div>
 
           <div class="hero-stats">
-            <div class="hero-stat-item">
+            <div class="hero-stat-item" id="hero-stat-mode" style="display:none">
               <span class="hero-stat-label" data-i18n="home.statMode"></span>
               <span class="hero-stat-val" id="h-mode-val">直连模式</span>
             </div>
@@ -988,15 +988,15 @@ input:checked + .slider:before { transform: translateX(18px); }
               <span class="hero-stat-label" data-i18n="home.statTunnels"></span>
               <span class="hero-stat-val" id="h-tunnels-val">0 在线</span>
             </div>
-            <div class="hero-stat-item">
+            <div class="hero-stat-item" id="hero-stat-proxy" style="display:none">
               <span class="hero-stat-label" data-i18n="home.statProxy"></span>
               <span class="hero-stat-val" id="h-proxy-val">默认直连</span>
             </div>
           </div>
         </div>
 
-        <!-- 模式切换 (Mode Switching Cards - Default Direct) -->
-        <div style="margin-bottom: 22px;">
+        <!-- 模式切换 (Mode Switching Cards - Hidden) -->
+        <div id="home-mode-section" style="display:none; margin-bottom: 22px;">
           <div class="card-header" style="margin-bottom: 12px;">
             <div>
               <div class="card-title">
@@ -1136,7 +1136,7 @@ input:checked + .slider:before { transform: translateX(18px); }
         <div id="rules-global-banner" class="alert-banner warn" hidden data-i18n="rules.globalBanner"></div>
         <div id="rules"></div>
         <div class="toolbar">
-          <button class="act" id="add-rule">
+          <button class="act" id="add-rule" style="display:none">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
             <span data-i18n="rules.add"></span>
           </button>
@@ -1860,19 +1860,21 @@ function render(s) {
   s.custom_nodes = s.custom_nodes || [];
   s.all_nodes = s.all_nodes || [];
   s.mode = s.mode || "direct";
+  s.is_admin = !!s.is_admin;
   state = s;
 
   renderPhase(s);
   renderReadout(s);
   renderHome(s);
 
-  const freshTunnels = JSON.stringify(s.tunnels);
+  const freshTunnels = JSON.stringify({ tunnels: s.tunnels, is_admin: s.is_admin });
   if (freshTunnels !== renderedTunnels) {
     renderedTunnels = freshTunnels;
     renderTunnels(s.tunnels);
   }
   renderNodes(s);
   renderLogTunnels(s.tunnels);
+  $("log-reconnect").style.display = s.is_admin ? "" : "none";
   stampTunnels(s.at);
 
   if (draft === null) {
@@ -1918,12 +1920,8 @@ function renderPhase(st) {
   const btn = $("home-master-btn");
   const btnText = $("home-master-btn-text");
   const btnSvg = btn.querySelector("svg");
-  if (phase === "setup") {
-    btn.className = "master-btn connect";
-    btn.disabled = false;
-    btnText.textContent = t("home.importNow");
-    if (btnSvg) btnSvg.outerHTML = `<svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`;
-  } else if (phase === "connected") {
+
+  if (phase === "connected") {
     btn.className = "master-btn disconnect";
     btn.disabled = false;
     btnText.textContent = t("home.disconnect");
@@ -1938,6 +1936,11 @@ function renderPhase(st) {
     btn.disabled = false;
     btnText.textContent = t("home.retry");
     if (btnSvg) btnSvg.outerHTML = `<svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>`;
+  } else if (phase === "setup") {
+    btn.className = "master-btn connect";
+    btn.disabled = false;
+    btnText.textContent = t("home.importNow");
+    if (btnSvg) btnSvg.outerHTML = `<svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`;
   } else {
     btn.className = "master-btn connect";
     btn.disabled = false;
@@ -1947,6 +1950,10 @@ function renderPhase(st) {
 
   const ready = phase !== "setup";
   document.querySelectorAll('.rail button[data-pane]').forEach((b) => {
+    if (b.dataset.pane === "nodes") {
+      b.style.display = "none";
+      return;
+    }
     b.hidden = !ready && b.dataset.pane !== "setup" && b.dataset.pane !== "home";
   });
 
@@ -2341,21 +2348,23 @@ function renderTunnels(tunnels) {
     const actions = el("div", "toolbar", "");
     actions.style.margin = "0";
 
-    const toggleBtn = el("button", "act" + (tn.wanted ? " danger" : " primary"),
-      tn.wanted ? t("tunnels.stop") : t("tunnels.start"));
-    toggleBtn.addEventListener("click", async () => {
-      toggleBtn.disabled = true;
-      const path = "/api/tunnels/" + encodeURIComponent(tn.name) + (tn.wanted ? "/stop" : "/start");
-      try {
-        await api(path, { method: "POST" });
-      } catch (e) {
-        alert(e.message);
-      } finally {
-        toggleBtn.disabled = false;
-      }
-      refreshTunnels();
-    });
-    actions.appendChild(toggleBtn);
+    if (state.is_admin) {
+      const toggleBtn = el("button", "act" + (tn.wanted ? " danger" : " primary"),
+        tn.wanted ? t("tunnels.stop") : t("tunnels.start"));
+      toggleBtn.addEventListener("click", async () => {
+        toggleBtn.disabled = true;
+        const path = "/api/tunnels/" + encodeURIComponent(tn.name) + (tn.wanted ? "/stop" : "/start");
+        try {
+          await api(path, { method: "POST" });
+        } catch (e) {
+          alert(e.message);
+        } finally {
+          toggleBtn.disabled = false;
+        }
+        refreshTunnels();
+      });
+      actions.appendChild(toggleBtn);
+    }
 
     const logBtn = el("button", "act quiet", t("tunnels.logs"));
     logBtn.addEventListener("click", () => {
