@@ -53,6 +53,7 @@ func SaveSettings(path string, cfg *Config) error {
 	for _, key := range settingsKeys {
 		value, ok := fresh[key]
 		if !ok {
+			removeMappingKey(root, key)
 			continue
 		}
 		replaced := false
@@ -75,6 +76,15 @@ func SaveSettings(path string, cfg *Config) error {
 		return fmt.Errorf("render the configuration: %w", err)
 	}
 	return writeAtomically(path, out)
+}
+
+func removeMappingKey(root *yaml.Node, key string) {
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == key {
+			root.Content = append(root.Content[:i], root.Content[i+2:]...)
+			return
+		}
+	}
 }
 
 // writeInitialConfig creates a configuration file for a session that had

@@ -186,3 +186,43 @@ func TestSaveSettingsWithAuth(t *testing.T) {
 		t.Errorf("auth = %+v", reloaded.Auth)
 	}
 }
+
+func TestSaveSettingsToggleAndClearDisabledAutoRules(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "client.yaml")
+	if err := os.WriteFile(path, []byte(annotated), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Disable an auto rule
+	cfg.DisabledAutoRules = []string{"office:domain_suffix:internal.corp"}
+	if err := SaveSettings(path, cfg); err != nil {
+		t.Fatalf("SaveSettings disable: %v", err)
+	}
+
+	reloaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig after disable: %v", err)
+	}
+	if len(reloaded.DisabledAutoRules) != 1 || reloaded.DisabledAutoRules[0] != "office:domain_suffix:internal.corp" {
+		t.Fatalf("expected 1 disabled auto rule, got: %+v", reloaded.DisabledAutoRules)
+	}
+
+	// 2. Re-enable the auto rule (clear DisabledAutoRules)
+	reloaded.DisabledAutoRules = []string{}
+	if err := SaveSettings(path, reloaded); err != nil {
+		t.Fatalf("SaveSettings re-enable: %v", err)
+	}
+
+	reloaded2, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig after re-enable: %v", err)
+	}
+	if len(reloaded2.DisabledAutoRules) != 0 {
+		t.Fatalf("expected 0 disabled auto rules after re-enabling, got: %+v", reloaded2.DisabledAutoRules)
+	}
+}

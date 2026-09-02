@@ -365,6 +365,12 @@ func (s *Server) putRules(w http.ResponseWriter, r *http.Request) {
 				for _, d := range r.DomainSuffix {
 					disabledAutoKeys = append(disabledAutoKeys, client.AutoRuleKey(r.Tunnel, "domain_suffix", d))
 				}
+				for _, d := range r.Domain {
+					disabledAutoKeys = append(disabledAutoKeys, client.AutoRuleKey(r.Tunnel, "domain", d))
+				}
+				for _, kw := range r.DomainKeyword {
+					disabledAutoKeys = append(disabledAutoKeys, client.AutoRuleKey(r.Tunnel, "domain_keyword", kw))
+				}
 				for _, cidr := range r.IPCIDR {
 					disabledAutoKeys = append(disabledAutoKeys, client.AutoRuleKey(r.Tunnel, "ip_cidr", cidr))
 				}
