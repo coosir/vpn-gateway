@@ -97,24 +97,6 @@ func (m *Manager) load(initialUsers []server.UserConfig) error {
 		for _, u := range list {
 			m.users[u.Username] = u
 		}
-		// Also import any initialUsers from config if not yet in users.json
-		changed := false
-		for _, u := range initialUsers {
-			if _, exists := m.users[u.Username]; !exists && u.Username != "" {
-				now := time.Now().UTC()
-				m.users[u.Username] = User{
-					Username:     u.Username,
-					PasswordHash: u.PasswordHash,
-					IsAdmin:      u.IsAdmin,
-					CreatedAt:    now,
-					UpdatedAt:    now,
-				}
-				changed = true
-			}
-		}
-		if changed {
-			return m.saveLocked()
-		}
 		return nil
 	}
 
@@ -122,7 +104,7 @@ func (m *Manager) load(initialUsers []server.UserConfig) error {
 		return fmt.Errorf("users: read %s: %w", m.path, err)
 	}
 
-	// Initialize from initialUsers if users.json does not exist
+	// Initialize from initialUsers only if users.json does not exist (first boot / initial migration)
 	now := time.Now().UTC()
 	for _, u := range initialUsers {
 		if u.Username != "" {

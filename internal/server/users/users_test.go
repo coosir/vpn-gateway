@@ -137,7 +137,9 @@ func TestUserManager(t *testing.T) {
 	}
 
 	// Reload manager from disk to verify persistence
-	m2, err := NewManager(dir, nil, log)
+	m2, err := NewManager(dir, []server.UserConfig{
+		{Username: "inituser", PasswordHash: "sha256:fcf730b6d95236ecd3c9fc2d92d7b6b2bb061514961aec041d6c7a7192f592e4"},
+	}, log)
 	if err != nil {
 		t.Fatalf("NewManager reload: %v", err)
 	}
@@ -147,5 +149,32 @@ func TestUserManager(t *testing.T) {
 	list := m2.List()
 	if len(list) != 1 || list[0].Username != "inituser" {
 		t.Fatalf("m2.List() = %+v, want [inituser]", list)
+	}
+
+	// Delete inituser
+	if err := m2.Delete("inituser"); err != nil {
+		t.Fatalf("Delete inituser: %v", err)
+	}
+	if m2.Count() != 0 {
+		t.Fatalf("m2.Count() = %d after deleting inituser, want 0", m2.Count())
+	}
+
+	// Reload again with inituser in initialUsers: should NOT resurrect deleted inituser
+	m3, err := NewManager(dir, []server.UserConfig{
+		{Username: "inituser", PasswordHash: "sha256:fcf730b6d95236ecd3c9fc2d92d7b6b2bb061514961aec041d6c7a7192f592e4"},
+	}, log)
+	if err != nil {
+		t.Fatalf("NewManager reload 2: %v", err)
+	}
+	if m3.Count() != 0 {
+		t.Fatalf("m3.Count() = %d, want 0 (deleted inituser should not be resurrected)", m3.Count())
+	}
+
+	// Re-add inituser should succeed
+	if err := m3.Add("inituser", "brandnewpassword", true); err != nil {
+		t.Fatalf("Re-adding inituser failed: %v", err)
+	}
+	if m3.Count() != 1 {
+		t.Fatalf("m3.Count() after re-add = %d, want 1", m3.Count())
 	}
 }
