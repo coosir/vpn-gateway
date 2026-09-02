@@ -138,30 +138,35 @@
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
-  scrollbar-color: var(--hair) transparent;
+  scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
 }
 ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.35);
+  background-color: rgba(148, 163, 184, 0.45);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.65);
+  background-color: rgba(148, 163, 184, 0.75);
 }
 :root[data-theme="dark"] ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.25);
+  background-color: rgba(148, 163, 184, 0.35);
 }
 :root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.5);
+  background-color: rgba(148, 163, 184, 0.65);
 }
 [hidden] { display: none !important; }
-html, body { height: 100%; margin: 0; overflow: hidden; }
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
 body {
   background: var(--bg);
   color: var(--ink);
@@ -177,9 +182,10 @@ a:hover { text-decoration: underline; }
 /* --- Layout Structure -------------------------------------------------- */
 .shell {
   display: grid;
-  grid-template-rows: 52px 1fr;
+  grid-template-rows: 52px minmax(0, 1fr);
   height: 100vh;
   max-height: 100vh;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -295,7 +301,8 @@ a:hover { text-decoration: underline; }
 /* --- Main Layout with Sidebar --- */
 .body {
   display: grid;
-  grid-template-columns: 210px 1fr;
+  grid-template-columns: 210px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   height: 100%;
   overflow: hidden;
@@ -309,6 +316,7 @@ a:hover { text-decoration: underline; }
   user-select: none;
   overflow-y: auto;
   overflow-x: hidden;
+  min-height: 0;
   height: 100%;
 }
 .rail-group-title {
@@ -369,9 +377,12 @@ a:hover { text-decoration: underline; }
 }
 
 .pane {
+  display: block;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  height: 100%;
   box-sizing: border-box;
   padding: 24px 30px 60px;
   min-width: 0;
