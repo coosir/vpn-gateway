@@ -376,8 +376,19 @@ a:hover { text-decoration: underline; }
   user-select: none;
 }
 
+main {
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
 .pane {
   display: block;
+  flex: 1 1 auto;
   min-height: 0;
   height: 100%;
   max-height: 100%;
@@ -1135,7 +1146,7 @@ input:checked + .slider:before { transform: translateX(18px); }
         </div>
         <div id="rules-global-banner" class="alert-banner warn" hidden data-i18n="rules.globalBanner"></div>
         <div id="rules"></div>
-        <div class="toolbar">
+        <div class="toolbar" style="display:none">
           <button class="act" id="add-rule" style="display:none">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
             <span data-i18n="rules.add"></span>
@@ -1867,6 +1878,10 @@ function render(s) {
   renderReadout(s);
   renderHome(s);
 
+  if (!s.is_admin && currentPane() === "logs") {
+    showPane("home");
+  }
+
   const freshTunnels = JSON.stringify({ tunnels: s.tunnels, is_admin: s.is_admin });
   if (freshTunnels !== renderedTunnels) {
     renderedTunnels = freshTunnels;
@@ -1877,17 +1892,15 @@ function render(s) {
   $("log-reconnect").style.display = s.is_admin ? "" : "none";
   stampTunnels(s.at);
 
-  if (draft === null) {
-    const fresh = JSON.stringify(s.rules);
-    if (fresh !== renderedRules) {
-      renderedRules = fresh;
-      renderRules(s.rules);
-    }
+  const freshRules = JSON.stringify(s.rules);
+  if (freshRules !== renderedRules) {
+    renderedRules = freshRules;
+    renderRules(s.rules);
   }
 
   $("c-tunnels").textContent = s.tunnels.length || "";
   $("c-nodes").textContent = s.all_nodes.length || "";
-  $("c-rules").textContent = (draft || s.rules).length || "";
+  $("c-rules").textContent = s.rules.length || "";
   if (s.version) {
     $("rail-version-text").textContent = s.version;
   }
@@ -1949,9 +1962,15 @@ function renderPhase(st) {
   }
 
   const ready = phase !== "setup";
+  const isAdmin = !!(st && st.is_admin);
   document.querySelectorAll('.rail button[data-pane]').forEach((b) => {
     if (b.dataset.pane === "nodes") {
       b.style.display = "none";
+      return;
+    }
+    if (b.dataset.pane === "logs") {
+      b.style.display = isAdmin ? "" : "none";
+      b.hidden = !ready && b.dataset.pane !== "setup" && b.dataset.pane !== "home";
       return;
     }
     b.hidden = !ready && b.dataset.pane !== "setup" && b.dataset.pane !== "home";
@@ -1999,7 +2018,6 @@ function renderReadout(s) {
   const onOff = (v) => v ? "开" : "关";
   const bits = [];
   if (s.client.username) bits.push(t("auth.username") + ": " + s.client.username);
-  if (s.client.proxy_listen) bits.push(t("bar.proxy") + ": " + s.client.proxy_listen);
   if (s.client.dns_default) bits.push("DNS: " + (s.client.dns_default === "local" ? "系统默认" : s.client.dns_default));
   bits.push(t("settings.autoroutes") + ": " + onOff(s.client.auto_routes));
   bits.push(t("settings.autodomains") + ": " + onOff(s.client.auto_domains));
@@ -2364,15 +2382,15 @@ function renderTunnels(tunnels) {
         refreshTunnels();
       });
       actions.appendChild(toggleBtn);
-    }
 
-    const logBtn = el("button", "act quiet", t("tunnels.logs"));
-    logBtn.addEventListener("click", () => {
-      showPane("logs");
-      $("log-tunnel").value = tn.name;
-      loadLogs();
-    });
-    actions.appendChild(logBtn);
+      const logBtn = el("button", "act quiet", t("tunnels.logs"));
+      logBtn.addEventListener("click", () => {
+        showPane("logs");
+        $("log-tunnel").value = tn.name;
+        loadLogs();
+      });
+      actions.appendChild(logBtn);
+    }
 
     card.appendChild(actions);
     box.appendChild(card);
@@ -2816,10 +2834,31 @@ function renderRules(rules) {
     head.appendChild(badges);
 
     const toggleBtn = el("button", "act quiet", rule.disabled ? t("rules.enable") : t("rules.disable"));
-    toggleBtn.addEventListener("click", () => {
-      markDirty();
-      draft[ri].disabled = !draft[ri].disabled;
-      renderRules(draft);
+    toggleBtn.addEventListener("click", async () => {
+      toggleBtn.disabled = true;
+      try {
+        const currentRules = state.rules || [];
+        const updatedRules = currentRules.map((r, idx) => {
+          const isTarget = (idx === ri);
+          const disabled = isTarget ? !r.disabled : !!r.disabled;
+          const out = { tunnel: r.tunnel, disabled: disabled, auto: !!r.auto };
+          MATCHER_KINDS.forEach((k) => { if (r[k] && r[k].length) out[k] = r[k]; });
+          return out;
+        });
+        const res = await api("/api/rules", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updatedRules),
+        });
+        const freshRules = await res.json();
+        state.rules = freshRules;
+        renderedRules = JSON.stringify(freshRules);
+        renderRules(freshRules);
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        toggleBtn.disabled = false;
+      }
     });
     head.appendChild(toggleBtn);
     card.appendChild(head);
