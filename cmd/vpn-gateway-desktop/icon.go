@@ -137,17 +137,18 @@ func statusIcon(phase client.Phase, healthy bool) []byte {
 	}
 }
 
-// appIcon draws the launcher application icon conforming to macOS Big Sur/Sequoia HIG:
-// an 82% standard inset squircle with soft bottom drop shadow and the centered shield emblem.
+// appIcon draws the launcher application icon:
+// a standard rounded squircle with rich gradient and centered shield emblem,
+// cleanly anti-aliased with transparent background.
 func appIcon(size int) []byte {
 	img := image.NewNRGBA(image.Rect(0, 0, size, size))
 
 	s := float64(size)
 
-	// Apple macOS 15 HIG standard icon sizing: 81.5% squircle body centered in canvas
-	bodySize := s * 0.815
+	// Clean 88% squircle body centered horizontally and vertically
+	bodySize := s * 0.88
 	bodyLeft := (s - bodySize) / 2.0
-	bodyTop := s * 0.075
+	bodyTop := (s - bodySize) / 2.0
 	corner := bodySize * 0.224
 
 	// Rich tech-blue gradient background (#258cfb to #0e59c5)
@@ -162,9 +163,6 @@ func appIcon(size int) []byte {
 	shieldDim := bodySize - 2*shieldPad
 	shieldLeft := bodyLeft + shieldPad
 	shieldTop := bodyTop + shieldPad
-
-	shadowOffset := s * 0.035
-	shadowBlur := s * 0.04
 
 	for y := range size {
 		fy := float64(y)
@@ -184,17 +182,15 @@ func appIcon(size int) []byte {
 		for x := range size {
 			fx := float64(x)
 
-			// Drop shadow calculation
-			sdx := math.Max(math.Max(bodyLeft+corner-fx, fx-(bodyLeft+bodySize-1-corner)), 0)
-			sdy := math.Max(math.Max(bodyTop+shadowOffset+corner-fy, fy-(bodyTop+shadowOffset+bodySize-1-corner)), 0)
-			sdist := math.Hypot(sdx, sdy)
-			shadowAlpha := clamp(corner+shadowBlur-sdist) / shadowBlur * 0.22
-
-			// Rounded squircle mask
+			// Rounded squircle mask with subpixel anti-aliasing
 			dx := math.Max(math.Max(bodyLeft+corner-fx, fx-(bodyLeft+bodySize-1-corner)), 0)
 			dy := math.Max(math.Max(bodyTop+corner-fy, fy-(bodyTop+bodySize-1-corner)), 0)
 			dist := math.Hypot(dx, dy)
 			bgAlpha := clamp(corner + 0.5 - dist)
+
+			if bgAlpha <= 0 {
+				continue
+			}
 
 			// Subpixel sampling for shield inside squircle
 			var outerHits, innerHits int
@@ -231,12 +227,7 @@ func appIcon(size int) []byte {
 				pixelColor = over(fgInner, pixelColor, innerAlpha)
 			}
 
-			if bgAlpha > 0 {
-				img.SetNRGBA(x, y, blend(pixelColor, bgAlpha))
-			} else if shadowAlpha > 0 {
-				shadowColor := color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: uint8(shadowAlpha * 255)}
-				img.SetNRGBA(x, y, shadowColor)
-			}
+			img.SetNRGBA(x, y, blend(pixelColor, bgAlpha))
 		}
 	}
 

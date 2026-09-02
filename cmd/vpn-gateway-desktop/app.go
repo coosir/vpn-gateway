@@ -77,6 +77,7 @@ func run(configPath, lang string) error {
 	app := application.New(application.Options{
 		Name:        t("title"),
 		Description: t("description"),
+		Icon:        appIcon(256),
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "com.vpn-gateway.desktop",
 			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
@@ -99,7 +100,7 @@ func run(configPath, lang string) error {
 		},
 	})
 
-	app.SetIcon(appIcon(512))
+	app.SetIcon(appIcon(256))
 
 	// Which engine is in charge is decided here, not chosen: the background
 	// service either exists or it does not, and it can be installed or removed
