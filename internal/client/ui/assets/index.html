@@ -161,11 +161,22 @@
   background-color: rgba(148, 163, 184, 0.65);
 }
 [hidden] { display: none !important; }
-html, body {
+html, body, .shell, .body, main {
   height: 100%;
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: hidden !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+.shell::-webkit-scrollbar,
+.body::-webkit-scrollbar,
+main::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 body {
   background: var(--bg);
@@ -399,9 +410,9 @@ main {
   min-width: 0;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
-  animation: fadeIn .18s ease-out;
+  animation: fadeIn .12s ease-out;
 }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 .pane-header {
   margin-bottom: 22px;

@@ -124,18 +124,13 @@ func run(ctx context.Context, configPath, logLevel, command string) error {
 	session := client.NewSession(configPath, log)
 	defer session.Close()
 
-	// A client started by launchd or systemd is restarted when it exits, so
-	// failing to connect at boot -- a server not reachable yet, a laptop whose
-	// network comes up late, a tunnel waiting for a verification code -- would
-	// be a restart loop with no interface anyone could open to see why. Where
-	// there is an interface, connecting is something it can retry. Where there
-	// is not, there is nobody to tell and the error is the exit status.
-	if err := session.Connect(ctx); err != nil {
-		if command != "run" || !cfg.UI.Enabled {
+	// Connect immediately for one-shot commands or headless runs (without UI).
+	// When running with UI enabled (desktop application / background service),
+	// start in idle state and wait for the user to manually initiate the connection.
+	if command != "run" || !cfg.UI.Enabled {
+		if err := session.Connect(ctx); err != nil {
 			return err
 		}
-		// The session has already logged why. This says what happens next.
-		log.Warn("the interface is running; connecting can be retried there")
 	}
 	c := session.Client()
 
