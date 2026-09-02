@@ -49,6 +49,7 @@ func main() {
 		configPath = flag.String("config", defaultConfigPath(), "where to keep the configuration")
 		lang       = flag.String("lang", "", "zh or en; defaults to the system language")
 		iconset    = flag.String("write-iconset", "", "internal: write launcher icons into this directory and exit")
+		icoFile    = flag.String("write-ico", "", "internal: write Windows .ico launcher icon to this file and exit")
 	)
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
@@ -62,6 +63,13 @@ func main() {
 	// in one place rather than as a binary blob checked in beside it.
 	if *iconset != "" {
 		if err := writeIconset(*iconset); err != nil {
+			fmt.Fprintln(os.Stderr, "vpn-gateway-desktop:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *icoFile != "" {
+		if err := os.WriteFile(*icoFile, appIconICO(), 0o644); err != nil {
 			fmt.Fprintln(os.Stderr, "vpn-gateway-desktop:", err)
 			os.Exit(1)
 		}

@@ -35,10 +35,6 @@ const pollInterval = 3 * time.Second
 // this to the next tick, which is the case that actually needs to be quick.
 const serviceCheckInterval = 15 * time.Second
 
-// maxTunnelItems bounds the menu. Past this the list stops being something
-// anyone reads at a glance, and the window shows all of them anyway.
-const maxTunnelItems = 12
-
 // Window geometry. The interface is a dense table, so it wants width more
 // than height, and it stays usable well below this.
 const (
@@ -155,14 +151,6 @@ func run(configPath, lang string) error {
 	status.SetEnabled(false)
 
 	menu.AddSeparator()
-	items := make([]*application.MenuItem, maxTunnelItems)
-	for i := range items {
-		items[i] = menu.Add("")
-		items[i].SetEnabled(false)
-		items[i].SetHidden(true)
-	}
-
-	menu.AddSeparator()
 	connect := menu.Add(t("connect"))
 	connect.OnClick(func(*application.Context) { sv.toggle() })
 	menu.Add(t("open")).OnClick(func(*application.Context) { showWindow(window) })
@@ -179,7 +167,7 @@ func run(configPath, lang string) error {
 		// window opens on its interface rather than on this one.
 		_ = sv.engine()
 		showWindow(window)
-		go refresh(sv, t, tray, status, connect, items, menu)
+		go refresh(sv, t, tray, status, connect, menu)
 	})
 
 	return app.Run()
@@ -330,7 +318,7 @@ func showWindow(w *application.WebviewWindow) {
 
 func refresh(sv *supervisor, t func(string, ...any) string,
 	tray *application.SystemTray, status, connect *application.MenuItem,
-	items []*application.MenuItem, menu *application.Menu) {
+	menu *application.Menu) {
 
 	for {
 		snap := sv.engine().Snapshot()
@@ -350,14 +338,6 @@ func refresh(sv *supervisor, t func(string, ...any) string,
 		}
 		tray.SetTooltip(v.Tooltip)
 
-		for i, it := range items {
-			if i >= len(v.Lines) {
-				it.SetHidden(true)
-				continue
-			}
-			it.SetLabel(v.Lines[i])
-			it.SetHidden(false)
-		}
 		// The menu is rebuilt from its items, so it has to be told they moved.
 		menu.Update()
 
@@ -373,7 +353,6 @@ type view struct {
 	Status    string
 	Action    string
 	Tooltip   string
-	Lines     []string
 }
 
 func buildView(st snapshot, t func(string, ...any) string) view {
@@ -430,13 +409,5 @@ func buildView(st snapshot, t func(string, ...any) string) view {
 	// Otherwise the one moment someone needs to look is the one moment it
 	// looks fine.
 	v.Healthy = up == len(st.Tunnels)
-
-	for _, tn := range st.Tunnels {
-		state := t("tunnel.down")
-		if tn.Up {
-			state = t("tunnel.up")
-		}
-		v.Lines = append(v.Lines, fmt.Sprintf("%s  ·  %s", tn.Name, state))
-	}
 	return v
 }

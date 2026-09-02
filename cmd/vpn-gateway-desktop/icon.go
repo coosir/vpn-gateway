@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"image"
 	"image/color"
 	"image/png"
@@ -262,4 +263,46 @@ func clamp(v float64) float64 {
 		return 1
 	}
 	return v
+}
+
+// appIconICO packs the launcher icon into a multi-resolution Windows .ico file.
+func appIconICO() []byte {
+	sizes := []int{16, 24, 32, 48, 64, 128, 256}
+	type item struct {
+		size int
+		data []byte
+	}
+	items := make([]item, len(sizes))
+	for i, s := range sizes {
+		items[i] = item{size: s, data: appIcon(s)}
+	}
+
+	var buf bytes.Buffer
+	// ICONDIR Header
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(0))          // Reserved
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(1))          // Type = 1 (ICO)
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(len(items))) // Count
+
+	offset := uint32(6 + 16*len(items))
+	for _, it := range items {
+		w := byte(it.size)
+		if it.size >= 256 {
+			w = 0
+		}
+		h := w
+		buf.WriteByte(w)                                                   // Width
+		buf.WriteByte(h)                                                   // Height
+		buf.WriteByte(0)                                                   // ColorCount
+		buf.WriteByte(0)                                                   // Reserved
+		_ = binary.Write(&buf, binary.LittleEndian, uint16(1))             // Planes
+		_ = binary.Write(&buf, binary.LittleEndian, uint16(32))            // BitCount
+		_ = binary.Write(&buf, binary.LittleEndian, uint32(len(it.data)))  // BytesInRes
+		_ = binary.Write(&buf, binary.LittleEndian, offset)                // ImageOffset
+		offset += uint32(len(it.data))
+	}
+
+	for _, it := range items {
+		buf.Write(it.data)
+	}
+	return buf.Bytes()
 }
