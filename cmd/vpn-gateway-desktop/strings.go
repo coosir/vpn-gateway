@@ -20,6 +20,7 @@ var trayStrings = map[string]map[string]string{
 		"status.idle":        "未连接（%d 条隧道）",
 		"status.connecting":  "连接中…",
 		"status.failed":      "连接失败",
+		"status.connected":   "已连接",
 		"status.up":          "%d/%d 条隧道在线",
 		"status.unreachable": "后台服务没有响应",
 
@@ -30,6 +31,7 @@ var trayStrings = map[string]map[string]string{
 		"tip.idle":        "vpn-gateway — 未连接",
 		"tip.connecting":  "vpn-gateway — 连接中",
 		"tip.failed":      "vpn-gateway — 连接失败",
+		"tip.connected":   "vpn-gateway — 已连接",
 		"tip.ok":          "vpn-gateway — %d/%d 条隧道在线",
 		"tip.unreachable": "vpn-gateway — 后台服务在运行，但界面连不上",
 	},
@@ -46,6 +48,7 @@ var trayStrings = map[string]map[string]string{
 		"status.idle":        "Not connected (%d tunnels)",
 		"status.connecting":  "Connecting…",
 		"status.failed":      "Could not connect",
+		"status.connected":   "Connected",
 		"status.up":          "%d/%d tunnels up",
 		"status.unreachable": "The service is not answering",
 
@@ -56,6 +59,7 @@ var trayStrings = map[string]map[string]string{
 		"tip.idle":        "vpn-gateway — not connected",
 		"tip.connecting":  "vpn-gateway — connecting",
 		"tip.failed":      "vpn-gateway — could not connect",
+		"tip.connected":   "vpn-gateway — connected",
 		"tip.ok":          "vpn-gateway — %d/%d tunnels up",
 		"tip.unreachable": "vpn-gateway — the background service is running but its interface cannot be reached",
 	},

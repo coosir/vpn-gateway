@@ -136,6 +136,11 @@ func (e *serviceEngine) Snapshot() snapshot {
 	return snap
 }
 
+func (e *serviceEngine) Ping(ctx context.Context) error {
+	var st ui.State
+	return e.call(ctx, http.MethodGet, "/api/state", &st)
+}
+
 func (e *serviceEngine) Toggle(ctx context.Context) error {
 	path := "/api/connect"
 	if e.Snapshot().Phase == client.PhaseConnected {

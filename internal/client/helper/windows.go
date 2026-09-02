@@ -209,11 +209,17 @@ try {
 }`,
 		logFile, binDir, targetExe, absSrc, absConfig, ServiceName)
 
-	return runElevatedPowerShell(script, logFile)
+	InvalidateVersionCache()
+	err = runElevatedPowerShell(script, logFile)
+	if err == nil {
+		InvalidateVersionCache()
+	}
+	return err
 }
 
 // Uninstall stops the Windows Service and removes it.
 func Uninstall() error {
+	InvalidateVersionCache()
 	logFile := filepath.Join(os.TempDir(), "vpngateway-uninstall.log")
 	script := fmt.Sprintf(`$ErrorActionPreference = 'SilentlyContinue';
 $logPath = '%s';

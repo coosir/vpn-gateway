@@ -281,3 +281,13 @@ func cachedBinaryVersion(path string, runVersion func(string) (string, error)) s
 	}
 	return ver
 }
+
+// InvalidateVersionCache clears the cached binary version.
+func InvalidateVersionCache() {
+	verCacheMu.Lock()
+	verCachePath = ""
+	verCacheVal = ""
+	verCacheMTime = time.Time{}
+	verCacheSize = 0
+	verCacheMu.Unlock()
+}

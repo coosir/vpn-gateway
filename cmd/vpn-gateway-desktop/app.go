@@ -199,14 +199,18 @@ type supervisor struct {
 // engine returns the engine in charge, handing over first if that has changed.
 func (sv *supervisor) engine() engine {
 	sv.mu.Lock()
-	if time.Since(sv.checked) < serviceCheckInterval {
+	checkInterval := serviceCheckInterval
+	if sv.current == engine(sv.local) {
+		checkInterval = pollInterval
+	}
+	if time.Since(sv.checked) < checkInterval {
 		cur := sv.current
 		sv.mu.Unlock()
 		return cur
 	}
 	sv.mu.Unlock()
 
-	// Asking runs launchctl, so it happens outside the lock.
+	// Asking runs launchctl/sc.exe, so it happens outside the lock.
 	link := sv.serviceLink()
 
 	sv.mu.Lock()
@@ -233,6 +237,27 @@ func (sv *supervisor) engine() engine {
 		sv.log.Error("could not attach to the background service", "error", err)
 		return sv.current
 	}
+
+	// Wait up to 3 seconds for the newly started background service HTTP endpoint
+	// to be ready and responding before navigating the window and handing over.
+	// This prevents transient "127.0.0.1 Connection Refused" errors.
+	ready := false
+	for i := 0; i < 15; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
+		err := svc.Ping(ctx)
+		cancel()
+		if err == nil {
+			ready = true
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !ready {
+		sv.log.Warn("background service was started but HTTP endpoint is not responding yet, will retry")
+		sv.recheck()
+		return sv.current
+	}
+
 	// Handing over means letting go first: two engines would fight over the
 	// same routing table.
 	if err := sv.session.Disconnect(); err != nil {
@@ -394,7 +419,9 @@ func buildView(st snapshot, t func(string, ...any) string) view {
 	v.Action = t("disconnect")
 
 	if len(st.Tunnels) == 0 {
-		v.Status = t("status.idle", st.TunnelCount)
+		v.Status = t("status.connected")
+		v.Tooltip = t("tip.connected")
+		v.Healthy = true
 		return v
 	}
 
@@ -409,6 +436,6 @@ func buildView(st snapshot, t func(string, ...any) string) view {
 	// A tunnel that is not carrying traffic has to show in the menu bar.
 	// Otherwise the one moment someone needs to look is the one moment it
 	// looks fine.
-	v.Healthy = up == len(st.Tunnels)
+	v.Healthy = (up > 0 && up == len(st.Tunnels)) || len(st.Tunnels) == 0
 	return v
 }

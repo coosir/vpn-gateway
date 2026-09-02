@@ -79,12 +79,18 @@ func Install(opt Options) error {
 	if err != nil {
 		return err
 	}
-	return runPrivileged(installScript(binary, abs),
+	InvalidateVersionCache()
+	err = runPrivileged(installScript(binary, abs),
 		"vpn-gateway needs administrator privileges to install its background service.")
+	if err == nil {
+		InvalidateVersionCache()
+	}
+	return err
 }
 
 // Uninstall stops the service and removes it. The configuration stays.
 func Uninstall() error {
+	InvalidateVersionCache()
 	return runPrivileged(uninstallScript(),
 		"vpn-gateway needs administrator privileges to remove its background service.")
 }
