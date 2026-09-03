@@ -681,3 +681,52 @@ func TestBuildConfigTrojanRoute(t *testing.T) {
 	}
 }
 
+func TestEveryOutboundItGeneratesIsOneItCanRun(t *testing.T) {
+	// The configuration is generated here and parsed by sing-box, which only
+	// knows the protocols this package registers. A type emitted by one and
+	// missing from the other is not a tunnel that misbehaves: it is a server
+	// that refuses to start, taking every other tunnel with it. That is what
+	// adding an upstream trojan node did.
+	//
+	// So one route of every kind BuildConfig can produce is started for real.
+	dir := t.TempDir()
+	mat, err := certs.EnsureSelfSigned(filepath.Join(dir, "tls"), "vpn.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := Options{
+		Listen:     "127.0.0.1:" + strconv.Itoa(freePort(t)),
+		ServerName: "vpn.test",
+		CertPath:   mat.CertPath,
+		KeyPath:    mat.KeyPath,
+		LogLevel:   "error",
+		Routes: []Route{
+			// Through a container's SOCKS5 data plane.
+			{
+				Name: "container", TrojanPassword: "trojan-container",
+				DataHost: "127.0.0.1", DataPort: 11080,
+				SOCKSUser: "vpngw", SOCKSPassword: "socks-container",
+			},
+			// Out of the server's own interface.
+			{Name: "host", TrojanPassword: "trojan-host", Direct: true},
+			// On to somebody else's trojan server. The address is
+			// documentation space and is never dialled: outbounds connect
+			// when they carry traffic, not when they are built.
+			{
+				Name: "upstream", TrojanPassword: "trojan-upstream",
+				TrojanOutbound: &TrojanOutboundConfig{
+					Server: "192.0.2.10", ServerPort: 443,
+					Password: "upstream-pass", ServerName: "hk.example.com",
+				},
+			},
+		},
+	}
+
+	p, err := New(context.Background(), opts, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("the server would not start with one route of each kind: %v", err)
+	}
+	t.Cleanup(func() { p.Close() })
+	waitForPort(t, opts.Listen)
+}

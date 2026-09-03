@@ -254,6 +254,11 @@ func (p *Proxy) Close() error {
 // registryContext registers only the protocols this server uses. Pulling in
 // sing-box's full registry would add Tor, Shadowsocks, the SSM API and more,
 // none of which this server offers.
+//
+// Every type BuildConfig can emit has to be here. A configuration naming one
+// that is not is refused when it is parsed, which is a server that will not
+// start rather than a tunnel that does not work -- see the test that walks
+// one of each kind through this.
 func registryContext(ctx context.Context) context.Context {
 	inR := inbound.NewRegistry()
 	trojan.RegisterInbound(inR)
@@ -262,6 +267,10 @@ func registryContext(ctx context.Context) context.Context {
 	direct.RegisterOutbound(outR)
 	block.RegisterOutbound(outR)
 	socks.RegisterOutbound(outR)
+	// A tunnel can be forwarded to an upstream trojan node rather than to a
+	// container, so trojan is both what this server speaks to its clients and
+	// what it may speak to somebody else's server.
+	trojan.RegisterOutbound(outR)
 
 	dnsR := dns.NewTransportRegistry()
 	transport.RegisterUDP(dnsR)
