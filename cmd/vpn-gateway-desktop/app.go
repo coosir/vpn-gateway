@@ -450,25 +450,52 @@ func refresh(sv *supervisor, t func(string, ...any) string,
 	tray *application.SystemTray, status, connect *application.MenuItem,
 	menu *application.Menu) {
 
+	var shown frame
 	for {
 		snap := sv.engine().Snapshot()
 		if snap.Unreachable {
 			sv.recheck()
 		}
 		sv.settle()
-		v := buildView(snap, t)
 
-		status.SetLabel(v.Status)
-		connect.SetLabel(v.Action)
-		connect.SetEnabled(v.CanToggle)
-		setTrayIcon(tray, snap.Phase, v.Healthy)
-		tray.SetTooltip(v.Tooltip)
-
-		// The menu is rebuilt from its items, so it has to be told they moved.
-		menu.Update()
+		if next := frameOf(snap, t); next != shown {
+			shown = next
+			status.SetLabel(next.Status)
+			connect.SetLabel(next.Action)
+			connect.SetEnabled(next.CanToggle)
+			setTrayIcon(tray, next.phase, next.Healthy)
+			tray.SetTooltip(next.Tooltip)
+			attachMenu(tray, menu)
+		}
 
 		time.Sleep(pollInterval)
 	}
+}
+
+// attachMenu makes the tray show the labels its menu items now carry.
+//
+// Setting them on the items is not enough. The tray holds a menu of its own,
+// built when the menu was attached to it, and rebuilding the menu builds a
+// different one that the tray never looks at -- so on Windows a connected
+// client went on saying it was not connected and offering to connect, for as
+// long as it ran. Attaching the menu again is what rewrites what the tray
+// shows, on every platform.
+//
+// It is done only when something has actually changed. Rebuilding a menu
+// somebody is reading is how a menu closes itself under their cursor.
+func attachMenu(tray *application.SystemTray, menu *application.Menu) {
+	tray.SetMenu(menu)
+}
+
+// frame is everything the tray shows at one moment. It is compared with what
+// is already showing, so a tray that has nothing new to say is left alone.
+type frame struct {
+	view
+	phase client.Phase
+}
+
+func frameOf(snap snapshot, t func(string, ...any) string) frame {
+	return frame{view: buildView(snap, t), phase: snap.Phase}
 }
 
 // view is what the menu should show. It is worked out separately from the

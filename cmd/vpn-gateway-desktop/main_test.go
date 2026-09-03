@@ -164,3 +164,59 @@ func TestAMissingStringShowsItsKey(t *testing.T) {
 		t.Errorf("a missing string came back as %q", got)
 	}
 }
+
+func TestTheTrayIsLeftAloneWhenNothingHasChanged(t *testing.T) {
+	// Showing a change means attaching the menu again, which rebuilds it. A
+	// menu rebuilt every few seconds is one that closes under the cursor of
+	// whoever opened it, so the same state twice has to compare equal.
+	tr := translator("en")
+	snap := snapshot{
+		Phase:       client.PhaseConnected,
+		TunnelCount: 2,
+		Tunnels:     []tunnelLine{{Name: "a", Up: true}, {Name: "b", Up: true}},
+	}
+	if frameOf(snap, tr) != frameOf(snap, tr) {
+		t.Error("the same state produced two different frames; the tray would be rebuilt on every tick")
+	}
+}
+
+func TestConnectingIsSomethingTheTrayIsToldAbout(t *testing.T) {
+	// The failure this guards against is the one that shipped: a tray that
+	// went on saying "not connected" after the client had connected, because
+	// nothing noticed the difference.
+	tr := translator("en")
+	idle := frameOf(snapshot{Phase: client.PhaseIdle, TunnelCount: 2}, tr)
+	up := frameOf(snapshot{
+		Phase:       client.PhaseConnected,
+		TunnelCount: 2,
+		Tunnels:     []tunnelLine{{Name: "a", Up: true}, {Name: "b", Up: true}},
+	}, tr)
+	if idle == up {
+		t.Fatal("connected and not connected produce the same frame")
+	}
+	if idle.Status == up.Status {
+		t.Errorf("both states show %q", idle.Status)
+	}
+	if idle.Action == up.Action {
+		t.Errorf("both states offer %q", idle.Action)
+	}
+	if !up.Healthy || idle.Healthy {
+		t.Errorf("healthy = %t connected, %t idle", up.Healthy, idle.Healthy)
+	}
+}
+
+func TestATunnelGoingDownIsAChangeToShow(t *testing.T) {
+	// Still connected, so the phase is the same; what changed is inside it.
+	tr := translator("en")
+	all := frameOf(snapshot{
+		Phase:   client.PhaseConnected,
+		Tunnels: []tunnelLine{{Name: "a", Up: true}, {Name: "b", Up: true}},
+	}, tr)
+	one := frameOf(snapshot{
+		Phase:   client.PhaseConnected,
+		Tunnels: []tunnelLine{{Name: "a", Up: true}, {Name: "b", Up: false}},
+	}, tr)
+	if all == one {
+		t.Error("a tunnel going down was not something the tray would notice")
+	}
+}
