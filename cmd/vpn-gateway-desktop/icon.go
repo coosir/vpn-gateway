@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"image/png"
 	"math"
+	"runtime"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/client"
 )
@@ -54,8 +55,19 @@ func shieldShape(x, y float64) (outer bool, inner bool) {
 	return outer, inner
 }
 
+// How much of the shield's inside is filled in. A menu bar icon on macOS is
+// drawn as a stencil, so this is the only thing that can say a tunnel is up:
+// an outline reads as off and a solid shape reads as on, whatever colour the
+// system decides to tint it.
+const (
+	fillNone  = 0.0
+	fillFaint = 0.35
+	fillTint  = 0.25
+	fillSolid = 1.0
+)
+
 // drawTrayShield renders an optical 16pt (32px at 2x retina) shield icon centered in 44x44.
-func drawTrayShield(fg color.NRGBA, broken bool, fillInner bool) []byte {
+func drawTrayShield(fg color.NRGBA, broken bool, fill float64) []byte {
 	img := image.NewNRGBA(image.Rect(0, 0, iconSize, iconSize))
 
 	for y := range iconSize {
@@ -96,8 +108,8 @@ func drawTrayShield(fg color.NRGBA, broken bool, fillInner bool) []byte {
 			innerCov := float64(innerHits) / total
 
 			borderCov := math.Max(0, outerCov-innerCov)
-			if fillInner && innerCov > 0 {
-				alpha := borderCov + innerCov*0.25
+			if fill > 0 && innerCov > 0 {
+				alpha := borderCov + innerCov*fill
 				if alpha > 0 {
 					img.SetNRGBA(x, y, blend(fg, clamp(alpha)))
 				}
@@ -112,28 +124,53 @@ func drawTrayShield(fg color.NRGBA, broken bool, fillInner bool) []byte {
 	return buf.Bytes()
 }
 
-// connectedIcon is the template shield icon for macOS menu bar.
-func connectedIcon() []byte { return drawTrayShield(colorBlack, false, false) }
+// trayIcon returns the icon the platform will actually show, and whether it
+// is a template.
+//
+// Only one of the two kinds can be given, and which one is not a choice.
+// macOS draws a menu bar icon as a template: it keeps the alpha and throws the
+// colour away, so a state told apart by colour there is a state not told apart
+// at all -- a connected client and a stopped one were the same grey outline
+// with a nick in it. The shape carries it instead. Windows has no template
+// icons and draws what it is given, where colour is the plainer signal.
+func trayIcon(phase client.Phase, healthy bool) (icon []byte, template bool) {
+	if runtime.GOOS == "darwin" {
+		return templateIcon(phase, healthy), true
+	}
+	return statusIcon(phase, healthy), false
+}
 
-// degradedIcon is the broken template shield icon for macOS menu bar.
-func degradedIcon() []byte { return drawTrayShield(colorBlack, true, false) }
+// templateIcon is the menu bar icon: a filled shield is carrying traffic, an
+// outline is not, and a bite out of either says something in it is down.
+func templateIcon(phase client.Phase, healthy bool) []byte {
+	switch phase {
+	case client.PhaseConnected:
+		return drawTrayShield(colorBlack, !healthy, fillSolid)
+	case client.PhaseConnecting:
+		return drawTrayShield(colorBlack, false, fillFaint)
+	case client.PhaseFailed:
+		return drawTrayShield(colorBlack, true, fillNone)
+	default:
+		return drawTrayShield(colorBlack, false, fillNone)
+	}
+}
 
 // statusIcon returns a colored shield icon reflecting the client lifecycle state.
 func statusIcon(phase client.Phase, healthy bool) []byte {
 	switch phase {
 	case client.PhaseConnected:
 		if healthy {
-			return drawTrayShield(colorGreen, false, true)
+			return drawTrayShield(colorGreen, false, fillSolid)
 		}
-		return drawTrayShield(colorAmber, true, true)
+		return drawTrayShield(colorAmber, true, fillSolid)
 	case client.PhaseConnecting:
-		return drawTrayShield(colorAmber, false, true)
+		return drawTrayShield(colorAmber, false, fillTint)
 	case client.PhaseFailed:
-		return drawTrayShield(colorRed, true, true)
+		return drawTrayShield(colorRed, true, fillTint)
 	case client.PhaseSetup, client.PhaseIdle:
-		return drawTrayShield(colorSlate, false, false)
+		return drawTrayShield(colorSlate, false, fillNone)
 	default:
-		return drawTrayShield(colorSlate, false, false)
+		return drawTrayShield(colorSlate, false, fillNone)
 	}
 }
 

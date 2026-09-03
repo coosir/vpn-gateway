@@ -170,8 +170,7 @@ func run(configPath, lang string) error {
 	})
 
 	tray := app.SystemTray.New()
-	tray.SetIcon(statusIcon(client.PhaseSetup, false))
-	tray.SetTemplateIcon(degradedIcon())
+	setTrayIcon(tray, client.PhaseSetup, false)
 	tray.SetTooltip(t("tip.setup"))
 
 	menu := application.NewMenu()
@@ -426,6 +425,21 @@ func absPath(p string) string {
 	return p
 }
 
+// setTrayIcon gives the tray the one icon it will show.
+//
+// Never both kinds. macOS keeps the template flag once anything has set it, so
+// a tray told about a colour icon after a template one goes on drawing every
+// icon it is given as a stencil -- which is how a connected client kept the
+// same outline as a stopped one.
+func setTrayIcon(tray *application.SystemTray, phase client.Phase, healthy bool) {
+	icon, template := trayIcon(phase, healthy)
+	if template {
+		tray.SetTemplateIcon(icon)
+		return
+	}
+	tray.SetIcon(icon)
+}
+
 func showWindow(w *application.WebviewWindow) {
 	showDockIcon()
 	w.Show()
@@ -447,12 +461,7 @@ func refresh(sv *supervisor, t func(string, ...any) string,
 		status.SetLabel(v.Status)
 		connect.SetLabel(v.Action)
 		connect.SetEnabled(v.CanToggle)
-		tray.SetIcon(statusIcon(snap.Phase, v.Healthy))
-		if v.Healthy {
-			tray.SetTemplateIcon(connectedIcon())
-		} else {
-			tray.SetTemplateIcon(degradedIcon())
-		}
+		setTrayIcon(tray, snap.Phase, v.Healthy)
 		tray.SetTooltip(v.Tooltip)
 
 		// The menu is rebuilt from its items, so it has to be told they moved.

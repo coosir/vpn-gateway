@@ -7,7 +7,10 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"runtime"
 	"testing"
+
+	"github.com/vpn-gateway/vpn-gateway/internal/client"
 )
 
 func decode(t *testing.T, raw []byte) image.Image {
@@ -20,8 +23,8 @@ func decode(t *testing.T, raw []byte) image.Image {
 }
 
 func TestIconsAreValidAndDistinct(t *testing.T) {
-	connected := connectedIcon()
-	degraded := degradedIcon()
+	connected := templateIcon(client.PhaseConnected, true)
+	degraded := templateIcon(client.PhaseConnected, false)
 
 	for name, raw := range map[string][]byte{"connected": connected, "degraded": degraded} {
 		img := decode(t, raw)
@@ -37,14 +40,14 @@ func TestIconsAreValidAndDistinct(t *testing.T) {
 		t.Fatal("both states produce the same icon")
 	}
 	if opaque(t, connected) <= opaque(t, degraded) {
-		t.Error("the broken ring is not missing a wedge; the two states would look alike")
+		t.Error("the broken shield is not missing a wedge; the two states would look alike")
 	}
 }
 
 func TestIconIsATemplate(t *testing.T) {
 	// macOS tints a template icon itself, so it must carry shape in alpha and
 	// no colour of its own.
-	img := decode(t, connectedIcon())
+	img := decode(t, templateIcon(client.PhaseConnected, true))
 	b := img.Bounds()
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
@@ -59,17 +62,38 @@ func TestIconIsATemplate(t *testing.T) {
 	}
 }
 
-func TestIconHasAHole(t *testing.T) {
-	// A filled disc reads as a blob at menu bar size. The middle has to be
-	// clear for it to read as a ring.
-	img := decode(t, connectedIcon())
+func TestConnectedIsFilledAndDisconnectedIsNot(t *testing.T) {
+	// The menu bar throws the colour away, so this is the whole signal: a
+	// solid shield is carrying traffic and an outline is not. When both were
+	// outlines, a connected client looked exactly like a stopped one.
+	connected := decode(t, templateIcon(client.PhaseConnected, true))
+	idle := decode(t, templateIcon(client.PhaseIdle, false))
 	mid := iconSize / 2
-	if _, _, _, a := img.At(mid, mid).RGBA(); a != 0 {
-		t.Error("the centre is filled; the icon would read as a disc rather than a ring")
+
+	if _, _, _, a := connected.At(mid, mid).RGBA(); a < 0xf000 {
+		t.Error("the connected icon is hollow in the middle; it reads as not connected")
 	}
-	// And the ring itself has to be there.
-	if _, _, _, a := img.At(mid, 7).RGBA(); a == 0 {
-		t.Error("the ring is missing at the top")
+	if _, _, _, a := idle.At(mid, mid).RGBA(); a != 0 {
+		t.Error("the idle icon is filled in; it reads as connected")
+	}
+	// The outline itself is there in both.
+	for name, img := range map[string]image.Image{"connected": connected, "idle": idle} {
+		if _, _, _, a := img.At(mid, 7).RGBA(); a == 0 {
+			t.Errorf("the %s icon has no shield outline at the top", name)
+		}
+	}
+}
+
+func TestTheMenuBarNeverGetsAColourItWouldDiscard(t *testing.T) {
+	// Asking for a template on macOS and a colour icon anywhere else is not a
+	// preference: a tray that has been given a template once draws everything
+	// afterwards as a stencil, so the two must never be mixed.
+	icon, template := trayIcon(client.PhaseConnected, true)
+	if template != (runtime.GOOS == "darwin") {
+		t.Errorf("trayIcon returned template=%t on %s", template, runtime.GOOS)
+	}
+	if len(icon) == 0 {
+		t.Error("trayIcon returned nothing to draw")
 	}
 }
 
@@ -133,7 +157,15 @@ func TestWriteIconsForInspection(t *testing.T) {
 	if dir == "" {
 		t.Skip("set VG_ICON_OUT to save the icons")
 	}
-	for name, raw := range map[string][]byte{"connected": connectedIcon(), "degraded": degradedIcon()} {
+	icons := map[string][]byte{
+		"connected":        templateIcon(client.PhaseConnected, true),
+		"degraded":         templateIcon(client.PhaseConnected, false),
+		"connecting":       templateIcon(client.PhaseConnecting, false),
+		"idle":             templateIcon(client.PhaseIdle, false),
+		"colour-connected": statusIcon(client.PhaseConnected, true),
+		"colour-idle":      statusIcon(client.PhaseIdle, false),
+	}
+	for name, raw := range icons {
 		if err := os.WriteFile(dir+"/"+name+".png", raw, 0o644); err != nil {
 			t.Fatal(err)
 		}
