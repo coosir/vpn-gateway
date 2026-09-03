@@ -76,9 +76,11 @@ func LoadBundle(path string) (*clientcfg.Bundle, error) {
 // state before generating any configuration.
 func New(ctx context.Context, cfg *Config, bundle *clientcfg.Bundle, log *slog.Logger) (*Client, error) {
 	c := &Client{
-		cfg:      cfg,
-		bundle:   bundle,
-		api:      NewAPI(bundle.Server.APIURL, bundle.APIToken),
+		cfg:    cfg,
+		bundle: bundle,
+		// No token yet: the bundle carries none, and Login below trades the
+		// user's credentials for the session token every later call uses.
+		api:      NewAPI(bundle.Server.APIURL, ""),
 		log:      log,
 		selected: map[string]string{},
 	}

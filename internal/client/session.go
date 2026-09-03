@@ -186,9 +186,6 @@ func (s *Session) ImportBundle(raw []byte) error {
 	if bundle.Server.Address == "" {
 		return errors.New("the bundle names no server address")
 	}
-	if bundle.APIToken == "" {
-		return errors.New("the bundle carries no API token")
-	}
 
 	s.mu.Lock()
 	path := s.bundlePath

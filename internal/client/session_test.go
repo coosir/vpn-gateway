@@ -11,7 +11,6 @@ import (
 const bundleJSON = `{
   "version": 1,
   "server": {"address": "vpn.example:443", "server_name": "vpn.example", "api_url": "http://vpn.example:8642"},
-  "api_token": "tok",
   "tunnels": [{"name": "office", "password": "pw"}]
 }`
 
@@ -75,9 +74,7 @@ func TestABadBundleDoesNotReplaceAGoodOne(t *testing.T) {
 	for _, bad := range []string{
 		`not json`,
 		`{"version":1}`,
-		`{"version":1,"server":{"address":""},"api_token":"t"}`,
-		`{"version":1,"server":{"address":"a:1"}}`,
-		`{"version":1,"api_token":"t"}`,
+		`{"version":1,"server":{"address":""}}`,
 	} {
 		if err := s.ImportBundle([]byte(bad)); err == nil {
 			t.Errorf("accepted %q", bad)
@@ -88,12 +85,30 @@ func TestABadBundleDoesNotReplaceAGoodOne(t *testing.T) {
 	}
 }
 
-func TestBundleWithoutTunnelsIsAccepted(t *testing.T) {
+// A bundle cut by an older server carries the server's admin token. It still
+// imports -- refusing it would strand anyone who has not been reissued one --
+// but the field is gone, so nothing in the client can reach for it.
+func TestBundleCarryingAnOldAPITokenStillImports(t *testing.T) {
 	s, _ := newSession(t)
 	raw := `{
 		"version": 1,
 		"server": {"address": "vpn.example:443", "server_name": "vpn.example", "api_url": "http://vpn.example:8642"},
-		"api_token": "tok"
+		"api_token": "an-admin-token",
+		"tunnels": [{"name": "office", "password": "pw"}]
+	}`
+	if err := s.ImportBundle([]byte(raw)); err != nil {
+		t.Fatalf("a bundle from an older server should still import: %v", err)
+	}
+	if st := s.Status(); st.TunnelCount != 1 {
+		t.Errorf("tunnel count = %d, want 1", st.TunnelCount)
+	}
+}
+
+func TestBundleWithoutTunnelsIsAccepted(t *testing.T) {
+	s, _ := newSession(t)
+	raw := `{
+		"version": 1,
+		"server": {"address": "vpn.example:443", "server_name": "vpn.example", "api_url": "http://vpn.example:8642"}
 	}`
 	if err := s.ImportBundle([]byte(raw)); err != nil {
 		t.Fatalf("bundle without tunnels should be accepted: %v", err)

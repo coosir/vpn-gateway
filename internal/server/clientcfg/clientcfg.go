@@ -14,15 +14,17 @@ import (
 
 // Bundle is everything a client needs: how to reach the server, how to trust
 // it, and which tunnels exist with the password that selects each one.
+//
+// It deliberately carries no server credential. A client authenticates as a
+// user and the server issues it a session token; the server's own admin token
+// would instead hand whoever holds the bundle every administrative endpoint,
+// which is more than the tunnels the bundle was cut for.
 type Bundle struct {
 	Version int `json:"version"`
 
-	Server ServerRef `json:"server"`
-	// APIToken authenticates against the server's control API, which is how a
-	// client learns tunnel state, routes and DNS.
-	APIToken     string   `json:"api_token"`
-	RequiresAuth bool     `json:"requires_auth,omitempty"`
-	Tunnels      []Tunnel `json:"tunnels,omitempty"`
+	Server       ServerRef `json:"server"`
+	RequiresAuth bool      `json:"requires_auth,omitempty"`
+	Tunnels      []Tunnel  `json:"tunnels,omitempty"`
 }
 
 // ServerRef locates and authenticates the server.
@@ -52,7 +54,7 @@ type Tunnel struct {
 }
 
 // Build assembles a bundle.
-func Build(listen, apiURL string, mat *certs.Material, apiToken string, tunnels []Tunnel) *Bundle {
+func Build(listen, apiURL string, mat *certs.Material, tunnels []Tunnel) *Bundle {
 	b := &Bundle{
 		Version: 1,
 		Server: ServerRef{
@@ -60,8 +62,7 @@ func Build(listen, apiURL string, mat *certs.Material, apiToken string, tunnels 
 			ServerName: mat.ServerName,
 			APIURL:     apiURL,
 		},
-		APIToken: apiToken,
-		Tunnels:  tunnels,
+		Tunnels: tunnels,
 	}
 	// A publicly trusted certificate needs no pinning; shipping it would only
 	// break renewals.

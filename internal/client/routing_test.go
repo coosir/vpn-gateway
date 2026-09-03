@@ -170,7 +170,6 @@ func startFullStack(t *testing.T, cfg *Config, names ...string) *fullStack {
 			APIURL:         api.URL,
 			CertificatePEM: mat.CertPEM,
 		},
-		APIToken: "test-token",
 	}
 	for _, n := range names {
 		bundle.Tunnels = append(bundle.Tunnels, clientcfg.Tunnel{Name: n, Password: "trojan-" + n})

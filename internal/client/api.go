@@ -94,10 +94,17 @@ func (a *API) Login(ctx context.Context, username, password string) error {
 		IsAdmin bool   `json:"is_admin"`
 		Error   string `json:"error"`
 	}
-	if err := json.NewDecoder(res.Body).Decode(&reply); err == nil && reply.Token != "" {
-		a.Token = reply.Token
-		a.IsAdmin = reply.IsAdmin
+	if err := json.NewDecoder(res.Body).Decode(&reply); err != nil {
+		return fmt.Errorf("the server's login reply could not be read: %w", err)
 	}
+	// Every later call carries this token, so there is nothing to fall back
+	// on: continuing without one would leave the client believing it is
+	// authenticated and being refused by every request it makes.
+	if reply.Token == "" {
+		return errors.New("the server accepted the credentials but issued no session token")
+	}
+	a.Token = reply.Token
+	a.IsAdmin = reply.IsAdmin
 	return nil
 }
 

@@ -177,17 +177,12 @@ func buildBundle(cfg *server.Config, host string) (*clientcfg.Bundle, error) {
 		return nil, fmt.Errorf("trojan.listen %q has no port", cfg.Trojan.Listen)
 	}
 
-	token, err := readToken(cfg.StateDir)
-	if err != nil {
-		return nil, err
-	}
-
 	// The API is bound to loopback on the server, so clients reach it through
 	// the same hostname as the listener; exposing it is the operator's
 	// decision, not something to assume here.
 	_, apiPort, _ := strings.Cut(cfg.APIListen, ":")
 	apiURL := fmt.Sprintf("http://%s:%s", host, apiPort)
-	bundle := clientcfg.Build(host+":"+port, apiURL, mat, token, nil)
+	bundle := clientcfg.Build(host+":"+port, apiURL, mat, nil)
 	bundle.RequiresAuth = true
 	return bundle, nil
 }
@@ -197,6 +192,14 @@ func buildBundle(cfg *server.Config, host string) (*clientcfg.Bundle, error) {
 func verify(cfg *server.Config, bundle *clientcfg.Bundle, probe string) error {
 	// The API is on loopback from here, whatever hostname clients use.
 	apiURL := "http://" + cfg.APIListen
+
+	// The admin token is an operator credential read from the state dir. It
+	// no longer travels in the bundle, so vgctl reads it the same way every
+	// other administrative command does.
+	token, err := readToken(cfg.StateDir)
+	if err != nil {
+		return err
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -229,7 +232,7 @@ func verify(cfg *server.Config, bundle *clientcfg.Bundle, probe string) error {
 			continue
 		}
 
-		state, uptime := tunnelState(ctx, apiURL, bundle.APIToken, t.Name)
+		state, uptime := tunnelState(ctx, apiURL, token, t.Name)
 		egress, err := probeEgress(ctx, bundle, t.Name, password, probe)
 
 		status := "ok"

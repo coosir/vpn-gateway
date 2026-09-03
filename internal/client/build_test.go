@@ -17,7 +17,6 @@ func testBundle() *clientcfg.Bundle {
 			APIURL:         "http://vpn.home.test:8642",
 			CertificatePEM: "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----",
 		},
-		APIToken: "token",
 		Tunnels: []clientcfg.Tunnel{
 			{Name: "office", Password: "pw-office"},
 			{Name: "lab", Password: "pw-lab"},
