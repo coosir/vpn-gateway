@@ -86,10 +86,10 @@ func runHeadlessService(ctx context.Context, configPath, logLevel string) error 
 	session := client.NewSession(configPath, log)
 	defer session.Close()
 
-	if err := session.Connect(ctx); err != nil {
-		log.Warn("the interface is running; connecting can be retried there", "error", err)
-	}
-
+	// The interface comes up before anything is dialled. A service that
+	// connects first serves nothing for as long as that takes, and the
+	// application waiting to attach to it has only a port that refuses
+	// connections to go on.
 	prompter := client.Prompter(nil)
 	if cfg.UI.Enabled {
 		token, err := ui.LoadOrCreateToken(cfg.UI.StateDir)
@@ -105,6 +105,16 @@ func runHeadlessService(ctx context.Context, configPath, logLevel string) error 
 			_ = ui.WriteLink(path, addr, token, cfg.UI.LinkOwner)
 		}
 		prompter = srv.Prompter()
+	}
+
+	// Installing a service is not asking to be connected: it is asking for
+	// the privileges a TUN interface needs. Connecting stays where the person
+	// left it, which is the switch in the interface. Without one there is
+	// nobody to ask, so a headless run still dials on its own.
+	if !cfg.UI.Enabled {
+		if err := session.Connect(ctx); err != nil {
+			return err
+		}
 	}
 
 	go watchChallenges(ctx, session, prompter)

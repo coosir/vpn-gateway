@@ -66,6 +66,11 @@ func run(configPath, lang string) error {
 	}
 
 	server := ui.New(session, configPath, token, log)
+	// The window belongs to this application, so the interface in it leaves
+	// moving it alone: this is the side that can check a service answers
+	// before pointing anything at it. Said before it serves a request, which
+	// is the last moment nothing is reading it.
+	server.Managed()
 	link := fmt.Sprintf("http://%s/?token=%s", listener.Addr().String(), token)
 	if err := ui.ServeOn(listener, server.Handler(), log); err != nil {
 		return err
@@ -74,6 +79,18 @@ func run(configPath, lang string) error {
 	// rather use a browser than the window. Nobody sees it when it is opened
 	// from a launcher, which is why nothing depends on it.
 	fmt.Println("interface:", link)
+
+	// Published so the background service can find its way back here. A
+	// service cannot install over its own executable or stop itself while
+	// serving the page that asked it to, and this is the process that
+	// outlives both, so its interface is where that work is sent.
+	appLink := ui.AppLinkPath(configPath)
+	if err := ui.WriteLink(appLink, listener.Addr().String(), token, ""); err != nil {
+		log.Warn("could not record this application's interface link", "path", appLink, "error", err)
+	}
+	// A link left behind by an application that has quit points at nothing,
+	// which is the error page this exists to prevent.
+	defer os.Remove(appLink)
 
 	var sv *supervisor
 	app := application.New(application.Options{
@@ -96,6 +113,7 @@ func run(configPath, lang string) error {
 		},
 		LogLevel: slog.LevelWarn,
 		OnShutdown: func() {
+			os.Remove(appLink)
 			// Disconnecting tears down the interface and the routes pointing
 			// at it; leaving them behind would take the machine offline.
 			session.Close()
@@ -111,6 +129,7 @@ func run(configPath, lang string) error {
 		configPath: absPath(configPath),
 		session:    session,
 		local:      &localEngine{session: session, link: link},
+		srv:        server,
 		log:        log,
 	}
 	sv.current = sv.local
@@ -127,6 +146,8 @@ func run(configPath, lang string) error {
 			pingCancel()
 		}
 	}
+
+	sv.pointed, sv.want = initialURL, initialURL
 
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:      "console",
@@ -177,6 +198,7 @@ func run(configPath, lang string) error {
 		// A service installed on an earlier run is already in charge, so the
 		// window opens on its interface rather than on this one.
 		_ = sv.engine()
+		sv.settle()
 		showWindow(window)
 		go refresh(sv, t, tray, status, connect, menu)
 	})
@@ -190,7 +212,11 @@ type supervisor struct {
 	configPath string
 	session    *client.Session
 	local      *localEngine
-	log        *slog.Logger
+	// srv is this application's own interface. It is asked whether it is in
+	// the middle of installing or removing the service before the window is
+	// moved, because moving it then would reload the page doing the work.
+	srv *ui.Server
+	log *slog.Logger
 
 	// window is where the interface is displayed. Before the window of an
 	// application is running this only changes the address it will open at,
@@ -200,6 +226,12 @@ type supervisor struct {
 	mu      sync.Mutex
 	current engine
 	checked time.Time
+	// want is where the window belongs, and pointed is where it was last
+	// sent. They differ only while something is in the way: setting the same
+	// address again reloads a page that is already right, and setting a new
+	// one during an install would take the page running it away.
+	want    string
+	pointed string
 }
 
 // engine returns the engine in charge, handing over first if that has changed.
@@ -341,11 +373,32 @@ func (sv *supervisor) linkPath() string {
 	return ui.ServiceLinkPath(sv.configPath)
 }
 
-// point moves the window. It is safe from any goroutine: the webview
-// dispatches to the main thread itself, and before there is a webview it only
-// records the address the window will open at.
+// point records where the window belongs. It is called while the lock is
+// held and does not move anything itself: whether the move can happen now is
+// settle's question.
 func (sv *supervisor) point(url string) {
-	sv.window.SetURL(url)
+	sv.want = url
+}
+
+// settle moves the window to where it belongs, when it can. It is called on
+// the refresh tick rather than at the moment of the decision, so a move that
+// had to wait happens as soon as whatever it was waiting for is over.
+func (sv *supervisor) settle() {
+	sv.mu.Lock()
+	want, pointed := sv.want, sv.pointed
+	sv.mu.Unlock()
+	if want == "" || want == pointed {
+		return
+	}
+	// The page in the window is installing or removing the service. It has to
+	// survive to say how that went, and a page that is reloaded says nothing.
+	if sv.srv.Busy() {
+		return
+	}
+	sv.mu.Lock()
+	sv.pointed = want
+	sv.mu.Unlock()
+	sv.window.SetURL(want)
 }
 
 // recheck makes the next call look for the service again. It is what an
@@ -388,6 +441,7 @@ func refresh(sv *supervisor, t func(string, ...any) string,
 		if snap.Unreachable {
 			sv.recheck()
 		}
+		sv.settle()
 		v := buildView(snap, t)
 
 		status.SetLabel(v.Status)

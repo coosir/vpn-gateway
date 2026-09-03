@@ -875,6 +875,30 @@ input:checked + .slider:before { transform: translateX(18px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
+.transition-box { text-align: center; }
+.transition-box .mark {
+  width: 46px; height: 46px; margin: 0 auto 14px;
+  border-radius: 14px;
+  background: var(--primary-bg); color: var(--primary);
+  display: flex; align-items: center; justify-content: center;
+}
+.transition-box .mark svg { width: 24px; height: 24px; fill: currentColor; }
+/* Which mark is showing follows the state of the box: the hidden attribute
+   does nothing on an inline SVG, which is a property HTML elements have and
+   SVG ones do not. */
+.transition-box #transition-alert { display: none; }
+.transition-box.stalled #transition-spinner,
+.transition-box.failed #transition-spinner { display: none; }
+.transition-box.stalled #transition-alert,
+.transition-box.failed #transition-alert { display: block; }
+.transition-box.stalled .mark { background: var(--amber-bg); color: var(--amber); }
+.transition-box.failed .mark { background: var(--down-bg); color: var(--down); }
+.transition-title { font-size: 15.5px; font-weight: 700; color: var(--ink); }
+.transition-sub {
+  font-size: 12.5px; color: var(--dim); line-height: 1.65;
+  margin-top: 8px; white-space: pre-line; overflow-wrap: anywhere;
+}
+
 .empty-state {
   border: 2px dashed var(--hair-firm); border-radius: var(--radius-lg);
   padding: 36px 20px; text-align: center; color: var(--dim);
@@ -1447,8 +1471,29 @@ input:checked + .slider:before { transform: translateX(18px); }
   </div>
 </div>
 
+<!-- 5. Service Transition Overlay -->
+<div class="veil" id="transition-veil" hidden>
+  <div class="prompt-box transition-box" id="transition-box" role="dialog" aria-modal="true" aria-live="polite" style="max-width:420px">
+    <div class="mark">
+      <svg class="spin" id="transition-spinner" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+      <svg id="transition-alert" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm1 15h-2v-2h2v2zm0-4h-2V9h2v4z"/></svg>
+    </div>
+    <div class="transition-title" id="transition-title"></div>
+    <div class="transition-sub" id="transition-sub"></div>
+    <div style="margin-top:18px;" id="transition-actions" hidden>
+      <button class="act primary" id="transition-close" data-i18n="service.transitionClose"></button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
+
+// An operation started from the service's own interface arrives here as a
+// parameter: the page that started it is served by the process the operation
+// stops, so it hands the work to the application and this picks it up. It is
+// read before the address bar is tidied up below.
+const HANDOVER = new URLSearchParams(location.search).get("action") || "";
 
 const TOKEN = (() => {
   const p = new URLSearchParams(location.search);
@@ -1543,6 +1588,22 @@ const STRINGS = {
     "service.installingShort": "正在安装…",
     "service.updatingShort": "正在更新…",
     "service.uninstallingShort": "正在卸载…",
+    "service.transitionInstallTitle": "正在安装后台服务",
+    "service.transitionInstallSub": "请在系统弹出的授权窗口中确认。安装完成后会自动切换到后台服务的界面，请不要关闭窗口。",
+    "service.transitionUpdateTitle": "正在更新后台服务",
+    "service.transitionUpdateSub": "服务会先停止再以新版本启动，界面稍后自动恢复，请不要关闭窗口。",
+    "service.transitionUninstallTitle": "正在卸载后台服务",
+    "service.transitionUninstallSub": "服务停止后由客户端自身接管引擎，请稍候。",
+    "service.transitionHandoverTitle": "正在切回客户端",
+    "service.transitionHandoverSub": "该操作会停止正在提供当前页面的后台服务，需要由客户端主程序执行，正在切换…",
+    "service.transitionWaitingTitle": "正在等待后台服务就绪",
+    "service.transitionWaitingSub": "服务已安装，正在等待它的界面响应，就绪后会自动接管。",
+    "service.transitionAttachTitle": "正在接入后台服务",
+    "service.transitionAttachSub": "服务已就绪，正在切换到它的界面。",
+    "service.transitionStalledTitle": "后台服务尚未响应",
+    "service.transitionStalledSub": "服务已安装但接口还没有响应，客户端会在后台继续尝试接管；也可以稍后重新打开窗口。",
+    "service.transitionFailedTitle": "操作没有完成",
+    "service.transitionClose": "知道了",
 
     "nodes.title": "节点与订阅",
     "nodes.sub": "管理用于访问外网的自建 Trojan 节点与订阅，可作为分流规则的目标或默认代理出口。",
@@ -1688,6 +1749,22 @@ const STRINGS = {
     "service.installingShort": "Installing…",
     "service.updatingShort": "Updating…",
     "service.uninstallingShort": "Uninstalling…",
+    "service.transitionInstallTitle": "Installing the background service",
+    "service.transitionInstallSub": "Confirm in the system authorization prompt. The window switches to the service's interface once it is up — please leave it open.",
+    "service.transitionUpdateTitle": "Updating the background service",
+    "service.transitionUpdateSub": "The service stops and starts again on the new version. The interface comes back on its own — please leave the window open.",
+    "service.transitionUninstallTitle": "Removing the background service",
+    "service.transitionUninstallSub": "The application takes the engine back once the service has stopped.",
+    "service.transitionHandoverTitle": "Returning to the application",
+    "service.transitionHandoverSub": "This stops the background service that is serving this page, so the application has to carry it out. Switching…",
+    "service.transitionWaitingTitle": "Waiting for the background service",
+    "service.transitionWaitingSub": "The service is installed and its interface has not answered yet. The window switches over as soon as it does.",
+    "service.transitionAttachTitle": "Attaching to the background service",
+    "service.transitionAttachSub": "The service is up; switching to its interface.",
+    "service.transitionStalledTitle": "The background service has not answered",
+    "service.transitionStalledSub": "It is installed but its interface is not responding yet. The application keeps trying in the background; reopening the window later also works.",
+    "service.transitionFailedTitle": "That did not finish",
+    "service.transitionClose": "Got it",
 
     "nodes.title": "Nodes & Subscriptions",
     "nodes.sub": "Manage outbound Trojan nodes and subscriptions for proxy routing.",
@@ -2232,6 +2309,66 @@ function configPathOf() {
   return state.session ? state.session.config_path : "";
 }
 
+/* The overlay is what someone watches while the engine changes hands. The
+   handover is not instant -- a password prompt, a service starting, a port
+   opening -- and without it the window looks frozen, or worse, lands on a
+   page that is not being served yet. */
+function showTransition(title, sub) {
+  $("transition-box").className = "prompt-box transition-box";
+  $("transition-actions").hidden = true;
+  $("transition-title").textContent = title;
+  $("transition-sub").textContent = sub || "";
+  $("transition-veil").hidden = false;
+}
+
+// stopTransition leaves the overlay up with a way out of it: the operation is
+// over and did not end where it meant to, which is something to say rather
+// than to close over.
+function stopTransition(title, sub, kind) {
+  showTransition(title, sub);
+  $("transition-box").className = "prompt-box transition-box " + (kind || "stalled");
+  $("transition-actions").hidden = false;
+}
+
+function hideTransition() {
+  $("transition-veil").hidden = true;
+}
+$("transition-close").addEventListener("click", hideTransition);
+
+// sameInterface says whether a link points at the interface already on screen,
+// so a window that is already in the right place is left alone.
+function sameInterface(link) {
+  try {
+    return new URL(link).host === new URL(window.location.href).host;
+  } catch (_) {
+    return false;
+  }
+}
+
+function serviceReady(st) {
+  return !!(st && st.installed && st.running && st.reachable && st.link);
+}
+
+// waitForService polls until the service is serving its own interface. The
+// server waits for this too before it answers; this is the second chance, for
+// a service that started slowly or was installed from somewhere else.
+async function waitForService(limitMs) {
+  const until = Date.now() + limitMs;
+  for (;;) {
+    let st = null;
+    try {
+      st = await (await api("/api/service")).json();
+    } catch (_) {}
+    if (serviceReady(st) || (st && !st.installed)) return st;
+    if (Date.now() >= until) return st;
+    await new Promise((r) => setTimeout(r, 800));
+  }
+}
+
+function go(link) {
+  setTimeout(() => { window.location.href = link; }, 350);
+}
+
 async function serviceAction(path, busyKey, doneKey) {
   const isUninstall = path.includes("uninstall");
   const isOutdated = !!service.outdated;
@@ -2262,31 +2399,89 @@ async function serviceAction(path, busyKey, doneKey) {
   $("service-uninstall").disabled = true;
   $("home-service-uninstall").disabled = true;
 
+  showTransition(
+    isUninstall ? t("service.transitionUninstallTitle")
+      : isOutdated ? t("service.transitionUpdateTitle")
+      : t("service.transitionInstallTitle"),
+    isUninstall ? t("service.transitionUninstallSub")
+      : isOutdated ? t("service.transitionUpdateSub")
+      : t("service.transitionInstallSub"));
+
   try {
     const res = await api(path, { method: "POST" });
     const st = await res.json();
     renderService(st);
+
+    // The answer is a place to go rather than a result: this page is served
+    // by the process the operation stops, and the application is the one that
+    // survives it.
+    if (st.delegate) {
+      showTransition(t("service.transitionHandoverTitle"), t("service.transitionHandoverSub"));
+      const sep = st.delegate.indexOf("?") === -1 ? "?" : "&";
+      go(st.delegate + sep + "action=" + (isUninstall ? "service-uninstall" : "service-install"));
+      return;
+    }
+
+    // Nothing happened: the authorisation prompt was dismissed.
+    if (isUninstall ? st.installed : !st.installed) {
+      if (note) {
+        note.className = "note";
+        note.textContent = t("service.cancelled");
+      }
+      hideTransition();
+      return;
+    }
+
     if (note) {
       note.className = "note good";
       note.textContent = t(doneKey);
     }
-    if (st.running && st.link) {
-      try {
-        const curUrl = new URL(window.location.href);
-        const srvUrl = new URL(st.link);
-        if (curUrl.host !== srvUrl.host || curUrl.searchParams.get("token") !== srvUrl.searchParams.get("token")) {
-          setTimeout(() => {
-            window.location.href = st.link;
-          }, 400);
-        }
-      } catch (_) {}
+
+    if (isUninstall) {
+      // A service removing itself takes this page down with it, so the
+      // window moves to the application first and watches the rest from
+      // there. Where this already is the application, it simply stays.
+      if (st.app_link && !sameInterface(st.app_link)) {
+        const sep = st.app_link.indexOf("?") === -1 ? "?" : "&";
+        go(st.app_link + sep + "action=service-removing");
+        return;
+      }
+      hideTransition();
+      return;
     }
+
+    let ready = st;
+    if (!serviceReady(ready)) {
+      showTransition(t("service.transitionWaitingTitle"), t("service.transitionWaitingSub"));
+      ready = (await waitForService(20000)) || ready;
+    }
+    if (serviceReady(ready)) {
+      if (sameInterface(ready.link)) {
+        hideTransition();
+        return;
+      }
+      showTransition(t("service.transitionAttachTitle"), t("service.transitionAttachSub"));
+      // An application displaying this page moves its own window, and only
+      // once it has checked the service answers it. Doing it here as well is
+      // the same page loaded twice. The timer is in case it does not: this
+      // page is gone by the time it fires if the application got there first.
+      if (ready.managed) {
+        setTimeout(() => { window.location.href = ready.link; }, 8000);
+        return;
+      }
+      go(ready.link);
+      return;
+    }
+    // Installed, but nothing is answering on its interface yet. The
+    // application keeps looking, so this says so instead of handing the
+    // window to a port with nothing behind it.
+    stopTransition(t("service.transitionStalledTitle"), t("service.transitionStalledSub"), "stalled");
   } catch (e) {
     if (note) {
       note.className = "note bad";
       note.textContent = e.message;
     }
-    alert(e.message);
+    stopTransition(t("service.transitionFailedTitle"), e.message, "failed");
   } finally {
     loadService();
   }
@@ -3280,12 +3475,53 @@ function connect() {
   };
 }
 
+/* --- Work handed over from the service's interface ---------------------- */
+// The service cannot install over itself or stop itself while serving the
+// page that asked it to, so it sends the page here with what it was asked
+// for. Picking it up on arrival is what makes that one continuous operation
+// rather than two the person has to start twice.
+async function resumeHandover() {
+  if (!HANDOVER) return;
+  await loadService();
+  if (HANDOVER === "service-install") {
+    serviceAction("/api/service/install", "service.installing", "service.installed");
+  } else if (HANDOVER === "service-uninstall") {
+    serviceAction("/api/service/uninstall", "service.uninstalling", "service.removed");
+  } else if (HANDOVER === "service-removing") {
+    // The service is taking itself down and this page arrived ahead of it.
+    // There is nothing to do but wait for it to be gone.
+    await waitForRemoval(20000);
+    hideTransition();
+  } else {
+    hideTransition();
+  }
+}
+
+// waitForRemoval polls until the service is no longer installed.
+async function waitForRemoval(limitMs) {
+  showTransition(t("service.transitionUninstallTitle"), t("service.transitionUninstallSub"));
+  const until = Date.now() + limitMs;
+  for (;;) {
+    let st = null;
+    try {
+      st = await (await api("/api/service")).json();
+    } catch (_) {}
+    if (st) renderService(st);
+    if (st && !st.installed) return;
+    if (Date.now() >= until) return;
+    await new Promise((r) => setTimeout(r, 700));
+  }
+}
+
 applyLanguage();
 
 if (!TOKEN) {
   document.body.textContent = t("notoken");
 } else {
-  api("/api/state").then((r) => r.json()).then(render).catch(() => {});
+  if (HANDOVER) {
+    showTransition(t("service.transitionHandoverTitle"), t("service.transitionHandoverSub"));
+  }
+  api("/api/state").then((r) => r.json()).then(render).catch(() => {}).finally(resumeHandover);
   connect();
 }
 </script>

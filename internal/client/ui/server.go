@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/client"
@@ -60,6 +61,16 @@ type Server struct {
 	token      string
 	log        *slog.Logger
 
+	// managed is set by an application that owns the window this interface is
+	// displayed in. Such an application moves the window itself, once it has
+	// checked that there is something to move it to, so the page must not
+	// also try: two navigations to the same place is one reload too many.
+	managed bool
+
+	// busy counts the service installs and removals in flight. It is what
+	// stops the application moving the window out from under one.
+	busy atomic.Int32
+
 	// prompts receives challenges the interface should show, and returns the
 	// answers a person gives it.
 	prompts *promptQueue
@@ -80,6 +91,15 @@ func New(ctl Controller, configPath, token string, log *slog.Logger) *Server {
 // Prompter returns the client.Prompter that routes challenges to the
 // interface instead of a terminal.
 func (s *Server) Prompter() client.Prompter { return s.prompts }
+
+// Managed tells the interface that an application is displaying it and will
+// move that window itself when the engine changes hands.
+func (s *Server) Managed() { s.managed = true }
+
+// Busy reports whether the background service is being installed or removed
+// right now. The page doing it is the one that has to survive to say how it
+// went, so nothing else may navigate it away in the meantime.
+func (s *Server) Busy() bool { return s.busy.Load() > 0 }
 
 // Handler returns the routed handler.
 func (s *Server) Handler() http.Handler {

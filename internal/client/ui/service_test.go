@@ -2,7 +2,10 @@ package ui
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
+	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -116,5 +119,73 @@ func TestServiceLinkPathSitsBesideTheConfiguration(t *testing.T) {
 	want := filepath.Join("/Users/someone/Library/Application Support/vpn-gateway", "service-link")
 	if got != want {
 		t.Errorf("link path = %q, want %q", got, want)
+	}
+}
+
+func TestAppLinkPathSitsBesideTheConfiguration(t *testing.T) {
+	// The service reads this file to find the application, so both sides have
+	// to work the path out the same way.
+	got := AppLinkPath("/Users/someone/Library/Application Support/vpn-gateway/client.yaml")
+	want := filepath.Join("/Users/someone/Library/Application Support/vpn-gateway", "app-link")
+	if got != want {
+		t.Errorf("app link path = %q, want %q", got, want)
+	}
+}
+
+func TestTheApplicationIsNotSentToItsOwnInterface(t *testing.T) {
+	// Every client publishes an interface, including the application reading
+	// this file. Handing work to itself would be a page sent in a circle.
+	s, _, path, srv := testServer(t)
+	if err := os.WriteFile(AppLinkPath(path), []byte(srv.URL+"/?token=tok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if link := s.appLink(); link != "" {
+		t.Errorf("the application was offered its own interface: %q", link)
+	}
+}
+
+func TestAnApplicationThatHasQuitIsNotOfferedAsSomewhereToGo(t *testing.T) {
+	// A link left behind by an application that is gone points at a refused
+	// connection, which is the error page all of this exists to prevent.
+	s, _, path, _ := testServer(t)
+	dead := "http://127.0.0.1:1/?token=other"
+	if err := os.WriteFile(AppLinkPath(path), []byte(dead+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if link := s.appLink(); link != "" {
+		t.Errorf("a dead link was offered as somewhere to go: %q", link)
+	}
+}
+
+func TestARunningApplicationIsWhereTheWorkIsSent(t *testing.T) {
+	s, _, path, _ := testServer(t)
+
+	other := &fakeController{cfg: s.ctl.Settings(), phase: client.PhaseIdle, configPath: path}
+	app := httptest.NewServer(New(other, path, "app-token", slog.New(slog.DiscardHandler)).Handler())
+	defer app.Close()
+
+	link := app.URL + "/?token=app-token"
+	if err := os.WriteFile(AppLinkPath(path), []byte(link+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.appLink(); got != link {
+		t.Errorf("app link = %q, want %q", got, link)
+	}
+}
+
+func TestAnInterfaceThatRefusesTheTokenIsNotReachable(t *testing.T) {
+	// Reachable means an interface answered, not that something is listening:
+	// a client running a different configuration has its own token and is not
+	// this one's to attach to.
+	s, _, path, _ := testServer(t)
+	fake := &fakeController{cfg: s.ctl.Settings(), phase: client.PhaseIdle, configPath: path}
+	other := httptest.NewServer(New(fake, path, "right", slog.New(slog.DiscardHandler)).Handler())
+	defer other.Close()
+
+	if reachable(other.URL + "/?token=wrong") {
+		t.Error("an interface that refused the token was reported as reachable")
+	}
+	if !reachable(other.URL + "/?token=right") {
+		t.Error("an interface that answered was not reported as reachable")
 	}
 }

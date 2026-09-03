@@ -199,6 +199,19 @@ sync. What is copied is the executable, into a directory only root can write:
 a daemon that runs a binary its own user could replace is a root shell with
 extra steps.
 
+**Neither side hands over to a port that is not answering.** A job launchd or
+the service manager reports as running has started a process, which is some
+way short of that process having opened its interface, and a window pointed
+there lands on an error page. So both directions wait for an answer: an
+install is not finished until the service's own interface replies, and the
+application publishes a link of its own beside the configuration so the
+service can send the page back when it is about to stop. That last part is
+not politeness. A service cannot install over its own executable or remove
+itself while serving the page that asked it to -- the script doing it is
+killed halfway through -- so the work goes to the process that outlives it,
+and the person watching sees one continuous operation instead of a window
+that has nowhere to be.
+
 Phase 4: interactive login. A gateway that wants an SMS code, a TOTP token, a
 captcha or a single sign-on address raises a contract challenge; the server
 relays it and the client asks whoever is there.
