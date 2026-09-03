@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/client"
+	"github.com/vpn-gateway/vpn-gateway/internal/version"
 )
 
 func TestServiceStatusNeedsTheToken(t *testing.T) {
@@ -187,5 +188,78 @@ func TestAnInterfaceThatRefusesTheTokenIsNotReachable(t *testing.T) {
 	}
 	if !reachable(other.URL + "/?token=right") {
 		t.Error("an interface that answered was not reported as reachable")
+	}
+}
+
+// fakeInterface serves just enough of the interface for a probe: a state with
+// a version, behind the token the link carries.
+func fakeInterface(t *testing.T, token, ver string) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		writeJSON(w, http.StatusOK, State{Version: ver})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv.URL + "/?token=" + token
+}
+
+func TestProbingReportsWhatIsRunningThere(t *testing.T) {
+	link := fakeInterface(t, "tok-a", "v9.9 build(9999)")
+	if got := linkVersion(link); got != "v9.9 build(9999)" {
+		t.Errorf("version = %q, want v9.9 build(9999)", got)
+	}
+	if !reachable(link) {
+		t.Error("an interface that answered was not reachable")
+	}
+	if got := linkVersion("http://127.0.0.1:1/?token=nobody"); got != "" {
+		t.Errorf("a dead link reported version %q", got)
+	}
+}
+
+func TestAServiceComparesItselfAgainstTheApplicationDrivingIt(t *testing.T) {
+	// The service serves this page from the very executable it installed, so
+	// comparing that executable against this process always says they match.
+	// An old service asked whether it is old would answer no, and the update
+	// would never be offered -- which is what happened once attaching to the
+	// service started working every time.
+	s, _, _, _ := testServer(t)
+
+	if got := s.replacementVersion(""); got != version.Full() {
+		t.Errorf("with no application, replacement = %q, want this process's %q", got, version.Full())
+	}
+
+	app := fakeInterface(t, "tok-b", "v9.9 build(9999)")
+	if got := s.replacementVersion(app); got != "v9.9 build(9999)" {
+		t.Errorf("with an application driving it, replacement = %q, want the application's", got)
+	}
+
+	// An application that has gone away decides nothing.
+	if got := s.replacementVersion("http://127.0.0.1:1/?token=gone"); got != version.Full() {
+		t.Errorf("a dead application link gave %q", got)
+	}
+}
+
+func TestWhenAnUpdateIsOffered(t *testing.T) {
+	for _, c := range []struct {
+		what        string
+		installed   bool
+		version     string
+		replacement string
+		want        bool
+	}{
+		{"nothing installed", false, "", "v1.0 build(0029)", false},
+		{"the same version", true, "v1.0 build(0029)", "v1.0 build(0029)", false},
+		{"an older one", true, "v1.0 build(0023)", "v1.0 build(0029)", true},
+		// Saying nothing is not saying "up to date".
+		{"one that would not say", true, "", "v1.0 build(0029)", true},
+	} {
+		if got := outdated(c.installed, c.version, c.replacement); got != c.want {
+			t.Errorf("%s: outdated = %t, want %t", c.what, got, c.want)
+		}
 	}
 }

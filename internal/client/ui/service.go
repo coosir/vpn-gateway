@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -57,7 +58,10 @@ type serviceStatus struct {
 	Managed bool `json:"managed"`
 	// AppVersion is the version of this client application.
 	AppVersion string `json:"app_version"`
-	// Outdated is true when the installed service binary version is older than this application.
+	// Outdated is true when the installed service executable is not the one
+	// that would be installed now -- a different version, or one whose
+	// version cannot be read at all, which is not a service anybody can call
+	// current.
 	Outdated bool `json:"outdated"`
 }
 
@@ -109,10 +113,41 @@ func (s *Server) serviceState() serviceStatus {
 	if !st.Ready {
 		st.Blocker = "import a server bundle first; a service with nothing to connect to would only be restarted in a loop"
 	}
-	if st.Installed && st.InstalledVersion != "" && st.InstalledVersion != version.Full() {
-		st.Outdated = true
-	}
+	st.Outdated = outdated(st.Installed, st.InstalledVersion, s.replacementVersion(st.AppLink))
 	return st
+}
+
+// outdated says whether the installed service is not the one that would be
+// installed now.
+//
+// A version that could not be read counts. Saying nothing is not saying "up to
+// date", and an update that reinstalls the same executable costs a prompt and
+// a restart; never offering one leaves a machine on an old service with no way
+// to notice.
+func outdated(installed bool, installedVersion, replacement string) bool {
+	if !installed {
+		return false
+	}
+	return installedVersion != replacement
+}
+
+// replacementVersion is the version of whatever would replace the installed
+// service if it were updated now: the application driving this interface when
+// there is one, and this process otherwise.
+//
+// It is the whole reason an old service can notice that it is old. The service
+// serves this page from the very executable it installed, so asking whether
+// that executable is current by comparing it against this process always
+// answers yes, however much newer the application asking happens to be. Once
+// attaching to the service worked reliably, that was every time anybody
+// looked, and the update was never offered again.
+func (s *Server) replacementVersion(appLink string) string {
+	if appLink != "" {
+		if v := linkVersion(appLink); v != "" {
+			return v
+		}
+	}
+	return version.Full()
 }
 
 func (s *Server) getService(w http.ResponseWriter, r *http.Request) {
@@ -327,24 +362,39 @@ const (
 var probes sync.Map // link -> *probeResult
 
 type probeResult struct {
-	mu  sync.Mutex
-	at  time.Time
-	got bool
+	mu sync.Mutex
+	at time.Time
+	// got is whether the interface answered, and version is what it said it
+	// was. They come from one request because they are one question: what, if
+	// anything, is running there.
+	got     bool
+	version string
 }
 
 // reachable answers whether an interface link is being served right now.
 func reachable(link string) bool {
+	p := probed(link)
+	return p.got
+}
+
+// linkVersion is the version of the client serving a link, empty when nothing
+// is serving it.
+func linkVersion(link string) string {
+	p := probed(link)
+	return p.version
+}
+
+func probed(link string) probeResult {
 	forgetStaleProbes()
 	v, _ := probes.LoadOrStore(link, &probeResult{})
 	p := v.(*probeResult)
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if !p.at.IsZero() && time.Since(p.at) < probeTTL {
-		return p.got
+	if p.at.IsZero() || time.Since(p.at) >= probeTTL {
+		p.version, p.got = probe(link)
+		p.at = time.Now()
 	}
-	p.got = probe(link)
-	p.at = time.Now()
-	return p.got
+	return probeResult{at: p.at, got: p.got, version: p.version}
 }
 
 // forgetStaleProbes keeps what is remembered here to a size a machine could
@@ -361,25 +411,33 @@ func forgetStaleProbes() {
 	}
 }
 
-// probe asks an interface for its state. Anything but an answer -- a refused
-// connection, a timeout, a token the other side does not accept -- means there
-// is nothing there to send a window to.
-func probe(link string) bool {
+// probe asks an interface for its state, and reports what version answered.
+// Anything but an answer -- a refused connection, a timeout, a token the other
+// side does not accept -- means there is nothing there to send a window to.
+func probe(link string) (version string, ok bool) {
 	u, err := url.Parse(link)
 	if err != nil || u.Host == "" {
-		return false
+		return "", false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.Scheme+"://"+u.Host+"/api/state", nil)
 	if err != nil {
-		return false
+		return "", false
 	}
 	req.Header.Set("Authorization", "Bearer "+u.Query().Get("token"))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return false
+		return "", false
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	if resp.StatusCode != http.StatusOK {
+		return "", false
+	}
+	var st State
+	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+		// It answered, which is the part the window depends on.
+		return "", true
+	}
+	return st.Version, true
 }

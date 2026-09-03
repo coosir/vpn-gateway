@@ -1573,6 +1573,7 @@ const STRINGS = {
     "service.stopped": "已安装但未运行",
     "service.outdatedBadge": "有新版本",
     "service.outdatedDesc": "检测到应用程序已升级，后台服务仍在运行旧版本 (%s)，请点击更新服务以同步最新功能。",
+    "service.outdatedUnknownDesc": "读不到后台服务的版本，无法确认它与当前应用程序是否一致，请点击更新服务重新安装。",
     "service.why": "创建 TUN 网卡和改路由表需要系统管理员权限。安装后台服务后将以系统服务后台常驻运行，开机自启，客户端仅作为控制面板。",
     "service.installing": "正在安装/更新，请在弹出的系统授权窗口里确认…",
     "service.uninstalling": "正在卸载服务…",
@@ -1734,6 +1735,7 @@ const STRINGS = {
     "service.stopped": "Installed but stopped",
     "service.outdatedBadge": "Update Available",
     "service.outdatedDesc": "A newer application version was detected. The background helper service is running (%s), please click to update.",
+    "service.outdatedUnknownDesc": "The background service will not say what version it is, so there is no telling whether it matches this application. Update it to reinstall.",
     "service.why": "Creating TUN interface and modifying routing tables require system privileges. The helper service runs in the background as root and auto-starts at boot.",
     "service.installing": "Installing/updating service, please authorize in the system prompt…",
     "service.uninstalling": "Uninstalling service…",
@@ -2272,7 +2274,11 @@ function renderService(sv) {
 
   const detail = [];
   if (service.outdated) {
-    detail.push(t("service.outdatedDesc", service.installed_version || ""));
+    // A service that would not say what it is is not one that can be called
+    // current, so it is offered an update too -- with a line that says why.
+    detail.push(service.installed_version
+      ? t("service.outdatedDesc", service.installed_version)
+      : t("service.outdatedUnknownDesc"));
   }
   if (!service.installed && service.blocker) detail.push(service.blocker);
   if (service.installed && service.config_path && service.config_path !== configPathOf()) {
