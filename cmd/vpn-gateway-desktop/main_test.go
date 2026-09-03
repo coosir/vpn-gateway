@@ -173,7 +173,10 @@ func TestTheTrayIsLeftAloneWhenNothingHasChanged(t *testing.T) {
 	snap := snapshot{
 		Phase:       client.PhaseConnected,
 		TunnelCount: 2,
-		Tunnels:     []tunnelLine{{Name: "a", Up: true}, {Name: "b", Up: true}},
+		Tunnels: []tunnelLine{
+			{Name: "a", Up: true, Wanted: true},
+			{Name: "b", Up: true, Wanted: true},
+		},
 	}
 	if frameOf(snap, tr) != frameOf(snap, tr) {
 		t.Error("the same state produced two different frames; the tray would be rebuilt on every tick")
@@ -189,7 +192,10 @@ func TestConnectingIsSomethingTheTrayIsToldAbout(t *testing.T) {
 	up := frameOf(snapshot{
 		Phase:       client.PhaseConnected,
 		TunnelCount: 2,
-		Tunnels:     []tunnelLine{{Name: "a", Up: true}, {Name: "b", Up: true}},
+		Tunnels: []tunnelLine{
+			{Name: "a", Up: true, Wanted: true},
+			{Name: "b", Up: true, Wanted: true},
+		},
 	}, tr)
 	if idle == up {
 		t.Fatal("connected and not connected produce the same frame")
@@ -209,14 +215,80 @@ func TestATunnelGoingDownIsAChangeToShow(t *testing.T) {
 	// Still connected, so the phase is the same; what changed is inside it.
 	tr := translator("en")
 	all := frameOf(snapshot{
-		Phase:   client.PhaseConnected,
-		Tunnels: []tunnelLine{{Name: "a", Up: true}, {Name: "b", Up: true}},
+		Phase: client.PhaseConnected,
+		Tunnels: []tunnelLine{
+			{Name: "a", Up: true, Wanted: true},
+			{Name: "b", Up: true, Wanted: true},
+		},
 	}, tr)
 	one := frameOf(snapshot{
-		Phase:   client.PhaseConnected,
-		Tunnels: []tunnelLine{{Name: "a", Up: true}, {Name: "b", Up: false}},
+		Phase: client.PhaseConnected,
+		Tunnels: []tunnelLine{
+			{Name: "a", Up: true, Wanted: true},
+			{Name: "b", Up: false, Wanted: true},
+		},
 	}, tr)
 	if all == one {
 		t.Error("a tunnel going down was not something the tray would notice")
+	}
+}
+
+func TestATunnelNobodyAskedForIsNotATunnelThatIsDown(t *testing.T) {
+	// Tunnels disabled on the server, or stopped by hand, come back as not
+	// wanted. Counting them made a connected client show the degraded icon
+	// and "2/6 tunnels up" forever, with nothing anybody could do about it.
+	tr := translator("en")
+	v := buildView(snapshot{
+		Phase: client.PhaseConnected,
+		Tunnels: []tunnelLine{
+			{Name: "lan", Up: true, Wanted: true},
+			{Name: "hk", Up: true, Wanted: true},
+			{Name: "off-1", Wanted: false},
+			{Name: "off-2", Wanted: false},
+		},
+	}, tr)
+
+	if !v.Healthy {
+		t.Errorf("every tunnel asked for is up, but the tray shows trouble: %q", v.Status)
+	}
+	if !strings.Contains(v.Status, "2/2") {
+		t.Errorf("status = %q, want it to count the two that were asked for", v.Status)
+	}
+}
+
+func TestATunnelThatWasAskedForAndIsDownStillShows(t *testing.T) {
+	// The other half: ignoring what was not asked for must not end up
+	// ignoring what was.
+	tr := translator("en")
+	v := buildView(snapshot{
+		Phase: client.PhaseConnected,
+		Tunnels: []tunnelLine{
+			{Name: "lan", Up: true, Wanted: true},
+			{Name: "hk", Up: false, Wanted: true},
+			{Name: "off", Wanted: false},
+		},
+	}, tr)
+
+	if v.Healthy {
+		t.Error("a tunnel that was asked to dial is down and the tray calls it healthy")
+	}
+	if !strings.Contains(v.Status, "1/2") {
+		t.Errorf("status = %q, want 1/2", v.Status)
+	}
+}
+
+func TestConnectedWithNothingAskedForIsNotAFailure(t *testing.T) {
+	// Connected, and every tunnel deliberately stopped. Nothing is broken.
+	tr := translator("en")
+	v := buildView(snapshot{
+		Phase:   client.PhaseConnected,
+		Tunnels: []tunnelLine{{Name: "off-1"}, {Name: "off-2"}},
+	}, tr)
+
+	if !v.Healthy {
+		t.Error("nothing was asked to dial, so nothing is down, but the tray shows trouble")
+	}
+	if v.Status != tr("status.connected") {
+		t.Errorf("status = %q, want %q", v.Status, tr("status.connected"))
 	}
 }

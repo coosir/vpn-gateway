@@ -20,12 +20,12 @@ func TestTrojanTunnelManager(t *testing.T) {
 		Runtime:  "auto",
 		Tunnels: []server.TunnelConfig{
 			{
-				Name:        "hk-node",
-				Provider:    "trojan",
-				Server:      "hk.example.com:443",
-				SNI:         "hk.example.com",
-				Password:    "secretpass",
-				Insecure:    true,
+				Name:     "hk-node",
+				Provider: "trojan",
+				Server:   "hk.example.com:443",
+				SNI:      "hk.example.com",
+				Password: "secretpass",
+				Insecure: true,
 				Extra: map[string]string{
 					"domains": "google.com,github.com",
 					"routes":  "1.1.1.1/32",
@@ -78,4 +78,20 @@ func TestTrojanTunnelManager(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	m.Run(ctx)
+}
+
+func TestADisabledTunnelDoesNotAskToDial(t *testing.T) {
+	// Wanted is what every interface reads to tell a tunnel that is stopped
+	// on purpose from one that is broken. A disabled tunnel can never dial,
+	// so claiming it wants to shows it as broken everywhere, permanently --
+	// which is how a connected client came to show a degraded tray icon.
+	tn := &Tunnel{cfg: server.TunnelConfig{
+		Name:      "mock",
+		Provider:  "mock",
+		Disabled:  true,
+		Autostart: true,
+	}}
+	if tn.restoreWish() {
+		t.Error("a disabled tunnel asked to dial because autostart was set")
+	}
 }

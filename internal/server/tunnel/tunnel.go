@@ -263,6 +263,13 @@ func (t *Tunnel) wishPath() string {
 }
 
 func (t *Tunnel) restoreWish() bool {
+	// A tunnel disabled in the configuration is not going to dial whatever
+	// anybody wished for it, and saying otherwise describes it as a tunnel
+	// that ought to be up and is not -- which is a warning in every interface
+	// that reads this, and one nobody can clear.
+	if t.cfg.Disabled {
+		return false
+	}
 	b, err := os.ReadFile(t.wishPath())
 	if err != nil {
 		if !t.cfg.NeedsContainer() {

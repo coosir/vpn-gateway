@@ -541,28 +541,36 @@ func buildView(st snapshot, t func(string, ...any) string) view {
 		return v
 	}
 
-	// Connected: the tunnels themselves decide what this looks like.
+	// Connected: the tunnels themselves decide what this looks like, and only
+	// the ones that were asked to dial. A tunnel disabled on the server, or
+	// stopped by hand, is not a tunnel that is down: counting it turns a
+	// deliberate choice into a warning that can never be cleared.
 	v.CanToggle = true
 	v.Action = t("disconnect")
 
-	if len(st.Tunnels) == 0 {
+	wanted, up := 0, 0
+	for _, tn := range st.Tunnels {
+		if !tn.Wanted {
+			continue
+		}
+		wanted++
+		if tn.Up {
+			up++
+		}
+	}
+
+	if wanted == 0 {
 		v.Status = t("status.connected")
 		v.Tooltip = t("tip.connected")
 		v.Healthy = true
 		return v
 	}
 
-	up := 0
-	for _, tn := range st.Tunnels {
-		if tn.Up {
-			up++
-		}
-	}
-	v.Status = t("status.up", up, len(st.Tunnels))
-	v.Tooltip = t("tip.ok", up, len(st.Tunnels))
-	// A tunnel that is not carrying traffic has to show in the menu bar.
-	// Otherwise the one moment someone needs to look is the one moment it
-	// looks fine.
-	v.Healthy = (up > 0 && up == len(st.Tunnels)) || len(st.Tunnels) == 0
+	v.Status = t("status.up", up, wanted)
+	v.Tooltip = t("tip.ok", up, wanted)
+	// A tunnel that was asked to dial and is not carrying traffic has to show
+	// in the menu bar. Otherwise the one moment someone needs to look is the
+	// one moment it looks fine.
+	v.Healthy = up == wanted
 	return v
 }

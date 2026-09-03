@@ -71,7 +71,10 @@ func testService(t *testing.T, state ui.State) (*fakeService, *serviceEngine) {
 func TestAttachedMenuShowsTheServicesTunnels(t *testing.T) {
 	_, e := testService(t, ui.State{
 		Session: client.SessionStatus{Phase: client.PhaseConnected, TunnelCount: 2},
-		Tunnels: []ui.TunnelView{{Name: "office", Up: true}, {Name: "lab", Up: false}},
+		Tunnels: []ui.TunnelView{
+			{Name: "office", Up: true, Wanted: true},
+			{Name: "lab", Up: false, Wanted: true},
+		},
 	})
 
 	snap := e.Snapshot()
@@ -81,6 +84,11 @@ func TestAttachedMenuShowsTheServicesTunnels(t *testing.T) {
 	// Sorted, so the menu does not reorder itself between refreshes.
 	if len(snap.Tunnels) != 2 || snap.Tunnels[0].Name != "lab" {
 		t.Fatalf("tunnels = %+v", snap.Tunnels)
+	}
+
+	// Both were asked to dial, so both count.
+	if !snap.Tunnels[0].Wanted || !snap.Tunnels[1].Wanted {
+		t.Errorf("the service's answer lost whether the tunnels were asked for: %+v", snap.Tunnels)
 	}
 
 	v := buildView(snap, translator("en"))

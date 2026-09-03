@@ -50,6 +50,11 @@ type snapshot struct {
 type tunnelLine struct {
 	Name string
 	Up   bool
+	// Wanted is whether the tunnel was asked to dial at all. One that was not
+	// is stopped on purpose -- disabled on the server, or stopped by hand --
+	// and counting it as a tunnel that ought to be up turns every deliberate
+	// choice into a warning nobody can clear.
+	Wanted bool
 }
 
 // --- the engine inside this process --------------------------------------
@@ -75,7 +80,7 @@ func sessionSnapshot(s *client.Session) snapshot {
 	snap := snapshot{Phase: st.Phase, TunnelCount: st.TunnelCount}
 	if c := s.Client(); c != nil {
 		for _, t := range c.Tunnels() {
-			snap.Tunnels = append(snap.Tunnels, tunnelLine{Name: t.Name, Up: t.Up})
+			snap.Tunnels = append(snap.Tunnels, tunnelLine{Name: t.Name, Up: t.Up, Wanted: t.Wanted})
 		}
 	}
 	sortTunnels(snap.Tunnels)
@@ -130,7 +135,7 @@ func (e *serviceEngine) Snapshot() snapshot {
 		Attached:    true,
 	}
 	for _, t := range st.Tunnels {
-		snap.Tunnels = append(snap.Tunnels, tunnelLine{Name: t.Name, Up: t.Up})
+		snap.Tunnels = append(snap.Tunnels, tunnelLine{Name: t.Name, Up: t.Up, Wanted: t.Wanted})
 	}
 	sortTunnels(snap.Tunnels)
 	return snap
