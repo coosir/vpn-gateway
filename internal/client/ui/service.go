@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os/user"
 	"path/filepath"
@@ -34,6 +35,8 @@ type serviceStatus struct {
 	// LinkFile is where the installed service publishes its interface link.
 	// The application reads it to attach.
 	LinkFile string `json:"link_file,omitempty"`
+	// Link is the full interface URL of the running background service.
+	Link string `json:"link,omitempty"`
 	// AppVersion is the version of this client application.
 	AppVersion string `json:"app_version"`
 	// Outdated is true when the installed service binary version is older than this application.
@@ -46,10 +49,30 @@ func (s *Server) serviceOptions() helper.Options {
 
 func (s *Server) serviceState() serviceStatus {
 	hStatus := helper.Inspect(s.serviceOptions())
+	linkPath := s.ctl.Settings().UI.LinkFile
+	if linkPath == "" {
+		linkPath = ServiceLinkPath(s.configPath)
+	}
+	link, _ := ReadLink(linkPath)
+	if link == "" && hStatus.Running {
+		listen := s.ctl.Settings().UI.Listen
+		if listen == "" {
+			listen = defaultServiceListen
+		}
+		stateDir := s.ctl.Settings().UI.StateDir
+		if stateDir == "" {
+			stateDir = filepath.Dir(s.configPath)
+		}
+		if tok, err := ReadToken(stateDir); err == nil && tok != "" {
+			link = fmt.Sprintf("http://%s/?token=%s", listen, tok)
+		}
+	}
+
 	st := serviceStatus{
 		Status:     hStatus,
 		Ready:      s.ctl.Status().Phase != client.PhaseSetup,
-		LinkFile:   s.ctl.Settings().UI.LinkFile,
+		LinkFile:   linkPath,
+		Link:       link,
 		AppVersion: version.Full(),
 	}
 	// Answered in the order the steps have to happen in: being told to find an

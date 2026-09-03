@@ -9,6 +9,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -116,9 +118,13 @@ func run(configPath, lang string) error {
 	// If the background service is already running, point window at it directly from the start
 	initialURL := link
 	if svcLink := sv.serviceLink(); svcLink != "" {
-		initialURL = svcLink
 		if svcEngine, err := newServiceEngine(svcLink); err == nil {
-			sv.current = svcEngine
+			pingCtx, pingCancel := context.WithTimeout(context.Background(), 1*time.Second)
+			if err := svcEngine.Ping(pingCtx); err == nil {
+				initialURL = svcLink
+				sv.current = svcEngine
+			}
+			pingCancel()
 		}
 	}
 
@@ -130,7 +136,7 @@ func run(configPath, lang string) error {
 		Height:    windowHeight,
 		MinWidth:  windowMinW,
 		MinHeight: windowMinH,
-		Hidden:    false,
+		Hidden:    true,
 	})
 	sv.window = window
 
@@ -148,6 +154,10 @@ func run(configPath, lang string) error {
 	tray.SetTooltip(t("tip.setup"))
 
 	menu := application.NewMenu()
+	title := menu.Add(t("title") + " — " + version.Full())
+	title.SetEnabled(false)
+	menu.AddSeparator()
+
 	status := menu.Add(t("status.setup"))
 	status.SetEnabled(false)
 
@@ -174,19 +184,15 @@ func run(configPath, lang string) error {
 	return app.Run()
 }
 
-// supervisor keeps one engine in charge and the window pointed at it.
-//
-// It is consulted on the menu bar's own timer rather than driven by an event.
-// Nothing tells an application that a launchd daemon was installed or removed,
-// and someone doing either from a terminal should not have to reopen this to
-// see the difference.
+// supervisor decides which engine is in charge and tells the window when that
+// changes.
 type supervisor struct {
 	configPath string
 	session    *client.Session
 	local      *localEngine
 	log        *slog.Logger
 
-	// window is pointed at whichever interface is in charge. Before the
+	// window is where the interface is displayed. Before the window of an
 	// application is running this only changes the address it will open at,
 	// which is the same answer arriving earlier.
 	window *application.WebviewWindow
@@ -208,16 +214,15 @@ func (sv *supervisor) engine() engine {
 		sv.mu.Unlock()
 		return cur
 	}
+	sv.checked = time.Now()
 	sv.mu.Unlock()
 
 	// Asking runs launchctl/sc.exe, so it happens outside the lock.
 	link := sv.serviceLink()
 
-	sv.mu.Lock()
-	defer sv.mu.Unlock()
-	sv.checked = time.Now()
-
 	if link == "" {
+		sv.mu.Lock()
+		defer sv.mu.Unlock()
 		if sv.current != engine(sv.local) {
 			// The service is gone. It owned the configuration file while it
 			// ran, so the session reads it again before taking over.
@@ -229,18 +234,24 @@ func (sv *supervisor) engine() engine {
 		return sv.current
 	}
 
+	sv.mu.Lock()
 	if cur, ok := sv.current.(*serviceEngine); ok && cur.Link() == link {
+		sv.mu.Unlock()
 		return cur
 	}
+	sv.mu.Unlock()
+
 	svc, err := newServiceEngine(link)
 	if err != nil {
 		sv.log.Error("could not attach to the background service", "error", err)
-		return sv.current
+		sv.mu.Lock()
+		cur := sv.current
+		sv.mu.Unlock()
+		return cur
 	}
 
 	// Wait up to 3 seconds for the newly started background service HTTP endpoint
 	// to be ready and responding before navigating the window and handing over.
-	// This prevents transient "127.0.0.1 Connection Refused" errors.
 	ready := false
 	for i := 0; i < 15; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
@@ -255,9 +266,14 @@ func (sv *supervisor) engine() engine {
 	if !ready {
 		sv.log.Warn("background service was started but HTTP endpoint is not responding yet, will retry")
 		sv.recheck()
-		return sv.current
+		sv.mu.Lock()
+		cur := sv.current
+		sv.mu.Unlock()
+		return cur
 	}
 
+	sv.mu.Lock()
+	defer sv.mu.Unlock()
 	// Handing over means letting go first: two engines would fight over the
 	// same routing table.
 	if err := sv.session.Disconnect(); err != nil {
@@ -267,6 +283,20 @@ func (sv *supervisor) engine() engine {
 	sv.point(link)
 	sv.current = svc
 	return svc
+}
+
+// pathsEqual checks if two filesystem paths refer to the same location,
+// accounting for case-insensitivity on Windows and slash canonicalization.
+func pathsEqual(p1, p2 string) bool {
+	if p1 == "" || p2 == "" {
+		return false
+	}
+	a := filepath.Clean(absPath(p1))
+	b := filepath.Clean(absPath(p2))
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // serviceLink is where the background service serves its interface, empty when
@@ -279,21 +309,28 @@ func (sv *supervisor) serviceLink() string {
 	// A service running some other configuration belongs to somebody else.
 	// Attaching to it would show tunnels that have nothing to do with what
 	// this application is configured with.
-	if st.ConfigPath != "" && absPath(st.ConfigPath) != sv.configPath {
+	if st.ConfigPath != "" && !pathsEqual(st.ConfigPath, sv.configPath) {
 		return ""
 	}
-	// An outdated service is running an older binary from a previous version of the app.
-	// Do not attach to it; run the local engine/UI so the user sees the latest UI and can update.
-	if st.InstalledVersion != "" && st.InstalledVersion != version.Full() {
-		sv.log.Warn("background service is running an older version, staying on local interface",
-			"service_version", st.InstalledVersion, "app_version", version.Full())
-		return ""
-	}
+
 	link, err := ui.ReadLink(sv.linkPath())
-	if err != nil {
-		return ""
+	if err == nil && link != "" {
+		return link
 	}
-	return link
+
+	// Fallback if link file is missing: construct link from token
+	listen := sv.session.Settings().UI.Listen
+	if listen == "" {
+		listen = "127.0.0.1:8645"
+	}
+	stateDir := sv.session.Settings().UI.StateDir
+	if stateDir == "" {
+		stateDir = filepath.Dir(sv.configPath)
+	}
+	if tok, tokErr := ui.ReadToken(stateDir); tokErr == nil && tok != "" {
+		return fmt.Sprintf("http://%s/?token=%s", listen, tok)
+	}
+	return ""
 }
 
 // linkPath is where the service was told to publish its link.

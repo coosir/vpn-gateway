@@ -171,14 +171,14 @@ func run(ctx context.Context, configPath, logLevel, command string) error {
 			}
 			link := fmt.Sprintf("http://%s/?token=%s", addr, token)
 			fmt.Printf("interface: %s\n", link)
-			if path := cfg.UI.LinkFile; path != "" {
-				// Recording it is a convenience, not a requirement: the link
-				// has already been printed either way.
-				if err := ui.WriteLink(path, addr, token, cfg.UI.LinkOwner); err != nil {
-					log.Warn("could not record the interface link", "path", path, "error", err)
-				} else {
-					log.Info("recorded the interface link", "path", path)
-				}
+			linkPath := cfg.UI.LinkFile
+			if linkPath == "" {
+				linkPath = ui.ServiceLinkPath(configPath)
+			}
+			if err := ui.WriteLink(linkPath, addr, token, cfg.UI.LinkOwner); err != nil {
+				log.Warn("could not record the interface link", "path", linkPath, "error", err)
+			} else {
+				log.Info("recorded the interface link", "path", linkPath)
 			}
 			if cfg.UI.Open {
 				openBrowser(link, log)

@@ -2109,7 +2109,7 @@ $("home-master-btn").addEventListener("click", async () => {
   } catch (e) {
     $("home-offline").hidden = false;
     let errMsg = e.message;
-    if (errMsg && (errMsg.includes("permission denied") || errMsg.includes("operation not permitted") || errMsg.includes("elevated privileges") || errMsg.includes("提权服务"))) {
+    if (errMsg && (errMsg.includes("permission denied") || errMsg.includes("operation not permitted") || errMsg.includes("elevated privileges") || errMsg.includes("Access is denied") || errMsg.includes("access is denied") || errMsg.includes("提权服务"))) {
       errMsg = t("service.tunNeedsServiceSub") + "：" + t("service.tunNeedsServiceDesc").replace(/\n+/g, " ");
     }
     $("home-offline").textContent = errMsg;
@@ -2264,10 +2264,22 @@ async function serviceAction(path, busyKey, doneKey) {
 
   try {
     const res = await api(path, { method: "POST" });
-    renderService(await res.json());
+    const st = await res.json();
+    renderService(st);
     if (note) {
       note.className = "note good";
       note.textContent = t(doneKey);
+    }
+    if (st.running && st.link) {
+      try {
+        const curUrl = new URL(window.location.href);
+        const srvUrl = new URL(st.link);
+        if (curUrl.host !== srvUrl.host || curUrl.searchParams.get("token") !== srvUrl.searchParams.get("token")) {
+          setTimeout(() => {
+            window.location.href = st.link;
+          }, 400);
+        }
+      } catch (_) {}
     }
   } catch (e) {
     if (note) {
