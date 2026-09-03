@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -310,8 +312,37 @@ func (c *Config) applyDefaults() {
 	if c.UI.Listen == "" {
 		c.UI.Listen = "127.0.0.1:8645"
 	}
-	if c.UI.StateDir == "" {
-		c.UI.StateDir = "/var/lib/vpn-gateway"
+	if c.UI.StateDir == "" || (c.UI.StateDir == legacyStateDir && runtime.GOOS != "linux") {
+		c.UI.StateDir = DefaultStateDir()
+	}
+}
+
+// legacyStateDir is the state directory this program wrote into every
+// configuration before there was one per platform: a Linux path, on machines
+// that are not Linux. Windows turned it into C:\var\lib\vpn-gateway, at the
+// root of somebody's system drive; macOS grew a /var/lib it never had.
+//
+// It is replaced wherever it is not this platform's own answer. Nobody chose
+// it there -- it is a default of ours, and Linux is the one place it is right.
+const legacyStateDir = "/var/lib/vpn-gateway"
+
+// DefaultStateDir is where a client keeps the interface token, so the link it
+// publishes survives a restart.
+//
+// This is machine state written by a background service, not anybody's
+// documents, so it belongs where each platform keeps such things rather than
+// in a directory invented at the root of a disk.
+func DefaultStateDir() string {
+	switch runtime.GOOS {
+	case "windows":
+		if dir := os.Getenv("ProgramData"); dir != "" {
+			return filepath.Join(dir, "vpn-gateway")
+		}
+		return filepath.Join(`C:\ProgramData`, "vpn-gateway")
+	case "darwin":
+		return "/Library/Application Support/vpn-gateway"
+	default:
+		return legacyStateDir
 	}
 }
 

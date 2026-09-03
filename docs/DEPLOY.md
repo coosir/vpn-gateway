@@ -270,7 +270,7 @@ the rules can be proven before anything touches the routing table:
 bundle: /etc/vpn-gateway/client.json
 tun: {enabled: false}
 proxy: {enabled: true, listen: 127.0.0.1:1080}
-ui: {enabled: true, listen: 127.0.0.1:8645, state_dir: /var/lib/vpn-gateway}
+ui: {enabled: true, listen: 127.0.0.1:8645}
 dns: {default: local}
 on_failure: direct
 auto_routes: true
@@ -327,6 +327,14 @@ something a service manager should be starting. So `make windows` builds
 which writes it out to `%LOCALAPPDATA%\VPNGateway` and installs *that* as the
 service. Both files are left in `dist/windows-amd64`; only the application
 needs to be handed to anyone.
+
+`ui.state_dir` is left out above: it holds the interface token and defaults to
+where the platform keeps machine state -- `/var/lib/vpn-gateway` on Linux,
+`/Library/Application Support/vpn-gateway` on macOS, `%ProgramData%\vpn-gateway`
+on Windows. Earlier versions wrote the Linux path into every configuration,
+which on Windows became `C:\var\lib\vpn-gateway`; that value is replaced on
+load wherever it was never the right answer, and the old directory can be
+deleted by hand.
 
 Two things about macOS are worth knowing before changing `tun` by hand:
 `tun.stack` has to stay `system` unless the client was built with

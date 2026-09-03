@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -151,5 +152,59 @@ dns: {default: "https://1.1.1.1/dns-query"}
 	}
 	if cfg.DNS.Default != "https://1.1.1.1/dns-query" {
 		t.Errorf("dns.default = %q", cfg.DNS.Default)
+	}
+}
+
+func TestTheStateDirectoryBelongsToThePlatform(t *testing.T) {
+	// It holds one file -- the token a background service publishes its link
+	// with -- and it is written by that service, not by a person. On Windows
+	// the Linux path this used to default to resolved to C:\var\lib, a
+	// directory at the root of somebody's system drive that nobody asked for.
+	got := DefaultStateDir()
+	switch runtime.GOOS {
+	case "windows":
+		if strings.HasPrefix(got, "/") {
+			t.Errorf("state dir = %q, which Windows turns into a directory at the root of a disk", got)
+		}
+		if !strings.Contains(got, "ProgramData") {
+			t.Errorf("state dir = %q, want it under ProgramData", got)
+		}
+	case "darwin":
+		if got != "/Library/Application Support/vpn-gateway" {
+			t.Errorf("state dir = %q", got)
+		}
+	default:
+		if got != "/var/lib/vpn-gateway" {
+			t.Errorf("state dir = %q", got)
+		}
+	}
+}
+
+func TestTheOldStateDirectoryIsReplacedWhereItWasNeverRight(t *testing.T) {
+	// Every configuration this program has written carries the old default,
+	// so leaving it alone would fix nothing that already exists. It was our
+	// value, not anybody's choice, and on Linux it is still the right one.
+	cfg := &Config{Bundle: "/tmp/bundle.json"}
+	cfg.UI.StateDir = "/var/lib/vpn-gateway"
+	cfg.applyDefaults()
+
+	if runtime.GOOS == "linux" {
+		if cfg.UI.StateDir != "/var/lib/vpn-gateway" {
+			t.Errorf("on Linux the path was replaced: %q", cfg.UI.StateDir)
+		}
+		return
+	}
+	if cfg.UI.StateDir != DefaultStateDir() {
+		t.Errorf("state dir = %q, want %q", cfg.UI.StateDir, DefaultStateDir())
+	}
+}
+
+func TestAChosenStateDirectoryIsLeftAlone(t *testing.T) {
+	// Anything but the one default we wrote ourselves was typed by somebody.
+	cfg := &Config{Bundle: "/tmp/bundle.json"}
+	cfg.UI.StateDir = "/opt/somewhere/else"
+	cfg.applyDefaults()
+	if cfg.UI.StateDir != "/opt/somewhere/else" {
+		t.Errorf("state dir = %q, want the one that was chosen", cfg.UI.StateDir)
 	}
 }

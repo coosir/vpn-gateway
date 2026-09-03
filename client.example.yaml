@@ -40,7 +40,12 @@ ui:
   # Loopback only. Anything reachable from the network would let a stranger
   # reroute this machine's traffic.
   listen: 127.0.0.1:8645
-  # Where the interface token is kept, so the link survives a restart.
+  # Where the interface token is kept, so the link survives a restart. It is
+  # machine state written by the background service, so leaving it out picks
+  # the place this platform keeps such things: /var/lib/vpn-gateway on Linux,
+  # /Library/Application Support/vpn-gateway on macOS, and %ProgramData%\vpn-gateway
+  # on Windows. The line below is the Linux one, since that is what a server
+  # running this from a terminal wants.
   state_dir: /var/lib/vpn-gateway
   # Open a browser at it on start.
   open: false
