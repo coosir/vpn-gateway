@@ -299,6 +299,7 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	username, _ := r.Context().Value(userContextKey).(string)
+	isAdmin, _ := r.Context().Value(isAdminContextKey).(bool)
 	if username != "" && s.usersMgr != nil {
 		unreg := s.usersMgr.RegisterCancel(username, cancel)
 		defer unreg()
@@ -307,12 +308,23 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 	events, release := s.mgr.Subscribe()
 	defer release()
 
+	writeFilteredEvent := func(ev tunnel.Event) bool {
+		if ev.Tunnel.Challenge != nil && ev.Tunnel.Challenge.TargetUser != "" {
+			if username != "" && username != ev.Tunnel.Challenge.TargetUser && !isAdmin {
+				evClone := ev
+				evClone.Tunnel.Challenge = nil
+				return writeEvent(w, rc, evClone)
+			}
+		}
+		return writeEvent(w, rc, ev)
+	}
+
 	// Send the current state first, so a client that connects late does not
 	// also have to poll to learn where things stand -- including a challenge
 	// that was raised before it arrived.
 	now := time.Now()
 	for _, snap := range s.mgr.Snapshots() {
-		if !writeEvent(w, rc, tunnel.Event{At: now, Tunnel: snap}) {
+		if !writeFilteredEvent(tunnel.Event{At: now, Tunnel: snap}) {
 			return
 		}
 	}
@@ -330,7 +342,7 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			if !writeEvent(w, rc, ev) {
+			if !writeFilteredEvent(ev) {
 				return
 			}
 		case <-ticker.C:
@@ -400,6 +412,12 @@ func (s *Server) getChallenge(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, contract.Challenge{})
 		return
 	}
+	username, _ := r.Context().Value(userContextKey).(string)
+	isAdmin, _ := r.Context().Value(isAdminContextKey).(bool)
+	if ch.TargetUser != "" && username != ch.TargetUser && !isAdmin {
+		writeJSON(w, http.StatusOK, contract.Challenge{})
+		return
+	}
 	writeJSON(w, http.StatusOK, ch)
 }
 
@@ -429,11 +447,12 @@ func (s *Server) postAuth(w http.ResponseWriter, r *http.Request) {
 // gateway, and a server reconnecting on its own schedule can lock an account
 // while nobody is watching.
 func (s *Server) postStart(w http.ResponseWriter, r *http.Request) {
-	if err := s.mgr.Start(r.PathValue("name")); err != nil {
+	username, _ := r.Context().Value(userContextKey).(string)
+	if err := s.mgr.StartWithInitiator(r.PathValue("name"), username); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.log.Info("tunnel asked to dial", "tunnel", r.PathValue("name"))
+	s.log.Info("tunnel asked to dial", "tunnel", r.PathValue("name"), "initiator", username)
 	w.WriteHeader(http.StatusAccepted)
 }
 

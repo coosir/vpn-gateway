@@ -167,7 +167,10 @@ type Challenge struct {
 	Type   ChallengeType `json:"type"`
 	Prompt string        `json:"prompt"`
 
-	// ImageB64 is a base64 PNG for ChallengeCaptcha.
+	// TargetUser restricts delivery of this challenge to the initiating user.
+	TargetUser string `json:"target_user,omitempty"`
+
+	// ImageB64 is a base64 PNG or JPEG for ChallengeCaptcha.
 	ImageB64 string `json:"image_b64,omitempty"`
 	// URL is an SSO page for the client to open, when applicable.
 	URL string `json:"url,omitempty"`

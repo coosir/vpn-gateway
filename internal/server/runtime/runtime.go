@@ -12,6 +12,15 @@ type Spec struct {
 	Image   string
 	Network string
 
+	// Hostname configures a stable container hostname.
+	Hostname string
+
+	// MacAddress configures a stable container MAC address.
+	MacAddress string
+
+	// Volumes mounts host directories into the container ("hostPath:containerPath").
+	Volumes []string
+
 	// EnvFile holds the container's environment, including credentials. It is
 	// a file rather than inline values so secrets never appear in the
 	// engine's command line or in the host process list.

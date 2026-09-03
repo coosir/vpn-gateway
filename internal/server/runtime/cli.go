@@ -153,6 +153,15 @@ func (c *CLI) Create(ctx context.Context, spec Spec) error {
 		"--restart", "no",
 		"--network", spec.Network,
 	}
+	if spec.Hostname != "" {
+		args = append(args, "--hostname", spec.Hostname)
+	}
+	if spec.MacAddress != "" {
+		args = append(args, "--mac-address", spec.MacAddress)
+	}
+	for _, v := range spec.Volumes {
+		args = append(args, "-v", v)
+	}
 	if spec.EnvFile != "" {
 		args = append(args, "--env-file", spec.EnvFile)
 	}

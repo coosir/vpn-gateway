@@ -1367,6 +1367,15 @@ input:checked + .slider:before { transform: translateX(18px); }
     </div>
     <p style="margin:0 0 14px; font-size:12.5px; color:var(--dim);" id="p-why"></p>
     <a id="p-link" hidden target="_blank" rel="noreferrer" style="display:block; margin-bottom:12px; padding:8px 12px; background:var(--primary-bg); border-radius:var(--radius); font-size:12px; overflow-wrap:anywhere;"></a>
+    <div id="p-captcha-wrap" hidden style="margin-bottom:14px; text-align:center;">
+      <div style="position:relative; display:inline-block; cursor:crosshair; user-select:none; max-width:100%;">
+        <img id="p-captcha-img" alt="Captcha" style="display:block; max-width:100%; border-radius:var(--radius); border:1px solid var(--border); margin:0 auto;">
+        <div id="p-captcha-markers" style="position:absolute; inset:0; pointer-events:none;"></div>
+      </div>
+      <div style="margin-top:8px; display:flex; justify-content:center; gap:8px;">
+        <button type="button" class="act quiet" id="p-captcha-reset" style="padding:4px 12px; font-size:12px;" data-i18n="prompt.clear"></button>
+      </div>
+    </div>
     <input type="text" id="p-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="font-size:16px; text-align:center; padding:10px;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
       <span style="font-size:12px; color:var(--dim);" id="p-expiry"></span>
@@ -1678,7 +1687,7 @@ const STRINGS = {
     "setup.save": "导入并保存配置", "setup.empty": "请先选择文件或粘贴 Bundle 内容。", "setup.done": "配置已成功导入！",
 
     "auth.username": "用户名", "auth.password": "密码",
-    "prompt.later": "稍后处理", "prompt.send": "提交验证", "prompt.expires": "%s 后过期", "prompt.expired": "验证已过期",
+    "prompt.later": "稍后处理", "prompt.send": "提交验证", "prompt.clear": "清除重选", "prompt.expires": "%s 后过期", "prompt.expired": "验证已过期",
     "dur.m": "%d分", "dur.s": "%d秒",
     "prompt.fallback": "网关要求完成安全二次验证。", "prompt.vnc": "请使用 VNC 客户端连接到服务端的 %d 端口完成图形登录。",
     "k.sms.t": "短信验证码", "k.sms.w": "网关已下发短信验证码，请输入：",
@@ -1840,7 +1849,7 @@ const STRINGS = {
     "setup.save": "Import & Save Bundle", "setup.empty": "Please pick a file or paste bundle JSON first.", "setup.done": "Bundle imported successfully!",
 
     "auth.username": "Username", "auth.password": "Password",
-    "prompt.later": "Later", "prompt.send": "Submit", "prompt.expires": "Expires in %s", "prompt.expired": "Challenge expired",
+    "prompt.later": "Later", "prompt.send": "Submit", "prompt.clear": "Clear", "prompt.expires": "Expires in %s", "prompt.expired": "Challenge expired",
     "dur.m": "%dm ", "dur.s": "%ds",
     "prompt.fallback": "Gateway asks for multi-factor authentication.", "prompt.vnc": "Point a VNC viewer at server port %d to log in visually.",
     "k.sms.t": "SMS Verification Code", "k.sms.w": "The gateway has sent a verification code via SMS:",
@@ -3404,15 +3413,27 @@ $("bundle-save").addEventListener("click", async () => {
 /* --- Challenges & Auth Prompts ----------------------------------------- */
 const KINDS = ["sms", "totp", "captcha", "url", "password", "vnc"];
 
+let captchaClicks = [];
+
+function clearCaptchaMarkers() {
+  captchaClicks = [];
+  const markers = $("p-captcha-markers");
+  if (markers) markers.innerHTML = "";
+  const input = $("p-input");
+  if (input) input.value = "";
+}
+
 function renderPrompt(prompts) {
   const p = prompts && prompts[0];
   if (!p) {
     $("veil").hidden = true;
     shownPrompt = null;
+    clearCaptchaMarkers();
     return;
   }
   if (shownPrompt === p.id) return;
   shownPrompt = p.id;
+  clearCaptchaMarkers();
 
   const known = KINDS.includes(p.type);
   $("p-kind").textContent = p.tunnel + " · " + p.type;
@@ -3428,10 +3449,25 @@ function renderPrompt(prompts) {
 
   const input = $("p-input");
   input.value = "";
-  input.placeholder = p.type === "url" ? "https://…" : "";
   input.type = p.type === "password" ? "password" : "text";
+
+  const imgB64 = p.image_b64 || p.image;
+  const captchaWrap = $("p-captcha-wrap");
+  if (p.type === "captcha" && imgB64) {
+    captchaWrap.hidden = false;
+    $("p-captcha-img").src = imgB64;
+    input.style.display = "none";
+    input.placeholder = t("k.captcha.w");
+  } else {
+    captchaWrap.hidden = true;
+    input.style.display = "block";
+    input.placeholder = p.type === "url" ? "https://…" : "";
+  }
+
   $("veil").hidden = false;
-  input.focus();
+  if (input.style.display !== "none") {
+    input.focus();
+  }
 
   clearInterval(renderPrompt.timer);
   const tick = () => {
@@ -3446,10 +3482,60 @@ function renderPrompt(prompts) {
   renderPrompt.timer = setInterval(tick, 1000);
 }
 
+$("p-captcha-reset").addEventListener("click", clearCaptchaMarkers);
+
+$("p-captcha-img").addEventListener("click", (e) => {
+  const img = $("p-captcha-img");
+  const rect = img.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const scaleX = (img.naturalWidth || rect.width) / rect.width;
+  const scaleY = (img.naturalHeight || rect.height) / rect.height;
+  const clickX = Math.round((e.clientX - rect.left) * scaleX);
+  const clickY = Math.round((e.clientY - rect.top) * scaleY);
+
+  const idx = captchaClicks.length + 1;
+  captchaClicks.push({ x: clickX, y: clickY });
+
+  const marker = document.createElement("div");
+  marker.style.position = "absolute";
+  marker.style.left = (e.clientX - rect.left) + "px";
+  marker.style.top = (e.clientY - rect.top) + "px";
+  marker.style.width = "22px";
+  marker.style.height = "22px";
+  marker.style.borderRadius = "50%";
+  marker.style.background = "rgba(24, 144, 255, 0.9)";
+  marker.style.color = "#fff";
+  marker.style.fontSize = "12px";
+  marker.style.fontWeight = "bold";
+  marker.style.display = "flex";
+  marker.style.alignItems = "center";
+  marker.style.justifyContent = "center";
+  marker.style.transform = "translate(-50%, -50%)";
+  marker.style.pointerEvents = "none";
+  marker.style.boxShadow = "0 1px 4px rgba(0,0,0,0.4)";
+  marker.textContent = idx;
+  $("p-captcha-markers").appendChild(marker);
+
+  const w = img.naturalWidth || Math.round(rect.width);
+  const h = img.naturalHeight || Math.round(rect.height);
+  $("p-input").value = JSON.stringify({
+    coordinates: captchaClicks.map(c => [c.x, c.y]),
+    width: w,
+    height: h
+  });
+});
+
 async function sendPrompt() {
   if (!shownPrompt) return;
   const value = $("p-input").value.trim();
-  if (!value) { $("p-input").focus(); return; }
+  if (!value) {
+    if ($("p-captcha-wrap") && !$("p-captcha-wrap").hidden) {
+      // User hasn't clicked on the captcha image yet
+      return;
+    }
+    $("p-input").focus();
+    return;
+  }
   $("p-send").disabled = true;
   try {
     await api("/api/prompts/" + encodeURIComponent(shownPrompt), {
@@ -3459,6 +3545,7 @@ async function sendPrompt() {
     });
     $("veil").hidden = true;
     shownPrompt = null;
+    clearCaptchaMarkers();
   } catch (e) {
     $("p-why").textContent = e.message;
   } finally {
@@ -3467,7 +3554,10 @@ async function sendPrompt() {
 }
 $("p-send").addEventListener("click", sendPrompt);
 $("p-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendPrompt(); });
-$("p-skip").addEventListener("click", () => { $("veil").hidden = true; });
+$("p-skip").addEventListener("click", () => {
+  $("veil").hidden = true;
+  clearCaptchaMarkers();
+});
 
 /* --- SSE Live Updates -------------------------------------------------- */
 function connect() {

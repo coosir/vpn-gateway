@@ -8,9 +8,12 @@ package sangfor
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync/atomic"
 
@@ -109,16 +112,79 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 		args = append(args, "--disable-zju-config")
 	}
 
+	if p.protocol == "atrust" {
+		// 1. Maintain a stable Linux machine-id across container restarts.
+		if _, err := os.Stat("/data"); err == nil {
+			midPath := "/data/machine-id"
+			if data, err := os.ReadFile(midPath); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+				_ = os.WriteFile("/etc/machine-id", []byte(strings.TrimSpace(string(data))+"\n"), 0644)
+			} else {
+				b := make([]byte, 16)
+				_, _ = rand.Read(b)
+				mid := hex.EncodeToString(b)
+				_ = os.WriteFile(midPath, []byte(mid+"\n"), 0644)
+				_ = os.WriteFile("/etc/machine-id", []byte(mid+"\n"), 0644)
+			}
+		}
+
+		// 2. Default login domain to local when not configured.
+		loginDomain := cfg.Str("login_domain", "")
+		if loginDomain == "" {
+			loginDomain = "local"
+		}
+		args = append(args, "--login-domain", loginDomain)
+
+		// 3. Persistent and stable Device ID.
+		deviceID := cfg.Str("device_id", "")
+		if deviceID == "" {
+			if data, err := os.ReadFile("/data/device_id"); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+				deviceID = strings.TrimSpace(string(data))
+			} else if _, err := os.Stat("/data"); err == nil {
+				b := make([]byte, 16)
+				_, _ = rand.Read(b)
+				deviceID = hex.EncodeToString(b)
+				_ = os.WriteFile("/data/device_id", []byte(deviceID+"\n"), 0644)
+			}
+		}
+		if deviceID != "" {
+			args = append(args, "--device-id", deviceID)
+		}
+
+		// 4. Client data file persistence (client_data.json)
+		clientDataFile := cfg.Str("client_data_file", "")
+		if clientDataFile == "" {
+			if _, err := os.Stat("/data"); err == nil {
+				clientDataFile = "/data/client_data.json"
+			}
+		}
+		if clientDataFile != "" {
+			args = append(args, "--client-data-file", clientDataFile)
+		}
+
+		// 5. Captcha image output file
+		graphCodeFile := cfg.Str("graph_code_file", "")
+		if graphCodeFile == "" {
+			graphCodeFile = "/tmp/atrust-captcha.jpg"
+		}
+		args = append(args, "--graph-code-file", graphCodeFile)
+	}
+
 	for _, opt := range []struct{ key, flag string }{
 		{"totp_secret", "--totp-secret"},
 		{"remote_dns", "--remote-dns-server"},
-		{"login_domain", "--login-domain"},
 		{"auth_type", "--auth-type"},
 		{"phone", "--phone"},
-		{"device_id", "--device-id"},
 	} {
 		if v := cfg.Str(opt.key, ""); v != "" {
 			args = append(args, opt.flag, v)
+		}
+	}
+	if p.protocol != "atrust" {
+		if v := cfg.Str("login_domain", ""); v != "" {
+			args = append(args, "--login-domain", v)
+		}
+		if v := cfg.Str("device_id", ""); v != "" {
+			args = append(args, "--device-id", v)
 		}
 	}
 	if v := cfg.Str("extra_args", ""); v != "" {

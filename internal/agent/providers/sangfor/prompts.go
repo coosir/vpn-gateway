@@ -1,6 +1,8 @@
 package sangfor
 
 import (
+	"encoding/base64"
+	"os"
 	"regexp"
 	"strings"
 
@@ -74,12 +76,17 @@ func prompts() []agent.Prompt {
 			Match: agent.Marker("enter the graph check code"),
 			Type:  contract.ChallengeCaptcha,
 			Describe: func(line string, recent []string) contract.Challenge {
-				return contract.Challenge{
-					Type: contract.ChallengeCaptcha,
-					// The upstream client wants a JSON document here rather
-					// than the characters themselves, so say so plainly.
-					Prompt: "Enter the graph check code as JSON, as the gateway's captcha helper produces it.",
+				ch := contract.Challenge{
+					Type:   contract.ChallengeCaptcha,
+					Prompt: "网关要求图形验证码，请在图中依次点击对应的字符：",
 				}
+				for _, p := range []string{"/tmp/atrust-captcha.jpg", "/data/atrust-captcha.jpg"} {
+					if data, err := os.ReadFile(p); err == nil && len(data) > 0 {
+						ch.ImageB64 = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(data)
+						break
+					}
+				}
+				return ch
 			},
 		},
 		{

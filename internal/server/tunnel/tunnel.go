@@ -94,6 +94,7 @@ type Tunnel struct {
 	trojanPassword string
 
 	mu          sync.RWMutex
+	initiator   string
 	snap        Snapshot
 	unreachable int
 }
@@ -295,8 +296,27 @@ func (t *Tunnel) recordWish(want bool) {
 	}
 }
 
+// SetInitiator records the user that started the tunnel.
+func (t *Tunnel) SetInitiator(user string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.initiator = user
+}
+
+// Initiator returns the user that started the tunnel, if any.
+func (t *Tunnel) Initiator() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.initiator
+}
+
 // Start asks a tunnel to dial.
 func (m *Manager) Start(name string) error {
+	return m.StartWithInitiator(name, "")
+}
+
+// StartWithInitiator asks a tunnel to dial on behalf of an authenticated user.
+func (m *Manager) StartWithInitiator(name, initiator string) error {
 	t, ok := m.Lookup(name)
 	if !ok {
 		return fmt.Errorf("no tunnel named %q", name)
@@ -304,6 +324,7 @@ func (m *Manager) Start(name string) error {
 	if t.cfg.Disabled {
 		return fmt.Errorf("tunnel %q is disabled in the configuration", name)
 	}
+	t.SetInitiator(initiator)
 	t.setWanted(true)
 	return nil
 }
@@ -588,14 +609,24 @@ func (t *Tunnel) reconcile(ctx context.Context) error {
 		if err := t.ensureImage(ctx); err != nil {
 			return err
 		}
+		tunnelDir := filepath.Join(t.stateDir, "tunnels", t.cfg.Name)
+		if err := os.MkdirAll(tunnelDir, 0o777); err != nil {
+			t.log.Warn("could not create tunnel data directory", "path", tunnelDir, "error", err)
+		} else {
+			_ = os.Chmod(tunnelDir, 0o777)
+		}
+
 		spec := runtime.Spec{
-			Name:    name,
-			Image:   t.cfg.Image,
-			Network: t.cfg.NetworkName(),
-			EnvFile: t.cfg.EnvFilePath(t.stateDir),
-			Ports:   ports,
-			CapAdd:  t.cfg.CapAdd,
-			Devices: t.cfg.Devices,
+			Name:       name,
+			Image:      t.cfg.Image,
+			Network:    t.cfg.NetworkName(),
+			Hostname:   cleanHostname("pc-" + t.cfg.Name),
+			MacAddress: deterministicMAC(t.cfg.Name),
+			Volumes:    []string{fmt.Sprintf("%s:/data", tunnelDir)},
+			EnvFile:    t.cfg.EnvFilePath(t.stateDir),
+			Ports:      ports,
+			CapAdd:     t.cfg.CapAdd,
+			Devices:    t.cfg.Devices,
 			Labels: map[string]string{
 				runtime.LabelConfigHash: hash,
 				contract.LabelProvider:  t.cfg.Provider,
@@ -736,9 +767,20 @@ func (t *Tunnel) poll(ctx context.Context) bool {
 	var challenge *contract.Challenge
 	if status.State == contract.StateAuthRequired {
 		challenge, _ = t.client.Challenge(ctx)
+		if challenge != nil {
+			t.mu.RLock()
+			initUser := t.initiator
+			t.mu.RUnlock()
+			if initUser != "" {
+				challenge.TargetUser = initUser
+			}
+		}
 	}
 
 	t.mu.Lock()
+	if status.State == contract.StateUp || status.State == contract.StateDown || status.State == contract.StateError {
+		t.initiator = ""
+	}
 	before := t.snap
 	t.snap.Reachable = true
 	t.snap.ContainerExists = true
@@ -963,4 +1005,28 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 
 func jitter(d time.Duration) time.Duration {
 	return d/2 + time.Duration(rand.Int63n(int64(d/2)+1))
+}
+
+func deterministicMAC(name string) string {
+	h := sha256.Sum256([]byte(name))
+	return fmt.Sprintf("02:42:%02x:%02x:%02x:%02x", h[0], h[1], h[2], h[3])
+}
+
+func cleanHostname(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('-')
+		}
+	}
+	res := strings.Trim(b.String(), "-")
+	if len(res) > 63 {
+		res = res[:63]
+	}
+	if res == "" {
+		res = "vpngw-pc"
+	}
+	return res
 }
