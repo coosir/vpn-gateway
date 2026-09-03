@@ -19,6 +19,15 @@ runtime: auto
 #   never    refuse rather than reaching out, for a machine with no registry
 pull_policy: missing
 
+# Tear every tunnel container down when the server exits. Off by default:
+# the usual reason this process exits is a restart, and stopping a container
+# kills the VPN client inside it, so what comes back is a fresh login at a
+# corporate gateway rather than the session that was already there. Left
+# running, the next start adopts them and a restart costs only the moment the
+# listener is unbound. Turn it on where a stopped server must leave nothing
+# dialled.
+# stop_containers_on_exit: false
+
 # First loopback port handed to containers. Each tunnel takes two: one for its
 # SOCKS5 data plane and one for its control plane. These are internal to the
 # server; clients never see them.

@@ -149,6 +149,12 @@ gateway that is refusing it:
     max_attempts: 3     # tries before it stops and waits (the default)
 ```
 
+Restarting the server does not redial. The containers are left running and
+the next start adopts the sessions already dialled, so an upgrade or a
+configuration change costs the moment the listener is unbound rather than a
+fresh login at every gateway. `stop_containers_on_exit: true` asks for the
+opposite, for a server whose stopping should leave nothing connected.
+
 Rejected credentials stop it immediately, without using up the attempts. In
 every case a reconnect from the client starts it again, so a corrected
 password does not mean recreating anything.

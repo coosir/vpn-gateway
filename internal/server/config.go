@@ -44,6 +44,20 @@ type Config struct {
 	// with nothing explaining why.
 	PullPolicy string `yaml:"pull_policy"`
 
+	// StopContainersOnExit tears every tunnel container down when the server
+	// exits, rather than leaving them running for the next start to adopt.
+	//
+	// It is off by default because the usual reason this process exits is a
+	// restart -- an upgrade, a configuration change -- and stopping a
+	// container kills the VPN client inside it. What comes back is not the
+	// session that was there before: it is a fresh authentication against a
+	// corporate gateway, which is both an outage for whoever was using the
+	// tunnel and one more login attempt against an account that locks after
+	// enough of them.
+	//
+	// Turn it on where a stopped server must leave nothing dialled.
+	StopContainersOnExit bool `yaml:"stop_containers_on_exit,omitempty"`
+
 	// Trojan configures the listener clients connect to.
 	Trojan TrojanConfig `yaml:"trojan"`
 

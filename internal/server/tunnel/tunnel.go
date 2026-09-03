@@ -382,10 +382,21 @@ func (m *Manager) Lookup(name string) (*Tunnel, bool) {
 	return nil, false
 }
 
-// Shutdown stops every managed container. Containers are stopped rather than
-// removed so a restart of the server does not force every VPN to
-// reauthenticate.
+// Shutdown leaves the tunnel containers running, so the next start adopts the
+// sessions that are already dialled instead of replacing them.
+//
+// Stopping them would not preserve anything: the VPN client lives inside the
+// container, and killing it ends the session no matter that the container is
+// kept around. reconcile already treats a running container with a matching
+// configuration as the one it wanted, so the cost of a restart is the moment
+// the listener is unbound rather than a fresh login at every gateway.
+//
+// stop_containers_on_exit asks for the older behaviour, for a server whose
+// stopping should leave nothing dialled behind it.
 func (m *Manager) Shutdown(ctx context.Context) {
+	if !m.cfg.StopContainersOnExit {
+		return
+	}
 	for _, t := range m.tunnels {
 		if !t.cfg.NeedsContainer() {
 			continue
