@@ -27,13 +27,15 @@ import (
 const usage = `vpn-gateway-desktop runs the vpn-gateway client with a tray and a window.
 
 Usage:
-  vpn-gateway-desktop [-config path] [-lang zh|en] [version|run]
+  vpn-gateway-desktop [-config path] [-lang zh|en] [version]
 
 Everything it needs is configured in the interface, so it takes no arguments
 in normal use. Opening it is enough.
 
 Bringing up a TUN interface needs elevated privileges. Without them the client
-still runs as a local proxy, which is what it starts as.
+still runs as a local proxy, which is what it starts as. The background
+service that has them runs vpn-gateway, not this: a window is not something a
+service manager should be starting.
 `
 
 func main() {
@@ -73,10 +75,6 @@ func main() {
 			fmt.Fprintln(os.Stderr, "vpn-gateway-desktop:", err)
 			os.Exit(1)
 		}
-		return
-	}
-
-	if handleServiceCLI(*configPath) {
 		return
 	}
 

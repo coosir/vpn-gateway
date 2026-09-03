@@ -197,7 +197,14 @@ and whoever was watching could not tell which one they were looking at. The
 configuration is shared rather than copied, so there is nothing to keep in
 sync. What is copied is the executable, into a directory only root can write:
 a daemon that runs a binary its own user could replace is a root shell with
-extra steps.
+extra steps. What is copied is also never the application: the client
+executable is the whole engine and nothing else, and it is already the shape a
+service manager knows how to start. An application installed as a service
+would run a window it never opens with those privileges, and would need a
+second copy of the client's own run loop to be startable at all -- two
+implementations of one thing, which is how the two of them come to disagree.
+Where there is no bundle to keep both files in, the application carries the
+client inside itself and writes it out at install time.
 
 **Neither side hands over to a port that is not answering.** A job launchd or
 the service manager reports as running has started a process, which is some

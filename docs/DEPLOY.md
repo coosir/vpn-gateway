@@ -319,6 +319,15 @@ and starts it; the application then becomes that service's interface rather
 than running an engine of its own. Switch `tun` on there. The same screen
 shows whether the service is running, and removes it again.
 
+On Windows it is the same screen and the same idea, with one difference in
+how it is built. What ships is a single `vpn-gateway-desktop.exe`, and the
+service must not be that file: it runs as SYSTEM, and a window is not
+something a service manager should be starting. So `make windows` builds
+`vpn-gateway.exe` first and carries a compressed copy inside the application,
+which writes it out to `%LOCALAPPDATA%\VPNGateway` and installs *that* as the
+service. Both files are left in `dist/windows-amd64`; only the application
+needs to be handed to anyone.
+
 Two things about macOS are worth knowing before changing `tun` by hand:
 `tun.stack` has to stay `system` unless the client was built with
 `-tags with_gvisor`, and `tun.name`, if set at all, has to look like `utun3`.

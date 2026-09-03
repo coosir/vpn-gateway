@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf16"
+
+	"github.com/vpn-gateway/vpn-gateway/internal/clientbin"
 )
 
 const (
@@ -84,7 +86,7 @@ func blocker(opt Options) string {
 	if opt.ConfigPath == "" {
 		return "there is no configuration file to hand to the service yet"
 	}
-	if _, err := locateBinary(opt.Binary); err != nil {
+	if _, _, err := locateBinary(opt.Binary, false); err != nil {
 		return err.Error()
 	}
 	return ""
@@ -147,13 +149,19 @@ func Install(opt Options) error {
 		return fmt.Errorf("the configuration the service would run is not readable: %w", err)
 	}
 
-	srcBinary, err := locateBinary(opt.Binary)
+	srcBinary, sum, err := locateBinary(opt.Binary, true)
 	if err != nil {
 		return err
 	}
 	absSrc, err := filepath.Abs(srcBinary)
 	if err != nil {
 		return err
+	}
+	if sum != "" {
+		// Written out just now, and about to be copied by a process running
+		// as administrator. Nothing else should be able to get between those
+		// two steps, but the check costs one hash and closes the question.
+		defer os.Remove(absSrc)
 	}
 
 	binDir := filepath.Join(os.Getenv("ProgramFiles"), "VPNGateway")
@@ -165,10 +173,18 @@ $logPath = '%s';
 $binDir = '%s';
 $targetExe = '%s';
 $srcExe = '%s';
+$srcSum = '%s';
 $absConfig = '%s';
 $svcName = '%s';
 
 try {
+    if ($srcSum -ne '') {
+        $actual = (Get-FileHash -Path $srcExe -Algorithm SHA256).Hash
+        if ($actual -ne $srcSum.ToUpper()) {
+            throw "the client executable changed after it was written out"
+        }
+    }
+
     if (!(Test-Path $binDir)) {
         New-Item -ItemType Directory -Path $binDir -Force | Out-Null
     }
@@ -207,7 +223,7 @@ try {
     Set-Content -Path $logPath -Value "ERROR: $($_.Exception.Message)" -Encoding UTF8 -Force
     exit 1
 }`,
-		logFile, binDir, targetExe, absSrc, absConfig, ServiceName)
+		logFile, binDir, targetExe, absSrc, sum, absConfig, ServiceName)
 
 	InvalidateVersionCache()
 	err = runElevatedPowerShell(script, logFile)
@@ -265,12 +281,23 @@ func runElevatedPowerShell(psScript string, logPath string) error {
 	return nil
 }
 
-func locateBinary(explicit string) (string, error) {
+// locateBinary finds the client executable to install as the service.
+//
+// It is never the running application. What the service manager starts runs
+// as SYSTEM, and an application carries a window it would never open; the
+// client executable is the whole engine and nothing else, and it is already
+// what a service manager knows how to start.
+//
+// Returned second is the digest of an executable this call wrote out, empty
+// for one that was already on disk. Only a file written here can be checked
+// against what is copied into place; one that was already there is whatever
+// the person who put it there put there.
+func locateBinary(explicit string, unpack bool) (path, sum string, err error) {
 	if explicit != "" {
 		if err := checkFileExists(explicit); err != nil {
-			return "", err
+			return "", "", err
 		}
-		return explicit, nil
+		return explicit, "", nil
 	}
 
 	if exe, err := os.Executable(); err == nil {
@@ -278,28 +305,51 @@ func locateBinary(explicit string) (string, error) {
 			exe = resolved
 		}
 		if strings.EqualFold(filepath.Base(exe), cliName) {
-			return exe, nil
+			return exe, "", nil
 		}
+		// Beside the application: a build tree, or an installation that put
+		// both files down.
 		beside := filepath.Join(filepath.Dir(exe), cliName)
 		if checkFileExists(beside) == nil {
-			return beside, nil
-		}
-		// Also check without .exe
-		besideNoExt := filepath.Join(filepath.Dir(exe), "vpn-gateway")
-		if checkFileExists(besideNoExt) == nil {
-			return besideNoExt, nil
-		}
-		// Single-executable distribution: if running as desktop executable (e.g. vpn-gateway-desktop.exe),
-		// use the running executable itself.
-		if checkFileExists(exe) == nil {
-			return exe, nil
+			return beside, "", nil
 		}
 	}
 
-	if found, err := exec.LookPath(cliName); err == nil {
-		return found, nil
+	// A single downloaded file carries the client inside it. Asking whether
+	// an install would work is not a reason to write sixteen megabytes out,
+	// so that only happens when one is actually being done.
+	if clientbin.Available() {
+		if !unpack {
+			return packedBinary, "", nil
+		}
+		dir := unpackDir()
+		path, sum, err := clientbin.Unpack(dir, cliName)
+		if err != nil {
+			return "", "", err
+		}
+		return path, sum, nil
 	}
-	return "", fmt.Errorf("no %s executable was found to install", cliName)
+
+	if found, err := exec.LookPath(cliName); err == nil {
+		return found, "", nil
+	}
+	return "", "", fmt.Errorf("no %s executable was found to install", cliName)
+}
+
+// packedBinary is what locateBinary answers when the executable to install is
+// the one this application carries and nothing has been written out yet. It
+// is never a path anything opens: only whether there is something to install.
+const packedBinary = "(the client carried inside this application)"
+
+// unpackDir is where the carried executable is written before an elevated
+// process copies it into place: a directory belonging to whoever is running
+// the application, since that is who is about to authorise the install.
+func unpackDir() string {
+	base := os.Getenv("LOCALAPPDATA")
+	if base == "" {
+		base = os.TempDir()
+	}
+	return filepath.Join(base, "VPNGateway")
 }
 
 func checkFileExists(path string) error {
@@ -312,4 +362,3 @@ func checkFileExists(path string) error {
 	}
 	return nil
 }
-

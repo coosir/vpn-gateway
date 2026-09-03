@@ -98,16 +98,28 @@ app: desktop
 	@rm -rf "$(APPDIR)/icon.iconset"
 	@echo "built $(APP)"
 
-# Build Windows AMD64 desktop application and CLI client.
+# Build the Windows application and the client it installs as its service.
+#
+# What ships is one file. The service must not be the application -- it runs as
+# SYSTEM, and a window is not something a service manager should be starting --
+# so the client executable is built first and carried inside the application,
+# compressed, to be written out when the service is installed. That is what the
+# packed tag switches on; without it the application looks for the client
+# beside itself instead, which is what a build tree and the macOS bundle have.
+PACKED := internal/clientbin/client.bin
+
 windows:
 	@mkdir -p dist/windows-amd64
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
-		$(GO) build -tags desktop -trimpath -ldflags="$(LDFLAGS) -H=windowsgui" \
-		-o dist/windows-amd64/vpn-gateway-desktop.exe ./cmd/vpn-gateway-desktop
-	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
 		$(GO) build -trimpath -ldflags="$(LDFLAGS)" \
 		-o dist/windows-amd64/vpn-gateway.exe ./cmd/vpn-gateway
-	@echo "built dist/windows-amd64/vpn-gateway-desktop.exe and vpn-gateway.exe"
+	@set -e; \
+	trap 'rm -f $(PACKED)' EXIT; \
+	gzip -9 -c dist/windows-amd64/vpn-gateway.exe > $(PACKED); \
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
+		$(GO) build -tags "desktop packed" -trimpath -ldflags="$(LDFLAGS) -H=windowsgui" \
+		-o dist/windows-amd64/vpn-gateway-desktop.exe ./cmd/vpn-gateway-desktop
+	@echo "built dist/windows-amd64/vpn-gateway-desktop.exe (carries vpn-gateway.exe) and vpn-gateway.exe"
 
 # --- images ---------------------------------------------------------------
 #
@@ -172,4 +184,4 @@ image-inode:
 		-t $(REGISTRY)inode:$(IMAGE_TAG) .
 
 clean:
-	rm -rf $(BIN) dist
+	rm -rf $(BIN) dist $(PACKED)
