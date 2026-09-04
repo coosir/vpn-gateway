@@ -28,6 +28,14 @@ type Prompter interface {
 // stream.
 const authRetryDelay = 3 * time.Second
 
+// ErrPromptDeferred is what a Prompter returns when a person put the question
+// aside rather than failing to answer it.
+//
+// The gateway is still waiting, so the tunnel is not going anywhere, but
+// asking again is the opposite of what they said. It is distinct from an
+// ordinary failure for exactly that reason: those are asked again.
+var ErrPromptDeferred = errors.New("the question was put aside")
+
 // WatchChallenges answers interactive authentication prompts as they arrive,
 // until ctx is cancelled.
 //
@@ -209,11 +217,27 @@ func (a *asker) withdrawLocked(name string) {
 // will ever be asked again.
 func (a *asker) ask(ctx context.Context, api *API, p Prompter, name string, ch contract.Challenge) {
 	for {
+		// A challenge whose window has closed cannot be answered: whatever
+		// code it wanted is not the code the gateway will take now. Putting
+		// it back on screen only asks somebody to type something that will be
+		// refused, so this waits for the gateway to raise a new one instead.
+		if expired(ch) {
+			a.finish(name, ch.ID, true)
+			return
+		}
+
 		value, err := p.Ask(ctx, name, ch)
 		switch {
 		case err != nil:
 			if ctx.Err() != nil {
 				a.finish(name, ch.ID, false)
+				return
+			}
+			if errors.Is(err, ErrPromptDeferred) {
+				// Settled as far as this connection is concerned: raising it
+				// again is what the person just declined. A different
+				// question -- a new challenge id -- still gets through.
+				a.finish(name, ch.ID, true)
 				return
 			}
 			p.Notify("tunnel %s: %v", name, err)
@@ -238,6 +262,13 @@ func (a *asker) ask(ctx context.Context, api *API, p Prompter, name string, ch c
 		case <-time.After(askRetryDelay):
 		}
 	}
+}
+
+// expired reports whether a challenge's own deadline has passed. A challenge
+// that named no deadline never expires here; how long to wait for an answer
+// is then the prompter's business.
+func expired(ch contract.Challenge) bool {
+	return !ch.ExpiresAt.IsZero() && !time.Now().Before(ch.ExpiresAt)
 }
 
 // finish releases a tunnel's slot. A question that was settled is remembered

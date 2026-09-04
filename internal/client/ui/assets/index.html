@@ -3554,9 +3554,17 @@ async function sendPrompt() {
 }
 $("p-send").addEventListener("click", sendPrompt);
 $("p-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendPrompt(); });
-$("p-skip").addEventListener("click", () => {
+$("p-skip").addEventListener("click", async () => {
+  const id = shownPrompt;
   $("veil").hidden = true;
   clearCaptchaMarkers();
+  // Tell the client, or the question sits in its queue until it expires and
+  // is then raised again -- the same box, now past its deadline.
+  if (id) {
+    try {
+      await api("/api/prompts/" + encodeURIComponent(id), { method: "DELETE" });
+    } catch (_) {}
+  }
 });
 
 /* --- SSE Live Updates -------------------------------------------------- */

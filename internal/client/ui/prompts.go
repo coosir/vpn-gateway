@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vpn-gateway/vpn-gateway/internal/client"
 	"github.com/vpn-gateway/vpn-gateway/pkg/contract"
 )
 
@@ -25,6 +26,11 @@ type promptQueue struct {
 type waitingPrompt struct {
 	view   PromptView
 	answer chan string
+	// deferred is closed when a person puts the question aside. Ask gives up
+	// its slot then, rather than holding it until the challenge expires and
+	// then being raised all over again.
+	deferred chan struct{}
+	once     sync.Once
 }
 
 func newPromptQueue() *promptQueue {
@@ -48,7 +54,8 @@ func (q *promptQueue) Ask(ctx context.Context, tunnel string, ch contract.Challe
 			URL: ch.URL, Image: ch.ImageB64, VNCPort: ch.VNCPort,
 			ExpiresAt: ch.ExpiresAt,
 		},
-		answer: make(chan string, 1),
+		answer:   make(chan string, 1),
+		deferred: make(chan struct{}),
 	}
 	if p.view.Prompt == "" {
 		p.view.Prompt = "The gateway is asking for a verification code."
@@ -78,6 +85,8 @@ func (q *promptQueue) Ask(ctx context.Context, tunnel string, ch contract.Challe
 	select {
 	case <-ctx.Done():
 		return "", ctx.Err()
+	case <-p.deferred:
+		return "", client.ErrPromptDeferred
 	case <-timer.C:
 		return "", fmt.Errorf("nobody answered within %s", deadline.Round(time.Second))
 	case value := <-p.answer:
@@ -103,6 +112,24 @@ func (q *promptQueue) answer(id, value string) error {
 	default:
 		return errors.New("that question has already been answered")
 	}
+}
+
+// defer_ puts a question aside without answering it.
+//
+// The gateway has not stopped waiting, and the tunnel stays where it is. What
+// this releases is the box on screen: without it the question sits in the
+// queue until it expires, and is then raised again -- which is how a person
+// who pressed "later" ends up looking at the same prompt, expired, ten
+// minutes on.
+func (q *promptQueue) defer_(id string) error {
+	q.mu.Lock()
+	p, ok := q.waiting[id]
+	q.mu.Unlock()
+	if !ok {
+		return errors.New("that question is no longer waiting for an answer")
+	}
+	p.once.Do(func() { close(p.deferred) })
+	return nil
 }
 
 // pending lists the challenges the interface should show.

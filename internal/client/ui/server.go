@@ -132,6 +132,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tunnels/{name}/stop", s.auth(s.postTunnelStop))
 	mux.HandleFunc("POST /api/tunnels/{name}/reconnect", s.auth(s.postReconnect))
 	mux.HandleFunc("POST /api/prompts/{id}", s.auth(s.postPromptAnswer))
+	mux.HandleFunc("DELETE /api/prompts/{id}", s.auth(s.deferPrompt))
 
 	mux.HandleFunc("GET /api/nodes", s.auth(s.getNodes))
 	mux.HandleFunc("POST /api/nodes", s.auth(s.postNode))
@@ -204,8 +205,11 @@ type PromptView struct {
 	Image  string `json:"image_b64,omitempty"`
 	// VNCPort is set when the tunnel needs a graphical login, which this
 	// interface cannot show; it tells the person where to point a viewer.
-	VNCPort   int       `json:"vnc_port,omitempty"`
-	ExpiresAt time.Time `json:"expires_at"`
+	VNCPort int `json:"vnc_port,omitempty"`
+	// ExpiresAt is omitted when the gateway named no deadline. Sent as a zero
+	// time it is a real date in the year 1, which the page reads as a
+	// challenge that expired two thousand years ago and says so.
+	ExpiresAt time.Time `json:"expires_at,omitzero"`
 }
 
 // ClientView describes how traffic enters and what happens when a tunnel is
@@ -602,6 +606,17 @@ func (s *Server) postPromptAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.prompts.answer(r.PathValue("id"), body.Value); err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// deferPrompt puts a question aside. It is what "later" means: the box goes
+// away and is not raised again by itself. A different question from the same
+// tunnel still reaches the person.
+func (s *Server) deferPrompt(w http.ResponseWriter, r *http.Request) {
+	if err := s.prompts.defer_(r.PathValue("id")); err != nil {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}

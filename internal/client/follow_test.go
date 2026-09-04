@@ -327,3 +327,92 @@ func TestAWithdrawnChallengeStopsBeingAsked(t *testing.T) {
 		t.Fatalf("a withdrawn challenge submitted %d answers, want 0", n)
 	}
 }
+
+// deferringPrompter is a person pressing "later".
+type deferringPrompter struct {
+	asked chan contract.Challenge
+}
+
+func (d *deferringPrompter) Ask(ctx context.Context, tunnel string, ch contract.Challenge) (string, error) {
+	d.asked <- ch
+	return "", ErrPromptDeferred
+}
+func (d *deferringPrompter) Notify(string, ...any) {}
+
+// "Later" has to mean later, not ten minutes from now.
+//
+// Asking again is right when nobody was at the machine and wrong when
+// somebody was and said not now, and the two are only distinguishable if the
+// prompter says which it was.
+func TestAQuestionPutAsideIsNotRaisedAgain(t *testing.T) {
+	ch := &contract.Challenge{ID: "sms-1", Type: contract.ChallengeSMS}
+	snap := challengeSnapshot("corp", ch)
+	srv := newChallengeServer(t, snap, snap, snap)
+	p := &deferringPrompter{asked: make(chan contract.Challenge, 8)}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	go WatchChallenges(ctx, NewAPI(srv.URL, "tok"), p)
+
+	select {
+	case <-p.asked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the challenge never reached the person")
+	}
+
+	// Well past the retry delay, which is where it used to come back.
+	select {
+	case again := <-p.asked:
+		t.Fatalf("the question was raised again after being put aside: %q", again.ID)
+	case <-time.After(4 * time.Second):
+	}
+	if n := len(srv.submitted()); n != 0 {
+		t.Errorf("putting a question aside submitted %d answers, want 0", n)
+	}
+}
+
+// A challenge whose window has closed cannot be answered, so putting it back
+// on screen only asks somebody to type something the gateway will refuse.
+func TestAnExpiredChallengeIsNotRaisedAgain(t *testing.T) {
+	past := &contract.Challenge{
+		ID: "sms-1", Type: contract.ChallengeSMS,
+		ExpiresAt: time.Now().Add(-time.Minute),
+	}
+	snap := challengeSnapshot("corp", past)
+	srv := newChallengeServer(t, snap, snap)
+	p := newStalledPrompter()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go WatchChallenges(ctx, NewAPI(srv.URL, "tok"), p)
+
+	select {
+	case ch := <-p.asked:
+		t.Fatalf("an expired challenge was put to the person: %q", ch.ID)
+	case <-time.After(3 * time.Second):
+	}
+}
+
+// One that is still live is asked, so the guard cannot simply be swallowing
+// everything with a deadline.
+func TestAChallengeStillInItsWindowIsAsked(t *testing.T) {
+	live := &contract.Challenge{
+		ID: "sms-1", Type: contract.ChallengeSMS,
+		ExpiresAt: time.Now().Add(2 * time.Minute),
+	}
+	srv := newChallengeServer(t, challengeSnapshot("corp", live))
+	p := newStalledPrompter()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go WatchChallenges(ctx, NewAPI(srv.URL, "tok"), p)
+
+	select {
+	case ch := <-p.asked:
+		if ch.ID != "sms-1" {
+			t.Fatalf("asked %q", ch.ID)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("a live challenge never reached the person")
+	}
+}
