@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -271,6 +272,13 @@ func (t *Tunnel) restoreWish() bool {
 	if t.cfg.Disabled {
 		return false
 	}
+	// A manual tunnel starts down however it was left. Restoring the wish is
+	// how a restart brings back what was running, and for a gateway that
+	// wants a code off somebody's phone that is the one thing not to do: the
+	// server would dial while nobody is watching and park at auth_required.
+	if t.cfg.Manual {
+		return false
+	}
 	b, err := os.ReadFile(t.wishPath())
 	if err != nil {
 		if !t.cfg.NeedsContainer() {
@@ -339,7 +347,17 @@ func (m *Manager) Stop(name string) error {
 	return nil
 }
 
-func (t *Tunnel) setWanted(want bool) {
+func (t *Tunnel) setWanted(want bool) { t.setWish(want, false) }
+
+// standDown leaves a manual tunnel down after it stopped being up, so the
+// next dial is a person's decision rather than this server's.
+//
+// The reason it is down is kept: unlike someone pressing stop, nobody chose
+// this, and a tunnel that reports itself as merely stopped gives whoever
+// comes back to it nothing to act on.
+func (t *Tunnel) standDown() { t.setWish(false, true) }
+
+func (t *Tunnel) setWish(want, keepReason bool) {
 	if t.wanted.Swap(want) == want {
 		return
 	}
@@ -351,7 +369,9 @@ func (t *Tunnel) setWanted(want bool) {
 		t.snap.Reachable = false
 		t.snap.ContainerUp = false
 		t.snap.Status.State = contract.StateDown
-		t.snap.LastError = ""
+		if !keepReason {
+			t.snap.LastError = ""
+		}
 		// Only poll writes this, and polling stops with the tunnel, so a
 		// challenge left here would outlive the container that raised it: a
 		// stopped tunnel would go on asking every client that connects for a
@@ -537,6 +557,13 @@ func (t *Tunnel) supervise(ctx context.Context) {
 		t.log.Warn("container is unresponsive, recreating")
 		if err := t.engine.Remove(ctx, t.cfg.ContainerName()); err != nil {
 			t.log.Warn("removing unresponsive container failed", "error", err)
+		}
+		if t.cfg.Manual {
+			// Recreating dials again, and this tunnel's gateway wants
+			// something only a person can give it.
+			t.setError(errors.New("the tunnel stopped answering; start it again when you can answer the gateway"))
+			t.standDown()
+			continue
 		}
 	}
 }
@@ -805,6 +832,13 @@ func (t *Tunnel) poll(ctx context.Context) bool {
 		}
 	}
 
+	// StateDown and StateError are where the agent parks once it has given
+	// up; dialling is StateConnecting and StateAuthRequired. So this fires
+	// when the tunnel has actually stopped being up, not part way through
+	// coming up.
+	standDown := t.cfg.Manual &&
+		(status.State == contract.StateDown || status.State == contract.StateError)
+
 	t.mu.Lock()
 	if status.State == contract.StateUp || status.State == contract.StateDown || status.State == contract.StateError {
 		t.initiator = ""
@@ -825,6 +859,11 @@ func (t *Tunnel) poll(ctx context.Context) bool {
 
 	if changed(before, after) {
 		t.publish(after)
+	}
+	if standDown {
+		t.log.Info("manual tunnel is no longer up; waiting to be asked again",
+			"state", status.State, "error", status.Error)
+		t.standDown()
 	}
 	return true
 }

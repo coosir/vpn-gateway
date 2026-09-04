@@ -278,23 +278,20 @@ func TestAnUnansweredPromptDoesNotDeafenTheStream(t *testing.T) {
 	defer cancel()
 	go WatchChallenges(ctx, NewAPI(srv.URL, "tok"), p)
 
-	select {
-	case ch := <-p.asked:
-		if ch.ID != "stale" {
-			t.Fatalf("first question was %q, want the one raised first", ch.ID)
+	// Nobody answers either one. Both still have to be put: the second used
+	// to be swallowed because the first was still waiting. They are asked on
+	// goroutines of their own now, so which arrives first is not fixed.
+	seen := map[string]bool{}
+	for range 2 {
+		select {
+		case ch := <-p.asked:
+			seen[ch.ID] = true
+		case <-time.After(3 * time.Second):
+			t.Fatalf("only %d of 2 challenges were asked: %v", len(seen), seen)
 		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("the first challenge never reached the person")
 	}
-
-	// Nobody answers it. The next tunnel's challenge still has to arrive.
-	select {
-	case ch := <-p.asked:
-		if ch.ID != "sms-1" {
-			t.Fatalf("second question was %q, want the challenge raised after it", ch.ID)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("a challenge raised while an earlier prompt stood was never asked")
+	if !seen["stale"] || !seen["sms-1"] {
+		t.Fatalf("asked %v, want both challenges", seen)
 	}
 }
 

@@ -146,8 +146,15 @@ gateway that is refusing it:
 ```yaml
     autostart: true     # dial when the server starts, for a tunnel with
                         # nothing to lock out
+    manual: true        # never dial except when a person asks
     max_attempts: 3     # tries before it stops and waits (the default)
 ```
+
+`manual` is for a gateway that asks for an SMS code or a captcha. Those cannot
+be answered by a server: dialling one while nobody is watching parks the
+tunnel at auth_required with a question nobody was asked. A manual tunnel
+starts down after a restart, and stands down again the moment it stops being
+up, so every dial is somebody pressing connect with a phone in their hand.
 
 Restarting the server does not redial. The containers are left running and
 the next start adopts the sessions already dialled, so an upgrade or a

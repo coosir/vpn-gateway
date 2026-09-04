@@ -74,10 +74,17 @@ users:
 #
 # Per tunnel:
 #   autostart: true    dial as soon as the server comes up
+#   manual: true       never dial except when a person asks
 #   max_attempts: 3    how many times to try before stopping and waiting
 #
 # A tunnel that has been started or stopped from a client keeps that decision
 # across a server restart, whatever autostart says.
+#
+# Except a manual one. Set manual on a gateway that asks for something only a
+# person can supply -- an SMS code, a captcha. Such a tunnel starts down after
+# a restart and stands down again as soon as it stops being up, so it is never
+# dialled with nobody there to answer. It is started from the client, by hand,
+# every time.
 
 tunnels:
   # Server LAN / Direct Host Tunnel (no container required).

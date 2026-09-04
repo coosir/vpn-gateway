@@ -486,6 +486,24 @@ Tunnels do not dial by themselves (except `direct` host tunnels, which are avail
 rather than knocking at a gateway that is refusing it, because enough failed
 authentications in a row is what locks a corporate account.
 
+A tunnel that has been connected once keeps that decision across a server
+restart, so an upgrade brings back what was running. For a gateway that asks
+for an SMS code or a captcha that is the wrong thing to do -- the server would
+dial and then park at `auth_required`, holding a question nobody was asked.
+Set `manual: true` on those:
+
+```yaml
+  - name: yanfeng
+    provider: anyconnect
+    image: coosir/vg-openconnect:latest
+    manual: true            # only ever dials when a person asks
+```
+
+A manual tunnel starts down after a restart and stands down again as soon as
+it stops being up, keeping the reason on the tunnel so the interface can say
+why. Connect it from the client, with a phone in hand. It cannot be combined
+with `autostart`; the server refuses a configuration that sets both.
+
 Then:
 
 ```sh

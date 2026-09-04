@@ -185,6 +185,21 @@ type TunnelConfig struct {
 	// that trade.
 	Autostart bool `yaml:"autostart"`
 
+	// Manual keeps this tunnel from ever dialling on its own. It comes up
+	// only when a person asks, and once it is no longer up it waits to be
+	// asked again.
+	//
+	// It is for a gateway that wants something only a person can supply: an
+	// SMS code, a captcha. Such a tunnel dialling by itself -- because the
+	// server restarted, or because the session dropped at three in the
+	// morning -- asks a question nobody is there to answer, and leaves the
+	// tunnel sitting at auth_required until somebody notices. Turning this on
+	// makes every dial a deliberate act, at the cost of the tunnel not coming
+	// back by itself.
+	//
+	// It is the opposite of Autostart, so setting both is a contradiction.
+	Manual bool `yaml:"manual"`
+
 	// MaxAttempts bounds how many times this tunnel dials before it waits to
 	// be told to try again. Zero uses the agent's own default.
 	MaxAttempts int `yaml:"max_attempts"`
@@ -362,6 +377,9 @@ func (c *Config) Validate() error {
 
 		if t.Provider == "" {
 			errs = append(errs, fmt.Errorf("%s: provider is required", where))
+		}
+		if t.Manual && t.Autostart {
+			errs = append(errs, fmt.Errorf("%s: manual and autostart contradict each other; manual means this tunnel only dials when a person asks", where))
 		}
 		if t.IsTrojan() {
 			if t.Server == "" {
