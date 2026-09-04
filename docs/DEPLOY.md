@@ -88,8 +88,10 @@ sudo install -m 0755 /tmp/vpn-gateway-server /tmp/vgctl /usr/local/bin/
 
 The server fetches each image the first time it runs the tunnel that uses it,
 so nothing has to be pulled by hand. `pull_policy: always` re-checks a tag
-that moves; `never` refuses to reach out at all, for a machine with no route
-to the registry, and then the images have to be loaded another way:
+that moves, and falls back to the copy already on the machine when the
+registry is unreachable, so an outage there cannot take down a tunnel that has
+an image to run. `never` refuses to reach out at all, for a machine with no
+route to the registry, and then the images have to be loaded another way:
 
 ```sh
 # on your machine

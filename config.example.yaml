@@ -15,7 +15,8 @@ runtime: auto
 # When to fetch an image from its registry. Images are built elsewhere and
 # pushed, so this machine fetches what it does not have.
 #   missing  only what is not here (the default)
-#   always   check every time a container is created, for a tag that moves
+#   always   check every time a container is created, for a tag that moves;
+#            an unreachable registry falls back to the copy already here
 #   never    refuse rather than reaching out, for a machine with no registry
 pull_policy: missing
 

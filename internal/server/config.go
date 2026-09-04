@@ -38,6 +38,9 @@ type Config struct {
 	// PullPolicy decides when to fetch an image from its registry:
 	// "missing" (default) pulls only what is not here, "always" checks every
 	// time a container is created, "never" refuses rather than reaching out.
+	// "always" falls back to the copy already on the machine when the
+	// registry cannot be reached, so an outage there cannot take a tunnel
+	// down that has an image to run.
 	//
 	// Images are built elsewhere and pushed, so a server that has never seen
 	// one has to fetch it; without this it would fail to create the container

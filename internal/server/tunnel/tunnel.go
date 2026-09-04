@@ -660,6 +660,10 @@ func (t *Tunnel) reconcile(ctx context.Context) error {
 // would fail with the engine's own message about an unknown image, which says
 // nothing about where it was meant to come from.
 func (t *Tunnel) ensureImage(ctx context.Context) error {
+	// Whether a copy already on this machine is an acceptable answer when the
+	// registry cannot be reached.
+	settleForWhatIsHere := false
+
 	switch t.pullPolicy {
 	case "never":
 		present, err := t.engine.HasImage(ctx, t.cfg.Image)
@@ -672,6 +676,11 @@ func (t *Tunnel) ensureImage(ctx context.Context) error {
 		}
 		return nil
 	case "always":
+		// "always" asks for the newest image, not for the tunnel to stay down
+		// whenever the registry is out of reach. A copy from the last pull
+		// still carries traffic, and refusing to start with one in hand
+		// trades a stale agent for no agent at all.
+		settleForWhatIsHere = true
 	default: // "missing"
 		present, err := t.engine.HasImage(ctx, t.cfg.Image)
 		if err != nil {
@@ -680,11 +689,25 @@ func (t *Tunnel) ensureImage(ctx context.Context) error {
 		if present {
 			return nil
 		}
+		// Nothing here to fall back on: this policy only fetches when the
+		// image is absent, so a failed fetch leaves nothing to run.
 	}
 
 	t.log.Info("fetching the image", "image", t.cfg.Image)
 	if err := t.engine.Pull(ctx, t.cfg.Image); err != nil {
-		return fmt.Errorf("fetch %s: %w", t.cfg.Image, err)
+		// A cancelled fetch is the server shutting down, not a registry that
+		// is unreachable, and starting a container on the way out helps
+		// nobody.
+		if !settleForWhatIsHere || ctx.Err() != nil {
+			return fmt.Errorf("fetch %s: %w", t.cfg.Image, err)
+		}
+		present, hasErr := t.engine.HasImage(ctx, t.cfg.Image)
+		if hasErr != nil || !present {
+			return fmt.Errorf("fetch %s: %w", t.cfg.Image, err)
+		}
+		t.log.Warn("could not reach the registry, running the copy already here",
+			"image", t.cfg.Image, "error", err)
+		return nil
 	}
 	t.log.Info("image fetched", "image", t.cfg.Image)
 	return nil

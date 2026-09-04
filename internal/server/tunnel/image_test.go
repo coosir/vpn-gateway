@@ -120,6 +120,40 @@ func TestAFailedFetchSaysWhichImage(t *testing.T) {
 	}
 }
 
+func TestAlwaysFallsBackToTheCopyAlreadyHere(t *testing.T) {
+	// "always" is about keeping a moving tag fresh, so an unreachable
+	// registry must not take a tunnel down that has an image to run. The
+	// alternative traded a stale agent for no agent at all: every recreate
+	// -- including the self-healing one -- failed while Docker Hub was out of
+	// reach, however long the image had been sitting on the machine.
+	e := &fakeEngine{present: true, pullErr: errors.New("no route to host")}
+	if err := tunnelWith("always", e).ensureImage(context.Background()); err != nil {
+		t.Fatalf("a reachable image was refused because the registry was not: %v", err)
+	}
+}
+
+func TestAlwaysStillFailsWithNothingToFallBackOn(t *testing.T) {
+	e := &fakeEngine{present: false, pullErr: errors.New("no route to host")}
+	err := tunnelWith("always", e).ensureImage(context.Background())
+	if err == nil {
+		t.Fatal("a failed fetch was accepted with no image on the machine")
+	}
+	if !strings.Contains(err.Error(), "coosir/vg-mock:latest") {
+		t.Errorf("the error does not name the image: %v", err)
+	}
+}
+
+func TestAFetchCancelledOnShutdownIsNotAFallback(t *testing.T) {
+	// The fetch was not refused by a registry, it was abandoned because the
+	// server is stopping. Starting a container on the way out helps nobody.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	e := &fakeEngine{present: true, pullErr: context.Canceled}
+	if err := tunnelWith("always", e).ensureImage(ctx); err == nil {
+		t.Fatal("a cancelled fetch was treated as an unreachable registry")
+	}
+}
+
 // TestManagerPassesThePullPolicyThrough covers a wiring mistake that has no
 // symptom until a server without the image tries to start: the field was
 // declared and read but never assigned, so every tunnel silently used the
