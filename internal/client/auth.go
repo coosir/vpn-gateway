@@ -54,6 +54,53 @@ func WatchChallenges(ctx context.Context, api *API, p Prompter) error {
 	}
 }
 
+// FollowChallenges answers challenges for whichever connection is current,
+// rebinding whenever that connection is replaced, until ctx is cancelled.
+//
+// next reports the API of the running connection, or nil when nothing is
+// connected, along with a channel closed when it is replaced. It must return
+// the two together from one consistent read, and never a channel that is
+// already closed: this rebinds as soon as that channel fires, so a stale one
+// would spin. Session.CurrentAPI is the implementation that matters.
+//
+// WatchChallenges on its own is bound to one connection for its whole life,
+// and a connection does not survive a disconnect: every Connect logs in for a
+// session token of its own and Disconnect revokes the previous one. A watcher
+// left on the old API retries a credential the server has already forgotten,
+// so the next login prompt -- an SMS code, a captcha -- is raised to nobody
+// and the only way to get one through is to restart the process.
+func FollowChallenges(ctx context.Context, next func() (*API, <-chan struct{}), p Prompter) {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		api, replaced := next()
+		if api == nil {
+			// Nothing to watch yet: an interface can be open long before
+			// anybody presses connect.
+			select {
+			case <-ctx.Done():
+				return
+			case <-replaced:
+			}
+			continue
+		}
+
+		bound, unbind := context.WithCancel(ctx)
+		go func() {
+			select {
+			case <-replaced:
+			case <-bound.Done():
+			}
+			unbind()
+		}()
+		// Returns only once this connection is no longer the current one, or
+		// ctx is done; a dropped stream is retried inside.
+		WatchChallenges(bound, api, p)
+		unbind()
+	}
+}
+
 func handleChallengeEvent(ctx context.Context, api *API, p Prompter, ev Event, answered map[string]bool) {
 	ch := ev.Tunnel.Challenge
 	if ch == nil || ch.ID == "" {

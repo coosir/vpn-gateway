@@ -51,6 +51,10 @@ type Session struct {
 
 	// cancel stops the watcher belonging to the current connection.
 	cancel context.CancelFunc
+	// replaced is closed, and replaced with a fresh channel, every time the
+	// running client changes. It is how a watcher bound to one connection
+	// learns that the connection it holds is no longer the current one.
+	replaced chan struct{}
 }
 
 // SessionStatus is a session's state, as the interface shows it.
@@ -78,6 +82,7 @@ func NewSession(configPath string, log *slog.Logger) *Session {
 		log:        log,
 		phase:      PhaseSetup,
 		since:      time.Now(),
+		replaced:   make(chan struct{}),
 	}
 	s.load()
 	return s
@@ -173,6 +178,39 @@ func (s *Session) Client() *Client {
 	return s.client
 }
 
+// CurrentAPI returns the control API of the running connection, or nil when
+// nothing is connected, together with a channel closed when that connection
+// is replaced.
+//
+// Both come from the same read because a watcher that took them separately
+// could bind to one connection and then wait on another one's signal, which
+// is exactly the connection it would never be told about.
+func (s *Session) CurrentAPI() (*API, <-chan struct{}) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.client == nil {
+		return nil, s.replaced
+	}
+	return s.client.API(), s.replaced
+}
+
+// setClient installs the running client and announces the change. The caller
+// holds s.mu.
+//
+// Every connection logs in for a session token of its own, and disconnecting
+// revokes the previous one, so anything holding the old client is holding a
+// dead credential. Announcing the swap is what lets those callers rebind
+// instead of retrying against a connection the server has already forgotten.
+func (s *Session) setClient(c *Client, cancel context.CancelFunc) {
+	s.cancel = cancel
+	if s.client == c {
+		return
+	}
+	s.client = c
+	close(s.replaced)
+	s.replaced = make(chan struct{})
+}
+
 // ImportBundle accepts a server bundle, writes it beside the configuration,
 // and moves the session out of setup.
 //
@@ -244,8 +282,7 @@ func (s *Session) Connect(ctx context.Context) error {
 
 	c.SetOnAuthFailed(func(err error) {
 		s.mu.Lock()
-		s.client = nil
-		s.cancel = nil
+		s.setClient(nil, nil)
 		s.setPhase(PhaseFailed, fmt.Errorf("user authentication revoked by server: %w", err))
 		s.mu.Unlock()
 		cancel()
@@ -254,8 +291,7 @@ func (s *Session) Connect(ctx context.Context) error {
 	go c.Watch(runCtx)
 
 	s.mu.Lock()
-	s.client = c
-	s.cancel = cancel
+	s.setClient(c, cancel)
 	s.setPhase(PhaseConnected, nil)
 	s.mu.Unlock()
 
@@ -267,7 +303,7 @@ func (s *Session) Connect(ctx context.Context) error {
 func (s *Session) Disconnect() error {
 	s.mu.Lock()
 	c, cancel := s.client, s.cancel
-	s.client, s.cancel = nil, nil
+	s.setClient(nil, nil)
 	if s.phase == PhaseConnected || s.phase == PhaseConnecting {
 		s.setPhase(PhaseIdle, nil)
 	}

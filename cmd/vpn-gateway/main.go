@@ -15,7 +15,6 @@ import (
 	"runtime"
 	"syscall"
 	"text/tabwriter"
-	"time"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/client"
 	"github.com/vpn-gateway/vpn-gateway/internal/client/ui"
@@ -185,7 +184,7 @@ func run(ctx context.Context, configPath, logLevel, command string) error {
 			}
 			prompter = srv.Prompter()
 		}
-		go watchChallenges(ctx, session, prompter)
+		go client.FollowChallenges(ctx, session.CurrentAPI, prompter)
 
 		<-ctx.Done()
 		log.Info("shutting down")
@@ -195,28 +194,6 @@ func run(ctx context.Context, configPath, logLevel, command string) error {
 
 	default:
 		return fmt.Errorf("unknown command %q", command)
-	}
-}
-
-// watchChallenges follows the connection rather than one client.
-//
-// The client this starts with may not exist yet: an interface that came up
-// without connecting has nothing to watch until somebody presses connect. A
-// verification code is only valid for a minute or two, so the watcher has to
-// be there by the time one arrives, not started by the same hand that would
-// have to notice it was missing.
-func watchChallenges(ctx context.Context, session *client.Session, p client.Prompter) {
-	for {
-		if c := session.Client(); c != nil {
-			// This returns only when the context is done, or if the API
-			// object it was given stops being the current one.
-			client.WatchChallenges(ctx, c.API(), p)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(time.Second):
-		}
 	}
 }
 

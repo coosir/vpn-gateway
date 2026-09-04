@@ -71,6 +71,20 @@ func run(configPath, lang string) error {
 	// before pointing anything at it. Said before it serves a request, which
 	// is the last moment nothing is reading it.
 	server.Managed()
+
+	// Login prompts have to have somewhere to go before one is raised. When
+	// the engine in this process is the one connected there is no service to
+	// carry them, so this application watches its own session: a gateway
+	// asking for an SMS code or a captcha would otherwise hold the tunnel at
+	// auth-required with nobody being asked anything.
+	//
+	// It follows the session across connects and disconnects rather than
+	// binding to the first one, because each connection carries a session
+	// token of its own and the previous one is revoked as it goes.
+	watchCtx, stopWatching := context.WithCancel(context.Background())
+	defer stopWatching()
+	go client.FollowChallenges(watchCtx, session.CurrentAPI, server.Prompter())
+
 	link := fmt.Sprintf("http://%s/?token=%s", listener.Addr().String(), token)
 	if err := ui.ServeOn(listener, server.Handler(), log); err != nil {
 		return err
@@ -113,6 +127,7 @@ func run(configPath, lang string) error {
 		},
 		LogLevel: slog.LevelWarn,
 		OnShutdown: func() {
+			stopWatching()
 			os.Remove(appLink)
 			// Disconnecting tears down the interface and the routes pointing
 			// at it; leaving them behind would take the machine offline.
