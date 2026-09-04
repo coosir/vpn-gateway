@@ -54,6 +54,10 @@ type Agent struct {
 	// maxAttempts bounds how many times a failing tunnel dials before it
 	// waits to be told to try again.
 	maxAttempts int
+	// manual means this tunnel never dials on its own. A session that dies
+	// parks rather than being redialled, because coming back is a full
+	// authentication and this gateway's questions are answered by a person.
+	manual bool
 	// redialPending records a reconnect asked for while one was already in
 	// flight, so the request survives that attempt failing.
 	redialPending atomic.Bool
@@ -100,6 +104,7 @@ func NewAgent(cfg Config, log *slog.Logger) (*Agent, error) {
 		baseNet:     CaptureBaseNetwork(),
 		secret:      cfg.Secret,
 		maxAttempts: attempts,
+		manual:      cfg.Bool("manual", false),
 		state:       contract.StateConnecting,
 		since:       time.Now(),
 		subs:        map[int]chan contract.Event{},
@@ -419,6 +424,22 @@ func (a *Agent) Supervise(ctx context.Context) {
 		// watching and wants another go.
 		if a.redialPending.Swap(false) {
 			a.Log("reconnect was requested during that attempt; trying again")
+			backoff, attempts = retryMin, 0
+			continue
+		}
+
+		// A manual tunnel does not dial on its own, and that has to hold here
+		// as well as on the server. Whatever ended the session -- the gateway
+		// rejecting the cookie it held, the session expiring, the link gone
+		// too long -- the way back is a fresh authentication, and this
+		// gateway asks for something only a person has. Dialling now spends a
+		// login against the account and raises a question to an empty room.
+		if a.manual {
+			a.log.Info("not redialing: this tunnel is dialled by hand", "error", err)
+			a.Log("the connection ended (%v); reconnect when you can answer the gateway", err)
+			if !a.waitForRedial(ctx) {
+				return
+			}
 			backoff, attempts = retryMin, 0
 			continue
 		}

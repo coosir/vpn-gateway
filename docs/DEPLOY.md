@@ -529,12 +529,25 @@ What ends a session anyway, in the order it is worth knowing:
 | | what happens | costs a code |
 |---|---|---|
 | link drops, back within the window | openconnect reconnects with its cookie | no |
-| link drops, longer than the window | openconnect exits, the agent redials | yes |
+| link drops, longer than the window | openconnect exits; a manual tunnel waits | only when you ask |
+| gateway rejects the cookie, or the session expires | openconnect exits at once | only when you ask |
 | agent stops answering for 15s | the container is recreated | yes |
 | server restarts, session still up | the container is adopted | no |
 | `stop_containers_on_exit: true` | every container is torn down | yes |
 
 Leave `stop_containers_on_exit` off on a server carrying one of these.
+
+The reconnect window is not a retry loop against a dead session. A gateway
+that rejects the cookie or ends the session says so, and the client exits
+rather than spending the window on an answer it has already had
+(`Cookie was rejected by server; exiting.`). The window only covers a link
+that went away.
+
+What follows an exit is a fresh authentication, so on a manual tunnel nothing
+follows it: the agent parks and waits to be told, the same as the server does.
+Both halves matter -- the server decides whether the container runs, the agent
+inside it decides whether to dial again -- and manual has to hold in both or
+the container quietly logs in without anybody asking.
 
 Then:
 

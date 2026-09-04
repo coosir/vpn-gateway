@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -969,20 +970,30 @@ func (t *Tunnel) writeEnvFile() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// The attempt cap belongs to the agent, so it travels with the rest of
-	// the provider settings rather than as a flag nobody would find.
-	if t.cfg.MaxAttempts > 0 {
-		if t.cfg.Extra == nil {
-			t.cfg.Extra = map[string]string{}
-		}
-		if _, set := t.cfg.Extra["max_attempts"]; !set {
-			t.cfg.Extra["max_attempts"] = strconv.Itoa(t.cfg.MaxAttempts)
-		}
+	// Two of the tunnel's own settings belong to the agent, so they travel
+	// with the rest of the provider settings rather than as flags nobody
+	// would find: the attempt cap, and whether this tunnel dials on its own.
+	//
+	// Keeping the server from asking is only half of manual. The agent
+	// redials inside the container when a session it had dies, and on a
+	// gateway that wants a code off somebody's phone that is a login nobody
+	// asked for.
+	//
+	// Composed into a map of its own rather than written back into the
+	// tunnel's configuration, which is read by everything else here while
+	// this runs on the supervisor's goroutine.
+	settings := make(map[string]string, len(t.cfg.Extra)+2)
+	maps.Copy(settings, t.cfg.Extra)
+	if _, set := settings["max_attempts"]; !set && t.cfg.MaxAttempts > 0 {
+		settings["max_attempts"] = strconv.Itoa(t.cfg.MaxAttempts)
+	}
+	if _, set := settings["manual"]; !set && t.cfg.Manual {
+		settings["manual"] = "true"
 	}
 
 	extra := "{}"
-	if len(t.cfg.Extra) > 0 {
-		b, err := json.Marshal(t.cfg.Extra)
+	if len(settings) > 0 {
+		b, err := json.Marshal(settings)
 		if err != nil {
 			return "", fmt.Errorf("encode extra: %w", err)
 		}

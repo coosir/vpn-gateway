@@ -7,7 +7,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -289,5 +291,51 @@ func TestARestartDoesNotReviveAManualTunnelThatGaveUp(t *testing.T) {
 	time.Sleep(6 * time.Second)
 	if wantedOf(t, m, "yanfeng") {
 		t.Error("a manual tunnel whose agent had given up was adopted anyway")
+	}
+}
+
+// The agent decides for itself whether to redial, so the setting has to reach
+// it. Enforcing manual only on this side leaves the container redialling on
+// its own, which is the half of the problem nobody can see from here.
+func TestManualTravelsToTheAgent(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		manual bool
+		want   string
+	}{
+		{"manual", true, "true"},
+		{"ordinary", false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := server.TunnelConfig{
+				Name: "yanfeng", Provider: "mock", Image: "coosir/vg-openconnect:latest",
+				DataPort: 21000, ControlPort: 21001, Manual: tc.manual,
+			}
+			dir := t.TempDir()
+			m := managerIn(t, dir, &fakeEngine{present: true}, cfg)
+			tun, ok := m.Lookup("yanfeng")
+			if !ok {
+				t.Fatal("no tunnel")
+			}
+			if _, err := tun.writeEnvFile(); err != nil {
+				t.Fatal(err)
+			}
+			// What reaches the container, not what this side believes.
+			body, err := os.ReadFile(tun.cfg.EnvFilePath(dir))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var extra map[string]string
+			for _, line := range strings.Split(string(body), "\n") {
+				if raw, ok := strings.CutPrefix(line, "VG_EXTRA_JSON="); ok {
+					if err := json.Unmarshal([]byte(raw), &extra); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if got := extra["manual"]; got != tc.want {
+				t.Errorf("the agent is told manual=%q, want %q", got, tc.want)
+			}
+		})
 	}
 }

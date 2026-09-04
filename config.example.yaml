@@ -95,6 +95,10 @@ users:
 #
 #   extra:
 #     reconnect_timeout: "1800"
+#
+# Past that window, or if the gateway rejects the session outright, the client
+# exits. A manual tunnel then waits to be told rather than logging in again on
+# its own -- inside the container as well as on this side.
 
 tunnels:
   # Server LAN / Direct Host Tunnel (no container required).
