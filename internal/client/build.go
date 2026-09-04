@@ -127,6 +127,9 @@ func BuildConfig(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState) (
 func validateRuleTargets(rules []Rule, byName map[string]TunnelState, cfg *Config) error {
 	var unknown []string
 	for _, r := range rules {
+		if r.Disabled {
+			continue
+		}
 		switch r.Tunnel {
 		case TargetDirect, TargetBlock, TargetProxy:
 			continue

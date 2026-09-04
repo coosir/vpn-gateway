@@ -40,6 +40,7 @@ const pollInterval = 5 * time.Second
 
 // Client runs the routing engine and keeps it in step with the server.
 type Client struct {
+	runCtx context.Context
 	cfg    *Config
 	bundle *clientcfg.Bundle
 	api    *API
@@ -76,8 +77,9 @@ func LoadBundle(path string) (*clientcfg.Bundle, error) {
 // state before generating any configuration.
 func New(ctx context.Context, cfg *Config, bundle *clientcfg.Bundle, log *slog.Logger) (*Client, error) {
 	c := &Client{
-		cfg:    cfg,
-		bundle: bundle,
+		runCtx:   ctx,
+		cfg:      cfg,
+		bundle:   bundle,
 		// No token yet: the bundle carries none, and Login below trades the
 		// user's credentials for the session token every later call uses.
 		api:      NewAPI(bundle.Server.APIURL, ""),
@@ -174,29 +176,49 @@ func (c *Client) fetch(ctx context.Context) ([]TunnelState, error) {
 	return out, nil
 }
 
+func (c *Client) boxContext() context.Context {
+	if c.runCtx != nil {
+		return registryContext(c.runCtx)
+	}
+	return registryContext(context.Background())
+}
+
 // Start brings up the routing engine.
 func (c *Client) Start(ctx context.Context) error {
+	if c.runCtx == nil && ctx != nil {
+		c.runCtx = ctx
+	}
 	raw, err := c.Config()
 	if err != nil {
 		return err
 	}
 
-	boxCtx := registryContext(ctx)
-	var parsed option.Options
-	if err := singjson.UnmarshalContext(boxCtx, raw, &parsed); err != nil {
-		return fmt.Errorf("the generated configuration was rejected: %w", err)
+	boxCtx := c.boxContext()
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		var parsed option.Options
+		if err := singjson.UnmarshalContext(boxCtx, raw, &parsed); err != nil {
+			return fmt.Errorf("the generated configuration was rejected: %w", err)
+		}
+		instance, err := box.New(box.Options{Context: boxCtx, Options: parsed})
+		if err != nil {
+			return fmt.Errorf("build the routing engine: %w", err)
+		}
+		if err := instance.Start(); err != nil {
+			instance.Close()
+			lastErr = err
+			if attempt < maxAttempts {
+				time.Sleep(time.Duration(attempt*150) * time.Millisecond)
+				continue
+			}
+			return startError(c.cfg, lastErr)
+		}
+		c.instanceMu.Lock()
+		c.instance = instance
+		c.instanceMu.Unlock()
+		break
 	}
-	instance, err := box.New(box.Options{Context: boxCtx, Options: parsed})
-	if err != nil {
-		return fmt.Errorf("build the routing engine: %w", err)
-	}
-	if err := instance.Start(); err != nil {
-		instance.Close()
-		return startError(c.cfg, err)
-	}
-	c.instanceMu.Lock()
-	c.instance = instance
-	c.instanceMu.Unlock()
 
 	c.mu.Lock()
 	for _, t := range c.tunnels {
@@ -257,18 +279,17 @@ func (c *Client) Reload(ctx context.Context, cfg *Config) error {
 		return fmt.Errorf("the new rules could not be compiled: %w", err)
 	}
 
-	boxCtx := registryContext(ctx)
-	var parsed option.Options
-	if err := singjson.UnmarshalContext(boxCtx, raw, &parsed); err != nil {
+	boxCtx := c.boxContext()
+	var testParsed option.Options
+	if err := singjson.UnmarshalContext(boxCtx, raw, &testParsed); err != nil {
 		return fmt.Errorf("the new configuration was rejected: %w", err)
 	}
-	next, err := box.New(box.Options{Context: boxCtx, Options: parsed})
-	if err != nil {
+	if _, err := box.New(box.Options{Context: boxCtx, Options: testParsed}); err != nil {
 		return fmt.Errorf("the new configuration could not be built: %w", err)
 	}
 
-	// The listening ports are held by the running engine, so it has to let go
-	// before the replacement can take them.
+	// The listening ports and virtual adapter are held by the running engine,
+	// so it has to let go before the replacement can take them.
 	c.instanceMu.Lock()
 	previous := c.instance
 	c.instance = nil
@@ -276,13 +297,48 @@ func (c *Client) Reload(ctx context.Context, cfg *Config) error {
 
 	if previous != nil {
 		previous.Close()
+		// On Windows and other OSes, virtual adapter removal (e.g. Wintun) and
+		// socket listener teardown are asynchronous in the kernel.
+		// A brief settling period gives the OS time to release resources.
+		time.Sleep(150 * time.Millisecond)
 	}
-	if err := next.Start(); err != nil {
-		next.Close()
+
+	startBox := func(rawCfg []byte) (*box.Box, error) {
+		const maxAttempts = 5
+		var lastErr error
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			if ctx != nil && ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			var parsed option.Options
+			if err := singjson.UnmarshalContext(boxCtx, rawCfg, &parsed); err != nil {
+				return nil, fmt.Errorf("the new configuration was rejected: %w", err)
+			}
+			inst, err := box.New(box.Options{Context: boxCtx, Options: parsed})
+			if err != nil {
+				return nil, fmt.Errorf("the new configuration could not be built: %w", err)
+			}
+			if err := inst.Start(); err != nil {
+				inst.Close()
+				lastErr = err
+				c.log.Warn("routing engine start attempt failed; retrying", "attempt", attempt, "error", err)
+				if attempt < maxAttempts {
+					time.Sleep(time.Duration(attempt*150) * time.Millisecond)
+					continue
+				}
+				break
+			}
+			return inst, nil
+		}
+		return nil, lastErr
+	}
+
+	next, err := startBox(raw)
+	if err != nil {
 		// Nothing is running now. Put the old configuration back rather than
 		// leaving the machine with no routing at all.
 		c.log.Error("the new configuration failed to start; restoring the previous one", "error", err)
-		if restoreErr := c.Start(ctx); restoreErr != nil {
+		if restoreErr := c.Start(c.runCtx); restoreErr != nil {
 			return fmt.Errorf("the new configuration failed to start (%w) and the previous one could not be restored: %w", err, restoreErr)
 		}
 		return fmt.Errorf("the new configuration failed to start: %w", err)
