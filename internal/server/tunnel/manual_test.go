@@ -105,21 +105,23 @@ func TestAManualTunnelDoesNotComeBackByItself(t *testing.T) {
 	}
 }
 
-// parkedAgent stands in for a container whose VPN client has given up: the
-// control plane answers, and what it reports is a tunnel that is no longer up.
-func parkedAgent(t *testing.T, state contract.State, reason string) int {
+// fakeAgent stands in for the control plane inside a tunnel's container.
+type fakeAgent struct {
+	mu    sync.Mutex
+	state contract.State
+	err   string
+	port  int
+}
+
+func newFakeAgent(t *testing.T, state contract.State) *fakeAgent {
 	t.Helper()
-	var mu sync.Mutex
-	up := true
+	a := &fakeAgent{state: state}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc(contract.PathStatus, func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		s := contract.Status{State: contract.StateUp}
-		if !up {
-			s = contract.Status{State: state, Error: reason}
-		}
-		mu.Unlock()
+		a.mu.Lock()
+		s := contract.Status{State: a.state, Error: a.err}
+		a.mu.Unlock()
 		json.NewEncoder(w).Encode(s)
 	})
 	mux.HandleFunc(contract.PathNetwork, func(w http.ResponseWriter, r *http.Request) {
@@ -135,20 +137,47 @@ func parkedAgent(t *testing.T, state contract.State, reason string) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	port, err := strconv.Atoi(portStr)
+	if a.port, err = strconv.Atoi(portStr); err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+// standingContainer leaves the engine holding a running container built from
+// this tunnel's current configuration, so reconcile adopts it rather than
+// deciding the configuration changed and rebuilding it.
+func standingContainer(t *testing.T, m *Manager, engine *countingEngine, name string) {
+	t.Helper()
+	tun, ok := m.Lookup(name)
+	if !ok {
+		t.Fatalf("no tunnel named %q", name)
+	}
+	hash, err := tun.writeEnvFile()
 	if err != nil {
 		t.Fatal(err)
 	}
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	engine.exists, engine.running = true, true
+	engine.labels = map[string]string{runtime.LabelConfigHash: hash}
+}
 
-	// Up at first, then parked: the tunnel has to get up before losing it
-	// means anything.
+func (a *fakeAgent) park(state contract.State, reason string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.state, a.err = state, reason
+}
+
+// parkedAgent reports up at first and then gives up, which is what a session
+// dropping looks like from outside the container.
+func parkedAgent(t *testing.T, state contract.State, reason string) int {
+	t.Helper()
+	a := newFakeAgent(t, contract.StateUp)
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		mu.Lock()
-		up = false
-		mu.Unlock()
+		a.park(state, reason)
 	}()
-	return port
+	return a.port
 }
 
 // Once a manual tunnel stops being up it has to wait to be asked again rather
@@ -208,5 +237,57 @@ func TestAnOrdinaryTunnelKeepsDialling(t *testing.T) {
 	time.Sleep(6 * time.Second)
 	if !wantedOf(t, m, "office") {
 		t.Error("an ordinary tunnel stopped wanting to dial on its own")
+	}
+}
+
+// The code somebody typed bought a session, and restarting this server must
+// not spend it again.
+//
+// A manual tunnel starts down, and taking that to mean "stop whatever is
+// running" tears down a live session on every upgrade -- which on a gateway
+// that wants an SMS code is the most expensive thing this server can do.
+// What is up is adopted instead.
+func TestARestartAdoptsAManualTunnelThatIsStillUp(t *testing.T) {
+	agent := newFakeAgent(t, contract.StateUp)
+	cfg := server.TunnelConfig{
+		Name: "yanfeng", Provider: "mock", Image: "coosir/vg-openconnect:latest",
+		DataPort: agent.port + 1000, ControlPort: agent.port, Manual: true,
+	}
+	engine := &countingEngine{fakeEngine: fakeEngine{present: true}}
+	m := managerIn(t, t.TempDir(), engine, cfg)
+	// The container survived the restart, built from this very configuration,
+	// which is what an upgrade without stop_containers_on_exit leaves behind.
+	standingContainer(t, m, engine, "yanfeng")
+
+	if wantedOf(t, m, "yanfeng") {
+		t.Fatal("a manual tunnel came back wanted before anything looked at the container")
+	}
+	runManager(t, m)
+
+	waitFor(t, 20*time.Second, func() bool { return wantedOf(t, m, "yanfeng") })
+
+	time.Sleep(time.Second)
+	if _, _, stops, removes := engine.counts(); stops != 0 || removes != 0 {
+		t.Errorf("the live session was torn down: %d stops, %d removes", stops, removes)
+	}
+}
+
+// The same restart with nothing left running must not start dialling: there
+// is no session to keep, and dialling is what needs a person.
+func TestARestartDoesNotReviveAManualTunnelThatGaveUp(t *testing.T) {
+	agent := newFakeAgent(t, contract.StateError)
+	agent.park(contract.StateError, "gateway refused the session")
+	cfg := server.TunnelConfig{
+		Name: "yanfeng", Provider: "mock", Image: "coosir/vg-openconnect:latest",
+		DataPort: agent.port + 1000, ControlPort: agent.port, Manual: true,
+	}
+	engine := &countingEngine{fakeEngine: fakeEngine{present: true}}
+	m := managerIn(t, t.TempDir(), engine, cfg)
+	standingContainer(t, m, engine, "yanfeng")
+	runManager(t, m)
+
+	time.Sleep(6 * time.Second)
+	if wantedOf(t, m, "yanfeng") {
+		t.Error("a manual tunnel whose agent had given up was adopted anyway")
 	}
 }

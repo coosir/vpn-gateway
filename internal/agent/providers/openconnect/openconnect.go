@@ -174,6 +174,17 @@ func buildArgs(protocol string, cfg agent.Config) []string {
 	if cfg.Bool("no_dtls", false) {
 		args = append(args, "--no-dtls")
 	}
+	// When the link drops, the client reconnects with the session cookie it
+	// already holds. That is the one way back that asks the gateway for
+	// nothing: no password, no code off somebody's phone. Past this window it
+	// gives up and exits, and what follows is a fresh authentication.
+	//
+	// The client's own default is five minutes, which is generous for a
+	// gateway that only wants a password and far too short for one that wants
+	// an SMS code. Left unset, the client's default stands.
+	if v := cfg.Str("reconnect_timeout", ""); v != "" {
+		args = append(args, "--reconnect-timeout="+v)
+	}
 	if v := cfg.Str("extra_args", ""); v != "" {
 		args = append(args, strings.Fields(v)...)
 	}

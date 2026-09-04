@@ -42,6 +42,11 @@ const (
 
 	stopGraceSeconds = 10
 
+	// adoptProbes is how many times a manual tunnel's control plane is asked
+	// whether its session is still up before the answer is taken as no.
+	adoptProbes     = 3
+	adoptProbeDelay = time.Second
+
 	// vncContainerPort is where an image that needs a graphical login serves
 	// it, by convention across the tier that wraps a vendor client.
 	vncContainerPort = 5901
@@ -518,6 +523,18 @@ func (t *Tunnel) supervise(ctx context.Context) {
 		}
 	}
 
+	// A manual tunnel does not dial by itself, but a session already up was
+	// dialled by a person and holds whatever they typed to get it. Restarting
+	// this server must not cost them another code, so what is carrying
+	// traffic is adopted rather than stopped: manual governs dialling, not
+	// what is already up.
+	//
+	// Done once, here, rather than in the loop: pressing stop has to stop it.
+	if t.cfg.Manual && !t.wanted.Load() && t.sessionIsUp(ctx) {
+		t.log.Info("adopting the session that is already up rather than asking for another code")
+		t.setWanted(true)
+	}
+
 	backoff := restartMin
 	for {
 		// A tunnel nobody has asked for stays down. Dialling on our own
@@ -566,6 +583,34 @@ func (t *Tunnel) supervise(ctx context.Context) {
 			continue
 		}
 	}
+}
+
+// sessionIsUp reports whether this tunnel's container is running and its agent
+// says the VPN is connected.
+//
+// A running container is not enough on its own: an agent that has given up is
+// still a running container, and adopting that would put a manual tunnel back
+// to dialling without anybody having asked it to.
+func (t *Tunnel) sessionIsUp(ctx context.Context) bool {
+	if t.client == nil {
+		return false
+	}
+	st, err := t.engine.Inspect(ctx, t.cfg.ContainerName())
+	if err != nil || !st.Running {
+		return false
+	}
+	// The container has been up for a while, but if the whole machine just
+	// started the control plane inside it may still be settling, and reading
+	// that as "no session" would throw away the one thing this exists to keep.
+	for attempt := range adoptProbes {
+		if attempt > 0 && !sleepCtx(ctx, adoptProbeDelay) {
+			return false
+		}
+		if status, err := t.client.Status(ctx); err == nil {
+			return status.State == contract.StateUp
+		}
+	}
+	return false
 }
 
 // stopContainer takes the container down without removing it, so a tunnel

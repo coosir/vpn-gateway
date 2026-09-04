@@ -85,6 +85,16 @@ users:
 # a restart and stands down again as soon as it stops being up, so it is never
 # dialled with nobody there to answer. It is started from the client, by hand,
 # every time.
+#
+# A session that is still up is adopted rather than stopped, so restarting the
+# server does not cost another code. Keeping one alive is worth configuring
+# for: an openconnect tunnel reconnects with the session cookie it already
+# holds, asking the gateway for nothing, and reconnect_timeout is how long it
+# keeps trying before giving up and needing a fresh login. Five minutes by
+# default, which is short if the alternative is an SMS:
+#
+#   extra:
+#     reconnect_timeout: "1800"
 
 tunnels:
   # Server LAN / Direct Host Tunnel (no container required).

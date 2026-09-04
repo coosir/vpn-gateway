@@ -154,7 +154,14 @@ gateway that is refusing it:
 be answered by a server: dialling one while nobody is watching parks the
 tunnel at auth_required with a question nobody was asked. A manual tunnel
 starts down after a restart, and stands down again the moment it stops being
-up, so every dial is somebody pressing connect with a phone in their hand.
+up, so every dial is somebody pressing connect with a phone in their hand. A
+session still up is adopted rather than stopped, because a restart must not
+spend a code again.
+
+Keeping such a session alive is worth configuring. An openconnect tunnel
+reconnects with the session cookie it already holds, which asks the gateway
+for nothing; `extra: {reconnect_timeout: "1800"}` is how long it keeps trying
+before giving up and needing a fresh login. The default is five minutes.
 
 Restarting the server does not redial. The containers are left running and
 the next start adopts the sessions already dialled, so an upgrade or a

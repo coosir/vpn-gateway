@@ -504,6 +504,38 @@ it stops being up, keeping the reason on the tunnel so the interface can say
 why. Connect it from the client, with a phone in hand. It cannot be combined
 with `autostart`; the server refuses a configuration that sets both.
 
+A session that is still up is adopted rather than stopped, so upgrading the
+server does not cost another code.
+
+### Keeping a session that cost an SMS
+
+Only one path back asks the gateway for nothing: openconnect still holds the
+session cookie and reconnects with it. Everything else -- the agent redialling
+after the client exits, the server recreating an unresponsive container -- is a
+fresh authentication, and on this kind of gateway that means somebody's phone.
+
+So the window that matters is how long the client keeps trying with the cookie
+it has. It is five minutes by default, which is generous for a password and
+short for an SMS:
+
+```yaml
+    extra:
+      reconnect_timeout: "1800"   # keep reconnecting with the same session
+                                  # for half an hour before giving up
+```
+
+What ends a session anyway, in the order it is worth knowing:
+
+| | what happens | costs a code |
+|---|---|---|
+| link drops, back within the window | openconnect reconnects with its cookie | no |
+| link drops, longer than the window | openconnect exits, the agent redials | yes |
+| agent stops answering for 15s | the container is recreated | yes |
+| server restarts, session still up | the container is adopted | no |
+| `stop_containers_on_exit: true` | every container is torn down | yes |
+
+Leave `stop_containers_on_exit` off on a server carrying one of these.
+
 Then:
 
 ```sh

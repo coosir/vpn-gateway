@@ -399,3 +399,23 @@ func TestACodeAboutToExpireIsNotSent(t *testing.T) {
 		t.Errorf("returned a code with only %v left of its life", left)
 	}
 }
+
+// The reconnect window is the only way back that costs nothing: the client
+// still holds the session cookie, so the gateway is not asked for a password
+// or a code. On a gateway that wants an SMS code, running past it is the
+// difference between a blip and somebody reaching for their phone.
+func TestTheReconnectWindowCanBeWidened(t *testing.T) {
+	args := buildArgs("anyconnect", cfgWith(map[string]string{"reconnect_timeout": "1800"}))
+	if !slices.Contains(args, "--reconnect-timeout=1800") {
+		t.Errorf("the reconnect window was not passed on: %v", args)
+	}
+}
+
+// Left unset, the client's own default stands rather than one chosen here.
+func TestTheReconnectWindowIsNotSetByDefault(t *testing.T) {
+	for _, a := range buildArgs("anyconnect", cfgWith(nil)) {
+		if strings.HasPrefix(a, "--reconnect-timeout") {
+			t.Errorf("a reconnect window was passed without being asked for: %q", a)
+		}
+	}
+}
