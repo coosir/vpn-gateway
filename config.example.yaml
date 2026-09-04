@@ -176,6 +176,24 @@ tunnels:
       # servercert: "pin-sha256:..."
     disabled: true
 
+  # Cisco AnyConnect (SSL VPN), through OpenConnect.
+  # Supports password + SMS verification code / RADIUS challenge / TOTP.
+  # When SMS verification is required, the prompt pops up in the client UI.
+  - name: corp-cisco
+    provider: anyconnect
+    image: coosir/vg-openconnect:latest
+    server: vpn.cisco.example:443
+    username: alice
+    password_env: CORP_CISCO_PASSWORD
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+    extra:
+      routes: "10.0.0.0/8"
+      dns: "10.0.0.53"
+      # authgroup: "MFA-Group"        # login profile/group if gateway uses one
+      # servercert: "pin-sha256:..."   # pin certificate if self-signed or internal CA
+    disabled: true
+
   # Sangfor aTrust: the same image, a different protocol.
   - name: corp-atrust
     provider: atrust

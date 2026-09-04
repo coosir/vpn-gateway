@@ -39,7 +39,7 @@ COPY --from=agent /out/vg-agent /usr/local/bin/vg-agent
 
 LABEL io.vpn-gateway.contract="1" \
       io.vpn-gateway.provider="fortinet,globalprotect,pulse,f5,juniper,array,anyconnect" \
-      io.vpn-gateway.capabilities="tcp,routes,dns,password,totp"
+      io.vpn-gateway.capabilities="tcp,routes,dns,password,sms,totp"
 
 # Runs as root: creating a tun interface and writing routes needs it, and the
 # only thing reachable in here is one VPN client.

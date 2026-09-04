@@ -78,6 +78,10 @@ type Runner struct {
 	// recent holds the last few output lines, so a prompt can be described
 	// with the context printed just before it -- a login URL, for instance.
 	recent []string
+	// fatal carries an error raised from OnLine for a client that has stopped
+	// carrying traffic without exiting. It belongs to one run and is replaced
+	// at the start of the next.
+	fatal chan error
 }
 
 // Prompt recognises one interactive question a supervised client can ask.
@@ -153,6 +157,30 @@ func stopChild(p *os.Process, exited <-chan struct{}) {
 	}
 }
 
+// Fail ends the current run with err, stopping the child.
+//
+// The supervisor only reacts to a child exiting, so a provider that
+// recognises a dead tunnel in the output cannot get itself redialled by
+// reporting a state alone: the client keeps running, Run keeps blocking on an
+// exit that never comes, and the tunnel stays down until somebody notices.
+// This ends the process instead, which is what a redial needs.
+//
+// Only the first call within a run has an effect. Later ones are dropped
+// rather than queued: the child is already on its way out, and the first
+// reason is the one worth reporting.
+func (r *Runner) Fail(err error) {
+	r.mu.RLock()
+	ch := r.fatal
+	r.mu.RUnlock()
+	if ch == nil {
+		return // no run in progress
+	}
+	select {
+	case ch <- err:
+	default:
+	}
+}
+
 // Run starts the child, waits for its proxy to accept connections, reports
 // StateUp, and blocks until the child exits or ctx is cancelled.
 func (r *Runner) Run(ctx context.Context, rep Reporter) error {
@@ -197,10 +225,12 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 	if err != nil {
 		return fmt.Errorf("stdin pipe: %w", err)
 	}
+	fatal := make(chan error, 1)
 	r.mu.Lock()
 	r.stdin = stdin
 	r.pending = nil
 	r.recent = nil
+	r.fatal = fatal
 	r.mu.Unlock()
 
 	if err := cmd.Start(); err != nil {
@@ -239,7 +269,7 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 	if ready == 0 {
 		ready = DefaultReadyTimeout
 	}
-	if err := r.waitReady(ctx, ready, exit); err != nil {
+	if err := r.waitReady(ctx, ready, exit, fatal); err != nil {
 		stopChild(cmd.Process, exit.done)
 		<-exit.done
 		return err
@@ -265,6 +295,15 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 		r.dialer = nil
 		r.mu.Unlock()
 		return childExitError(exit.err)
+	case err := <-fatal:
+		// The child is still running and still failing every connection, so
+		// it has to go before the supervisor can dial a fresh one.
+		stopChild(cmd.Process, exit.done)
+		<-exit.done
+		r.mu.Lock()
+		r.dialer = nil
+		r.mu.Unlock()
+		return err
 	case <-ctx.Done():
 		<-exit.done
 		return nil
@@ -278,7 +317,7 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 // fetching a code from their phone can easily take longer than any timeout
 // worth setting for a stuck process, and killing the client mid-login would
 // make the tunnel impossible to bring up at all.
-func (r *Runner) waitReady(ctx context.Context, timeout time.Duration, exit *childExit) error {
+func (r *Runner) waitReady(ctx context.Context, timeout time.Duration, exit *childExit, fatal <-chan error) error {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -289,6 +328,8 @@ func (r *Runner) waitReady(ctx context.Context, timeout time.Duration, exit *chi
 		select {
 		case <-exit.done:
 			return childExitError(exit.err)
+		case err := <-fatal:
+			return err
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:

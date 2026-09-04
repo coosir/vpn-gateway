@@ -87,7 +87,7 @@ func (p *Provider) Capabilities() []string {
 	// streams; the agent's own SOCKS5 front is what limits this to TCP today.
 	return []string{
 		contract.CapTCP, contract.CapRoutes, contract.CapDNS,
-		contract.CapPassword, contract.CapTOTP,
+		contract.CapPassword, contract.CapSMS, contract.CapTOTP,
 	}
 }
 
@@ -260,10 +260,15 @@ func prompts() []agent.Prompt {
 func classify(question string) contract.ChallengeType {
 	q := strings.ToLower(question)
 	switch {
-	case strings.Contains(q, "sms") || strings.Contains(q, "短信"):
+	case strings.Contains(q, "sms") || strings.Contains(q, "短信") ||
+		strings.Contains(q, "verification") || strings.Contains(q, "验证码") ||
+		strings.Contains(q, "手机码") || strings.Contains(q, "动态密码") ||
+		strings.Contains(q, "二次认证") || strings.Contains(q, "二次验证") ||
+		strings.Contains(q, "challenge") || strings.Contains(q, "response"):
 		return contract.ChallengeSMS
 	case strings.Contains(q, "token") || strings.Contains(q, "totp") ||
-		strings.Contains(q, "authenticator") || strings.Contains(q, "otp"):
+		strings.Contains(q, "authenticator") || strings.Contains(q, "otp") ||
+		strings.Contains(q, "passcode") || strings.Contains(q, "动态口令"):
 		return contract.ChallengeTOTP
 	case strings.Contains(q, "captcha") || strings.Contains(q, "image"):
 		return contract.ChallengeCaptcha

@@ -215,11 +215,45 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 	return err
 }
 
-// onLine watches the child's output for credential rejection. Matching is
-// keyword-based and covers both the English and Chinese messages the upstream
-// tool emits; a missed match only costs a retry, never a wrong success.
+// onLine watches the child's output for the two failures the agent has to act
+// on. Matching is keyword-based and covers both the English and Chinese
+// wordings the upstream tool emits.
+//
+// The order matters, because the two read almost alike. A rejected credential
+// is permanent, and retrying it only walks an account towards being locked. A
+// session the gateway has dropped is the opposite: the login was fine, it has
+// merely aged out, and a fresh one fixes it. The gateway words that second one
+// as
+//
+//	tcp tunnel authentication failed (code 10000004): invalid SID
+//
+// which the credential markers below would otherwise claim as a wrong
+// password. So the recoverable case is checked first, and the credential
+// markers only see what is left. Getting this backwards costs the tunnel: it
+// parks as permanently broken while nothing is actually wrong with it.
+//
+// A missed match still only costs a retry, never a wrong success.
 func (p *Provider) onLine(line string, rep agent.Reporter) {
 	l := strings.ToLower(line)
+
+	// A session the gateway no longer honours. The client does not exit over
+	// it -- it stays up and fails every connection through it -- so the run
+	// has to be ended for the supervisor to dial again and log in afresh.
+	for _, marker := range []string{
+		"invalid sid",
+		"tcp tunnel authentication failed",
+		"会话已失效",
+		"会话过期",
+	} {
+		if strings.Contains(l, marker) {
+			err := errors.New(strings.TrimSpace(line))
+			rep.SetState(contract.StateError, err)
+			p.runner.Fail(fmt.Errorf("the gateway dropped the session: %w", err))
+			return
+		}
+	}
+
+	// Credentials the gateway will not accept however often they are offered.
 	for _, marker := range []string{
 		"invalid username or password",
 		"login failed",

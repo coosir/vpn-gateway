@@ -898,3 +898,45 @@ func TestAChildThatIgnoresTheSignalIsStillEnded(t *testing.T) {
 		t.Errorf("Run took %s to return; the grace period is %s", took, stopGrace)
 	}
 }
+
+// TestFailEndsARunTheChildWouldNotEnd covers the half of the wedge that lived
+// in the runner. A gateway can drop a session without the client noticing: it
+// stays up, serves its proxy, and fails every connection through it. The
+// supervisor only watches for the child exiting, so a provider that recognised
+// the dead tunnel in the output had no way to be dialled again -- Run blocked
+// on an exit that was never coming, and the tunnel stayed down until somebody
+// looked at it.
+func TestFailEndsARunTheChildWouldNotEnd(t *testing.T) {
+	want := errors.New("the gateway dropped the session")
+
+	r := &Runner{
+		Path:       "/bin/sh",
+		Args:       []string{"-c", `echo "invalid SID"; while true; do sleep 1; done`},
+		DirectDial: true,
+		ReadyWhen:  func() bool { return true },
+	}
+	r.OnLine = func(line string, _ Reporter) {
+		if strings.Contains(line, "invalid SID") {
+			r.Fail(want)
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- r.Run(context.Background(), &countingReporter{}) }()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, want) {
+			t.Fatalf("Run returned %v, want %v", err, want)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Run did not return after Fail; the tunnel would stay wedged")
+	}
+}
+
+// TestFailOutsideARunIsHarmless: output can still be scanned as a child is
+// being torn down, and a provider must not have to guard against that.
+func TestFailOutsideARunIsHarmless(t *testing.T) {
+	r := &Runner{Path: "/bin/sh"}
+	r.Fail(errors.New("nothing is running"))
+}
