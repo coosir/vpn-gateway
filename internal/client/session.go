@@ -279,6 +279,11 @@ func (s *Session) Disconnect() error {
 	if c == nil {
 		return nil
 	}
+	if c.api != nil {
+		logoutCtx, logoutCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = c.api.Logout(logoutCtx)
+		logoutCancel()
+	}
 	// Closing tears down the interface and the routes pointing at it;
 	// leaving them behind would take the machine offline.
 	err := c.Close()

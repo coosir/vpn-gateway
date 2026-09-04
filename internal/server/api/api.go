@@ -25,20 +25,38 @@ type contextKey string
 
 const (
 	userContextKey    contextKey = "username"
+	tokenContextKey   contextKey = "token"
 	isAdminContextKey contextKey = "isAdmin"
 )
 
+// TrojanPasswordGenerator manages dynamic Trojan passwords and revocation.
+type TrojanPasswordGenerator interface {
+	GetOrCreatePassword(token, username, tunnelName string) string
+	RevokeSession(token string)
+	RevokeUser(username string)
+}
+
 // Server exposes the control API.
 type Server struct {
-	mgr      *tunnel.Manager
-	log      *slog.Logger
-	token    string
-	usersMgr *users.Manager
+	mgr        *tunnel.Manager
+	log        *slog.Logger
+	token      string
+	usersMgr   *users.Manager
+	trojanAuth TrojanPasswordGenerator
 }
 
 // New builds the API server.
-func New(mgr *tunnel.Manager, token string, usersMgr *users.Manager, log *slog.Logger) *Server {
-	return &Server{mgr: mgr, log: log, token: token, usersMgr: usersMgr}
+func New(mgr *tunnel.Manager, token string, usersMgr *users.Manager, log *slog.Logger, trojanAuth ...TrojanPasswordGenerator) *Server {
+	var ta TrojanPasswordGenerator
+	if len(trojanAuth) > 0 {
+		ta = trojanAuth[0]
+	}
+	return &Server{mgr: mgr, log: log, token: token, usersMgr: usersMgr, trojanAuth: ta}
+}
+
+// SetTrojanAuth sets the dynamic Trojan password generator.
+func (s *Server) SetTrojanAuth(ta TrojanPasswordGenerator) {
+	s.trojanAuth = ta
 }
 
 // LoginRequest is the body for POST /api/v1/auth/login.
@@ -73,6 +91,8 @@ func (s *Server) Handler() http.Handler {
 	// Login is unauthenticated so a client can verify credentials and obtain a session token.
 	mux.HandleFunc("POST /api/v1/auth/login", s.postLogin)
 	mux.HandleFunc("POST /api/v1/login", s.postLogin)
+	mux.HandleFunc("POST /api/v1/auth/logout", s.auth(s.postLogout))
+	mux.HandleFunc("POST /api/v1/logout", s.auth(s.postLogout))
 
 	// User management endpoints (Admin only)
 	mux.HandleFunc("GET /api/v1/users", s.adminAuth(s.listUsers))
@@ -130,14 +150,29 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) postLogout(w http.ResponseWriter, r *http.Request) {
+	tok, _ := r.Context().Value(tokenContextKey).(string)
+	if tok != "" {
+		if s.usersMgr != nil {
+			s.usersMgr.RevokeSession(tok)
+		}
+		if s.trojanAuth != nil {
+			s.trojanAuth.RevokeSession(tok)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // adminAuth requires the admin API token or an authenticated user with IsAdmin=true.
 func (s *Server) adminAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// 1. Master admin token
 		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if ok && subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) == 1 {
-			r = r.WithContext(context.WithValue(context.WithValue(r.Context(), userContextKey, "admin"), isAdminContextKey, true))
-			next(w, r)
+			ctx := context.WithValue(r.Context(), userContextKey, "admin")
+			ctx = context.WithValue(ctx, isAdminContextKey, true)
+			ctx = context.WithValue(ctx, tokenContextKey, s.token)
+			next(w, r.WithContext(ctx))
 			return
 		}
 
@@ -148,8 +183,10 @@ func (s *Server) adminAuth(next http.HandlerFunc) http.HandlerFunc {
 					writeErr(w, http.StatusForbidden, "administrator privileges required")
 					return
 				}
-				r = r.WithContext(context.WithValue(context.WithValue(r.Context(), userContextKey, username), isAdminContextKey, true))
-				next(w, r)
+				ctx := context.WithValue(r.Context(), userContextKey, username)
+				ctx = context.WithValue(ctx, isAdminContextKey, true)
+				ctx = context.WithValue(ctx, tokenContextKey, got)
+				next(w, r.WithContext(ctx))
 				return
 			}
 		}
@@ -158,13 +195,15 @@ func (s *Server) adminAuth(next http.HandlerFunc) http.HandlerFunc {
 		if s.usersMgr != nil {
 			username, password, ok := r.BasicAuth()
 			if ok {
-				if _, isAdmin, err := s.usersMgr.Authenticate(username, password); err == nil {
+				if tok, isAdmin, err := s.usersMgr.Authenticate(username, password); err == nil {
 					if !isAdmin {
 						writeErr(w, http.StatusForbidden, "administrator privileges required")
 						return
 					}
-					r = r.WithContext(context.WithValue(context.WithValue(r.Context(), userContextKey, username), isAdminContextKey, true))
-					next(w, r)
+					ctx := context.WithValue(r.Context(), userContextKey, username)
+					ctx = context.WithValue(ctx, isAdminContextKey, true)
+					ctx = context.WithValue(ctx, tokenContextKey, tok)
+					next(w, r.WithContext(ctx))
 					return
 				}
 			}
@@ -179,16 +218,20 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 		// 1. Admin API token
 		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if ok && subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) == 1 {
-			r = r.WithContext(context.WithValue(context.WithValue(r.Context(), userContextKey, "admin"), isAdminContextKey, true))
-			next(w, r)
+			ctx := context.WithValue(r.Context(), userContextKey, "admin")
+			ctx = context.WithValue(ctx, isAdminContextKey, true)
+			ctx = context.WithValue(ctx, tokenContextKey, s.token)
+			next(w, r.WithContext(ctx))
 			return
 		}
 
 		// 2. User session token
 		if ok && s.usersMgr != nil {
 			if username, isAdmin, valid := s.usersMgr.Validate(got); valid {
-				r = r.WithContext(context.WithValue(context.WithValue(r.Context(), userContextKey, username), isAdminContextKey, isAdmin))
-				next(w, r)
+				ctx := context.WithValue(r.Context(), userContextKey, username)
+				ctx = context.WithValue(ctx, isAdminContextKey, isAdmin)
+				ctx = context.WithValue(ctx, tokenContextKey, got)
+				next(w, r.WithContext(ctx))
 				return
 			}
 		}
@@ -197,9 +240,11 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 		if s.usersMgr != nil {
 			username, password, ok := r.BasicAuth()
 			if ok {
-				if _, isAdmin, err := s.usersMgr.Authenticate(username, password); err == nil {
-					r = r.WithContext(context.WithValue(context.WithValue(r.Context(), userContextKey, username), isAdminContextKey, isAdmin))
-					next(w, r)
+				if tok, isAdmin, err := s.usersMgr.Authenticate(username, password); err == nil {
+					ctx := context.WithValue(r.Context(), userContextKey, username)
+					ctx = context.WithValue(ctx, isAdminContextKey, isAdmin)
+					ctx = context.WithValue(ctx, tokenContextKey, tok)
+					next(w, r.WithContext(ctx))
 					return
 				}
 			}
@@ -281,7 +326,15 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listTunnels(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.mgr.Snapshots())
+	snaps := s.mgr.Snapshots()
+	tok, _ := r.Context().Value(tokenContextKey).(string)
+	uname, _ := r.Context().Value(userContextKey).(string)
+	if tok != "" && s.trojanAuth != nil {
+		for i := range snaps {
+			snaps[i].TrojanPassword = s.trojanAuth.GetOrCreatePassword(tok, uname, snaps[i].Name)
+		}
+	}
+	writeJSON(w, http.StatusOK, snaps)
 }
 
 // streamEvents pushes tunnel state changes to a client as server-sent
@@ -300,6 +353,7 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 
 	username, _ := r.Context().Value(userContextKey).(string)
 	isAdmin, _ := r.Context().Value(isAdminContextKey).(bool)
+	tok, _ := r.Context().Value(tokenContextKey).(string)
 	if username != "" && s.usersMgr != nil {
 		unreg := s.usersMgr.RegisterCancel(username, cancel)
 		defer unreg()
@@ -309,14 +363,17 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 	defer release()
 
 	writeFilteredEvent := func(ev tunnel.Event) bool {
-		if ev.Tunnel.Challenge != nil && ev.Tunnel.Challenge.TargetUser != "" {
-			if username != "" && username != ev.Tunnel.Challenge.TargetUser && !isAdmin {
-				evClone := ev
+		evClone := ev
+		if evClone.Tunnel.Challenge != nil && evClone.Tunnel.Challenge.TargetUser != "" {
+			if username != "" && username != evClone.Tunnel.Challenge.TargetUser && !isAdmin {
 				evClone.Tunnel.Challenge = nil
 				return writeEvent(w, rc, evClone)
 			}
 		}
-		return writeEvent(w, rc, ev)
+		if tok != "" && s.trojanAuth != nil {
+			evClone.Tunnel.TrojanPassword = s.trojanAuth.GetOrCreatePassword(tok, username, evClone.Tunnel.Name)
+		}
+		return writeEvent(w, rc, evClone)
 	}
 
 	// Send the current state first, so a client that connects late does not
@@ -373,7 +430,13 @@ func (s *Server) getTunnel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "no such tunnel")
 		return
 	}
-	writeJSON(w, http.StatusOK, t.Snapshot())
+	snap := t.Snapshot()
+	tok, _ := r.Context().Value(tokenContextKey).(string)
+	uname, _ := r.Context().Value(userContextKey).(string)
+	if tok != "" && s.trojanAuth != nil {
+		snap.TrojanPassword = s.trojanAuth.GetOrCreatePassword(tok, uname, snap.Name)
+	}
+	writeJSON(w, http.StatusOK, snap)
 }
 
 func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {

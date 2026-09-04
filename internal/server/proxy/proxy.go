@@ -14,13 +14,16 @@ import (
 	"log/slog"
 
 	box "github.com/sagernet/sing-box"
+	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/endpoint"
 	"github.com/sagernet/sing-box/adapter/inbound"
 	"github.com/sagernet/sing-box/adapter/outbound"
 	"github.com/sagernet/sing-box/adapter/service"
+	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/dns"
 	"github.com/sagernet/sing-box/dns/transport"
 	"github.com/sagernet/sing-box/dns/transport/local"
+	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing-box/protocol/block"
 	"github.com/sagernet/sing-box/protocol/direct"
@@ -80,6 +83,9 @@ type Options struct {
 	LogLevel string
 
 	Routes []Route
+	// Authenticator validates incoming Trojan credentials dynamically.
+	// When nil, static credentials from Routes are used.
+	Authenticator Authenticator
 }
 
 // BuildConfig renders the sing-box configuration as JSON.
@@ -223,7 +229,11 @@ func New(ctx context.Context, opts Options, log *slog.Logger) (*Proxy, error) {
 	if err != nil {
 		return nil, err
 	}
-	boxCtx := registryContext(ctx)
+	auth := opts.Authenticator
+	if auth == nil {
+		auth = NewStaticAuthenticator(opts.Routes)
+	}
+	boxCtx := registryContext(ctx, auth)
 
 	var parsed option.Options
 	if err := singjson.UnmarshalContext(boxCtx, raw, &parsed); err != nil {
@@ -259,9 +269,11 @@ func (p *Proxy) Close() error {
 // that is not is refused when it is parsed, which is a server that will not
 // start rather than a tunnel that does not work -- see the test that walks
 // one of each kind through this.
-func registryContext(ctx context.Context) context.Context {
+func registryContext(ctx context.Context, auth Authenticator) context.Context {
 	inR := inbound.NewRegistry()
-	trojan.RegisterInbound(inR)
+	inbound.Register[option.TrojanInboundOptions](inR, C.TypeTrojan, func(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.TrojanInboundOptions) (adapter.Inbound, error) {
+		return NewDynamicTrojanInbound(ctx, router, logger, tag, options, auth)
+	})
 
 	outR := outbound.NewRegistry()
 	direct.RegisterOutbound(outR)

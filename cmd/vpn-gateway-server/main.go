@@ -121,6 +121,12 @@ func run(configPath string, check bool, logLevel string) error {
 		return err
 	}
 
+	trojanAuth := proxy.NewDynamicAuthenticator(usersMgr, log)
+	usersMgr.SetRevokeHooks(
+		func(username string) { trojanAuth.RevokeUser(username) },
+		func(token string) { trojanAuth.RevokeSession(token) },
+	)
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -139,12 +145,13 @@ func run(configPath string, check bool, logLevel string) error {
 			}
 		}
 		listener, err = proxy.New(ctx, proxy.Options{
-			Listen:     cfg.Trojan.Listen,
-			ServerName: mat.ServerName,
-			CertPath:   mat.CertPath,
-			KeyPath:    mat.KeyPath,
-			LogLevel:   cfg.Trojan.LogLevel,
-			Routes:     mgr.Routes(),
+			Listen:        cfg.Trojan.Listen,
+			ServerName:    mat.ServerName,
+			CertPath:      mat.CertPath,
+			KeyPath:       mat.KeyPath,
+			LogLevel:      cfg.Trojan.LogLevel,
+			Routes:        mgr.Routes(),
+			Authenticator: trojanAuth,
 		}, log)
 		if err != nil {
 			return err
@@ -160,7 +167,7 @@ func run(configPath string, check bool, logLevel string) error {
 
 	apiErr := make(chan error, 1)
 	go func() {
-		apiErr <- api.Serve(ctx, cfg.APIListen, api.New(mgr, token, usersMgr, log).Handler(), log)
+		apiErr <- api.Serve(ctx, cfg.APIListen, api.New(mgr, token, usersMgr, log, trojanAuth).Handler(), log)
 	}()
 
 	select {

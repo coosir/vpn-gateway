@@ -108,6 +108,20 @@ func (a *API) Login(ctx context.Context, username, password string) error {
 	return nil
 }
 
+// Logout revokes the session on the server.
+func (a *API) Logout(ctx context.Context) error {
+	if a.Token == "" {
+		return nil
+	}
+	req, err := a.request(ctx, http.MethodPost, "/api/v1/auth/logout", nil)
+	if err != nil {
+		return err
+	}
+	_ = a.do(req, nil)
+	a.Token = ""
+	return nil
+}
+
 // Tunnels fetches every tunnel the server manages.
 func (a *API) Tunnels(ctx context.Context) ([]Snapshot, error) {
 	var out []Snapshot

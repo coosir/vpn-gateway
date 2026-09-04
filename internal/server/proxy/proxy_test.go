@@ -730,3 +730,117 @@ func TestEveryOutboundItGeneratesIsOneItCanRun(t *testing.T) {
 	t.Cleanup(func() { p.Close() })
 	waitForPort(t, opts.Listen)
 }
+
+func trojanClientWithPass(t *testing.T, serverPort int, pass, certPEM string) string {
+	t.Helper()
+	socksPort := freePort(t)
+	cfg := map[string]any{
+		"log": map[string]any{"level": "error"},
+		"inbounds": []map[string]any{{
+			"type": "socks", "tag": "socks-in",
+			"listen": "127.0.0.1", "listen_port": socksPort,
+		}},
+		"outbounds": []map[string]any{{
+			"type": "trojan", "tag": "trojan-out",
+			"server": "127.0.0.1", "server_port": serverPort,
+			"password": pass,
+			"tls": map[string]any{
+				"enabled":     true,
+				"server_name": "vpn.test",
+				"certificate": strings.Split(strings.TrimSpace(certPEM), "\n"),
+			},
+		}},
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := newClientBox(t, raw)
+	if err != nil {
+		t.Fatalf("start client with pass: %v", err)
+	}
+	t.Cleanup(func() { p.Close() })
+	addr := "127.0.0.1:" + strconv.Itoa(socksPort)
+	waitForPort(t, addr)
+	return addr
+}
+
+type mockSessionValidator struct {
+	validSessions map[string]string // token -> username
+}
+
+func (m *mockSessionValidator) Validate(token string) (string, bool, bool) {
+	u, ok := m.validSessions[token]
+	return u, false, ok
+}
+
+func TestDynamicAuthenticatorEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+	mat, err := certs.EnsureSelfSigned(filepath.Join(dir, "tls"), "vpn.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	backend := startLabelledSOCKS(t, "office", "vpngw", "socks-office")
+	host, portStr, _ := net.SplitHostPort(backend.addr)
+	port, _ := strconv.Atoi(portStr)
+
+	validator := &mockSessionValidator{
+		validSessions: map[string]string{
+			"sess_alice": "alice",
+		},
+	}
+	dynAuth := NewDynamicAuthenticator(validator, slog.New(slog.DiscardHandler))
+
+	serverPort := freePort(t)
+	opts := Options{
+		Listen:     "127.0.0.1:" + strconv.Itoa(serverPort),
+		ServerName: "vpn.test",
+		CertPath:   mat.CertPath,
+		KeyPath:    mat.KeyPath,
+		LogLevel:   "error",
+		Routes: []Route{
+			{
+				Name:           "office",
+				TrojanPassword: "static-secret-office",
+				DataHost:       host,
+				DataPort:       port,
+				SOCKSUser:      "vpngw",
+				SOCKSPassword:  "socks-office",
+			},
+		},
+		Authenticator: dynAuth,
+	}
+
+	p, err := New(context.Background(), opts, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("start listener: %v", err)
+	}
+	t.Cleanup(func() { p.Close() })
+	waitForPort(t, opts.Listen)
+
+	// 1. Trying to connect with static password must FAIL when DynamicAuthenticator is active
+	staticClient := trojanClientWithPass(t, serverPort, "static-secret-office", mat.CertPEM)
+	if got, err := fetchLabel(staticClient); err == nil {
+		t.Fatalf("static secret should have been rejected, but got %q", got)
+	}
+
+	// 2. Dynamic password for alice on office tunnel must SUCCEED
+	alicePass := dynAuth.GetOrCreatePassword("sess_alice", "alice", "office")
+	aliceClient := trojanClientWithPass(t, serverPort, alicePass, mat.CertPEM)
+	got, err := fetchLabel(aliceClient)
+	if err != nil {
+		t.Fatalf("fetchLabel with alicePass: %v", err)
+	}
+	if got != "office" {
+		t.Errorf("got %q, want office", got)
+	}
+
+	// 3. Revoke alice's session -> connection must fail immediately
+	dynAuth.RevokeSession("sess_alice")
+	delete(validator.validSessions, "sess_alice")
+
+	if got, err := fetchLabel(aliceClient); err == nil {
+		t.Fatalf("revoked session should have been rejected, but got %q", got)
+	}
+}

@@ -52,10 +52,12 @@ type Session struct {
 type Manager struct {
 	path     string
 	mu       sync.RWMutex
-	users    map[string]User
-	sessions map[string]Session
-	cancels  map[string][]contextCancel
-	log      *slog.Logger
+	users           map[string]User
+	sessions        map[string]Session
+	cancels         map[string][]contextCancel
+	onRevokeUser    func(username string)
+	onRevokeSession func(token string)
+	log             *slog.Logger
 }
 
 type contextCancel struct {
@@ -379,12 +381,60 @@ func (m *Manager) RegisterCancel(username string, cancel func()) func() {
 	}
 }
 
+// SetRevokeHooks sets callbacks invoked when a user or session is revoked.
+func (m *Manager) SetRevokeHooks(onRevokeUser func(username string), onRevokeSession func(token string)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onRevokeUser = onRevokeUser
+	m.onRevokeSession = onRevokeSession
+}
+
+// RevokeSession explicitly revokes a single session token (e.g. upon user logout).
+func (m *Manager) RevokeSession(token string) {
+	m.mu.Lock()
+	sess, exists := m.sessions[token]
+	if !exists {
+		m.mu.Unlock()
+		return
+	}
+	delete(m.sessions, token)
+
+	// Check if user still has other active sessions
+	hasOther := false
+	for _, s := range m.sessions {
+		if s.Username == sess.Username {
+			hasOther = true
+			break
+		}
+	}
+	if !hasOther {
+		if list, ok := m.cancels[sess.Username]; ok {
+			for _, c := range list {
+				if c.cancel != nil {
+					go c.cancel()
+				}
+			}
+			delete(m.cancels, sess.Username)
+		}
+	}
+	onRevoke := m.onRevokeSession
+	m.mu.Unlock()
+
+	if onRevoke != nil {
+		onRevoke(token)
+	}
+	m.log.Info("revoked user session", "username", sess.Username, "token", token)
+}
+
 // revokeUserLocked cancels all active sessions and triggers cancels for a user.
 func (m *Manager) revokeUserLocked(username string) {
 	// 1. Remove all session tokens for this user
 	for tok, sess := range m.sessions {
 		if sess.Username == username {
 			delete(m.sessions, tok)
+			if m.onRevokeSession != nil {
+				go m.onRevokeSession(tok)
+			}
 		}
 	}
 
@@ -396,6 +446,10 @@ func (m *Manager) revokeUserLocked(username string) {
 			}
 		}
 		delete(m.cancels, username)
+	}
+
+	if m.onRevokeUser != nil {
+		go m.onRevokeUser(username)
 	}
 }
 
