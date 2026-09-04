@@ -55,6 +55,10 @@ type Session struct {
 	// running client changes. It is how a watcher bound to one connection
 	// learns that the connection it holds is no longer the current one.
 	replaced chan struct{}
+	// rev counts how many times the configuration has changed. Comparing two
+	// configurations field by field to notice is work; counting is not, and
+	// what reads this only needs to know that they differ.
+	rev uint64
 }
 
 // SessionStatus is a session's state, as the interface shows it.
@@ -70,6 +74,11 @@ type SessionStatus struct {
 	TunnelCount int `json:"tunnel_count"`
 
 	ConfigPath string `json:"config_path"`
+
+	// Rev changes whenever the configuration does. It is for watchers that
+	// have to notice a change they did not make, and means nothing to the
+	// page, which is why it stays off the wire.
+	Rev uint64 `json:"-"`
 }
 
 // NewSession loads whatever configuration exists. A missing or incomplete one
@@ -91,6 +100,7 @@ func NewSession(configPath string, log *slog.Logger) *Session {
 // load reads the configuration and bundle, leaving the session in setup when
 // either is missing.
 func (s *Session) load() {
+	s.rev++
 	cfg, err := LoadConfig(s.configPath)
 	if err != nil {
 		s.cfg = defaultConfig(s.bundlePath)
@@ -151,6 +161,7 @@ func (s *Session) Status() SessionStatus {
 		Since:      s.since,
 		LastError:  s.lastError,
 		ConfigPath: s.configPath,
+		Rev:        s.rev,
 	}
 	if s.client != nil {
 		st.TunnelCount = len(s.client.Tunnels())
@@ -240,6 +251,7 @@ func (s *Session) ImportBundle(raw []byte) error {
 	s.mu.Lock()
 	s.bundle = &bundle
 	s.cfg.Bundle = path
+	s.rev++
 	if s.phase == PhaseSetup {
 		s.setPhase(PhaseIdle, nil)
 	}
@@ -351,6 +363,7 @@ func (s *Session) Apply(ctx context.Context, next *Config) error {
 
 	s.mu.Lock()
 	s.cfg = next
+	s.rev++
 	s.mu.Unlock()
 	return s.save()
 }

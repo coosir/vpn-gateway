@@ -29,6 +29,7 @@ type fakeController struct {
 	applied  [][]client.Rule
 	bundles  [][]byte
 	connects int
+	rev      uint64
 
 	applyErr  error
 	importErr error
@@ -38,7 +39,7 @@ type fakeController struct {
 func (f *fakeController) Status() client.SessionStatus {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return client.SessionStatus{Phase: f.phase, ConfigPath: f.configPath, TunnelCount: 1}
+	return client.SessionStatus{Phase: f.phase, ConfigPath: f.configPath, TunnelCount: 1, Rev: f.rev}
 }
 
 func (f *fakeController) Settings() *client.Config {
@@ -59,6 +60,7 @@ func (f *fakeController) ImportBundle(raw []byte) error {
 	}
 	f.bundles = append(f.bundles, raw)
 	f.phase = client.PhaseIdle
+	f.rev++
 	return nil
 }
 
@@ -88,6 +90,7 @@ func (f *fakeController) Apply(ctx context.Context, cfg *client.Config) error {
 	}
 	f.applied = append(f.applied, cfg.Rules)
 	f.cfg = cfg
+	f.rev++
 	return nil
 }
 

@@ -24,6 +24,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,6 +45,10 @@ var assets embed.FS
 // has to be usable before anything is connected: that is the state someone
 // opening the application for the first time is in.
 type Controller interface {
+	// Status reports where the session is. Its Rev must change whenever
+	// Settings would return something different: it is how a page learns
+	// about a change it did not make, and a Rev that stands still is a page
+	// that goes on showing the old configuration.
 	Status() client.SessionStatus
 	Settings() *client.Config
 	Client() *client.Client
@@ -297,14 +302,49 @@ func (s *Server) getState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.state())
 }
 
-// streamEvents pushes the whole state when something happens that nobody
-// asked for.
+// stateWatchInterval is how often a stream checks whether anything it would
+// show has moved.
+const stateWatchInterval = time.Second
+
+// fingerprint is everything about the state that can change without this page
+// being what changed it.
 //
-// It does not poll. Tunnel state is read back by the interface when a person
-// asks for it; sending it every couple of seconds mostly repeated what the
-// page already had. What has to arrive on its own is a challenge waiting for
-// an answer, because nobody would think to press refresh for a code they were
-// never told to expect.
+// The page was once told only about challenges, on the assumption that it was
+// the only thing that could act. It is not. A tray menu connects and
+// disconnects, a tunnel goes down on its own, a second window edits the
+// settings -- and none of that reached a page that was waiting to be told, so
+// it went on showing what was true when somebody last clicked something. That
+// is how a menu bar and the window in front of it came to disagree about
+// whether the client was even connected.
+//
+// Cheap on purpose: it runs on a timer, and rendering the whole state to
+// compare it would cost more than sending it.
+func (s *Server) fingerprint() string {
+	var b strings.Builder
+	st := s.ctl.Status()
+	fmt.Fprintf(&b, "%s|%d|%s|%d|%d|", st.Phase, st.Since.UnixNano(), st.LastError, st.TunnelCount, st.Rev)
+
+	if c := s.ctl.Client(); c != nil {
+		// Already in name order, so this is stable between calls.
+		for _, t := range c.Tunnels() {
+			fmt.Fprintf(&b, "%s,%t,%t,%d,%s;",
+				t.Name, t.Up, t.Wanted, len(t.Routes), strings.Join(t.DNS, "+"))
+		}
+	}
+	b.WriteByte('|')
+
+	// Pending prompts come out of a map, so they have to be put in an order
+	// of their own or the fingerprint would change while nothing had.
+	ids := make([]string, 0, 4)
+	for _, p := range s.prompts.pending() {
+		ids = append(ids, p.ID)
+	}
+	sort.Strings(ids)
+	b.WriteString(strings.Join(ids, ";"))
+	return b.String()
+}
+
+// streamEvents pushes the whole state whenever it changes, whoever changed it.
 //
 // The state is small and sending all of it means a client that misses an
 // update is still correct after the next one, which matters more here than
@@ -332,6 +372,14 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 	changes := s.prompts.subscribe()
 	defer s.prompts.unsubscribe(changes)
 
+	// Taken before the send above rather than after: a change landing in
+	// between is then sent again on the next tick, which costs one redundant
+	// update. Taken after, it would be recorded as already delivered and the
+	// page would sit on the older state until something else moved.
+	last := s.fingerprint()
+
+	watch := time.NewTicker(stateWatchInterval)
+	defer watch.Stop()
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
@@ -342,6 +390,16 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 		case <-changes:
 			// A challenge appearing or being answered must show at once; a
 			// person has a minute or two to type a code.
+			last = s.fingerprint()
+			if !send() {
+				return
+			}
+		case <-watch.C:
+			now := s.fingerprint()
+			if now == last {
+				continue
+			}
+			last = now
 			if !send() {
 				return
 			}

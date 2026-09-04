@@ -141,6 +141,7 @@ func run(configPath, lang string) error {
 	// service either exists or it does not, and it can be installed or removed
 	// from somewhere this application never hears about.
 	sv = &supervisor{
+		wake:       make(chan struct{}, 1),
 		configPath: absPath(configPath),
 		session:    session,
 		local:      &localEngine{session: session, link: link},
@@ -236,6 +237,11 @@ type supervisor struct {
 	// application is running this only changes the address it will open at,
 	// which is the same answer arriving earlier.
 	window *application.WebviewWindow
+
+	// wake asks the menu bar to look again now rather than at the next tick.
+	// Something this application did itself is the one change it does not
+	// have to wait to discover.
+	wake chan struct{}
 
 	mu      sync.Mutex
 	current engine
@@ -429,6 +435,20 @@ func (sv *supervisor) toggle() {
 	if err := e.Toggle(context.Background()); err != nil {
 		sv.log.Error("could not change the connection", "error", err)
 	}
+	// Toggle does not return until the change has happened, so there is
+	// something new to show and no reason to sit on the old label until the
+	// next tick comes round.
+	sv.nudge()
+}
+
+// nudge asks the menu bar to refresh at once. It never blocks: one pending
+// nudge is as good as several, since what follows is a fresh look at
+// everything either way.
+func (sv *supervisor) nudge() {
+	select {
+	case sv.wake <- struct{}{}:
+	default:
+	}
 }
 
 // absPath is best-effort: a path that cannot be resolved is compared as given,
@@ -483,7 +503,10 @@ func refresh(sv *supervisor, t func(string, ...any) string,
 			attachMenu(tray, menu)
 		}
 
-		time.Sleep(pollInterval)
+		select {
+		case <-sv.wake:
+		case <-time.After(pollInterval):
+		}
 	}
 }
 

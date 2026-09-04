@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -250,5 +251,37 @@ func TestConnectingNeedsCredentials(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "authentication required") && !strings.Contains(err.Error(), "username and password") {
 		t.Errorf("error = %v, want authentication required", err)
+	}
+}
+
+// The interface watches Rev to notice a configuration change it did not make,
+// so a change that does not move it is a change nobody downstream ever hears
+// about.
+func TestChangingTheConfigurationMovesTheRevision(t *testing.T) {
+	s, _ := newSession(t)
+
+	before := s.Status().Rev
+	next := *s.Settings()
+	next.AutoDomains = !next.AutoDomains
+	if err := s.Apply(context.Background(), &next); err != nil {
+		t.Fatal(err)
+	}
+	if after := s.Status().Rev; after == before {
+		t.Errorf("the revision stood still at %d across a settings change", after)
+	}
+}
+
+// And one that changes nothing must not move it, or every watcher re-renders
+// on a timer for no reason.
+func TestReadingTheConfigurationLeavesTheRevisionAlone(t *testing.T) {
+	s, _ := newSession(t)
+
+	before := s.Status().Rev
+	for range 3 {
+		_ = s.Settings()
+		_ = s.Status()
+	}
+	if after := s.Status().Rev; after != before {
+		t.Errorf("the revision moved from %d to %d without anything changing", before, after)
 	}
 }
