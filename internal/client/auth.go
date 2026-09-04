@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vpn-gateway/vpn-gateway/pkg/contract"
@@ -34,13 +35,14 @@ const authRetryDelay = 3 * time.Second
 // for a minute or two, so the person has to hear about it immediately rather
 // than whenever a poll happens to come round.
 func WatchChallenges(ctx context.Context, api *API, p Prompter) error {
-	// answered records the challenge ids already dealt with, so a repeated
-	// snapshot does not ask the same question twice.
-	answered := map[string]bool{}
+	// The asker outlives a dropped stream, so a person part way through
+	// typing a code is not asked the same thing again when it reconnects.
+	a := newAsker()
+	defer a.close()
 
 	for {
 		err := api.Events(ctx, func(ev Event) {
-			handleChallengeEvent(ctx, api, p, ev, answered)
+			a.handle(ctx, api, p, ev)
 		})
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -101,39 +103,155 @@ func FollowChallenges(ctx context.Context, next func() (*API, <-chan struct{}), 
 	}
 }
 
-func handleChallengeEvent(ctx context.Context, api *API, p Prompter, ev Event, answered map[string]bool) {
+// askRetryDelay is how long to wait before putting a question again that is
+// still pending because nobody answered it or the answer was refused.
+const askRetryDelay = time.Second
+
+// asker puts the gateway's questions to a person, one at a time per tunnel.
+//
+// Asking happens on its own goroutine, never on the one reading the event
+// stream. A prompt waits for a person, and a person may be away from the
+// machine, at a phone, or have dismissed the box: putting that wait in the
+// reader stops the client hearing anything else the server says, so the next
+// tunnel to ask for a code raises it to nobody. That is the whole bug this
+// shape exists to prevent.
+type asker struct {
+	mu sync.Mutex
+	// open is the question being put right now, by tunnel. A tunnel has at
+	// most one: the server's snapshot carries one challenge.
+	open map[string]openAsk
+	// answered records questions already settled, by tunnel and challenge id,
+	// so a repeated snapshot does not ask the same thing twice.
+	answered map[string]bool
+	closed   bool
+}
+
+type openAsk struct {
+	id     string
+	cancel context.CancelFunc
+}
+
+func newAsker() *asker {
+	return &asker{open: map[string]openAsk{}, answered: map[string]bool{}}
+}
+
+// close withdraws every outstanding question. Whoever was being asked is no
+// longer being asked by this connection.
+func (a *asker) close() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.closed = true
+	for name, ask := range a.open {
+		ask.cancel()
+		delete(a.open, name)
+	}
+}
+
+// handle reacts to one tunnel's state. It never blocks.
+func (a *asker) handle(ctx context.Context, api *API, p Prompter, ev Event) {
+	name := ev.Tunnel.Name
 	ch := ev.Tunnel.Challenge
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.closed {
+		return
+	}
+
 	if ch == nil || ch.ID == "" {
+		// The tunnel has stopped asking, so take the box away rather than
+		// leaving a person typing a code into a question nobody is waiting
+		// on any more.
+		a.withdrawLocked(name)
 		if ev.Tunnel.Up() {
 			// Clear the record once the tunnel is up, so a later prompt for
 			// the same tunnel is not mistaken for one already handled.
-			for id := range answered {
-				if strings.HasPrefix(id, ev.Tunnel.Name+"\x00") {
-					delete(answered, id)
+			for key := range a.answered {
+				if strings.HasPrefix(key, name+"\x00") {
+					delete(a.answered, key)
 				}
 			}
 		}
 		return
 	}
 
-	key := ev.Tunnel.Name + "\x00" + ch.ID
-	if answered[key] {
+	if cur, ok := a.open[name]; ok {
+		if cur.id == ch.ID {
+			return // already being asked
+		}
+		a.withdrawLocked(name) // the gateway is asking something else now
+	}
+	if a.answered[name+"\x00"+ch.ID] {
 		return
 	}
-	answered[key] = true
 
-	value, err := p.Ask(ctx, ev.Tunnel.Name, *ch)
-	if err != nil {
-		p.Notify("tunnel %s: %v", ev.Tunnel.Name, err)
-		delete(answered, key) // let it be asked again
+	askCtx, cancel := context.WithCancel(ctx)
+	a.open[name] = openAsk{id: ch.ID, cancel: cancel}
+	go a.ask(askCtx, api, p, name, *ch)
+}
+
+// withdrawLocked cancels the question outstanding for one tunnel.
+func (a *asker) withdrawLocked(name string) {
+	ask, ok := a.open[name]
+	if !ok {
 		return
 	}
-	if err := api.Answer(ctx, ev.Tunnel.Name, contract.AuthAnswer{ID: ch.ID, Value: value}); err != nil {
-		p.Notify("tunnel %s: the server rejected the answer: %v", ev.Tunnel.Name, err)
-		delete(answered, key)
-		return
+	ask.cancel()
+	delete(a.open, name)
+}
+
+// ask puts one question until it is answered, withdrawn, or the connection
+// goes away.
+//
+// It keeps asking because a challenge the person ignored or fumbled is still
+// pending on the gateway, and the server has nothing new to publish about it:
+// giving up after one attempt leaves the tunnel waiting on a question nobody
+// will ever be asked again.
+func (a *asker) ask(ctx context.Context, api *API, p Prompter, name string, ch contract.Challenge) {
+	for {
+		value, err := p.Ask(ctx, name, ch)
+		switch {
+		case err != nil:
+			if ctx.Err() != nil {
+				a.finish(name, ch.ID, false)
+				return
+			}
+			p.Notify("tunnel %s: %v", name, err)
+		default:
+			if err := api.Answer(ctx, name, contract.AuthAnswer{ID: ch.ID, Value: value}); err != nil {
+				if ctx.Err() != nil {
+					a.finish(name, ch.ID, false)
+					return
+				}
+				p.Notify("tunnel %s: the server rejected the answer: %v", name, err)
+			} else {
+				p.Notify("tunnel %s: answer accepted", name)
+				a.finish(name, ch.ID, true)
+				return
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			a.finish(name, ch.ID, false)
+			return
+		case <-time.After(askRetryDelay):
+		}
 	}
-	p.Notify("tunnel %s: answer accepted", ev.Tunnel.Name)
+}
+
+// finish releases a tunnel's slot. A question that was settled is remembered
+// so a repeated snapshot does not raise it again; one that was withdrawn is
+// not, because it was never answered.
+func (a *asker) finish(name, id string, settled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if cur, ok := a.open[name]; ok && cur.id == id {
+		delete(a.open, name)
+	}
+	if settled {
+		a.answered[name+"\x00"+id] = true
+	}
 }
 
 // TerminalPrompter asks on a terminal.

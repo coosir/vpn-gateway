@@ -352,6 +352,11 @@ func (t *Tunnel) setWanted(want bool) {
 		t.snap.ContainerUp = false
 		t.snap.Status.State = contract.StateDown
 		t.snap.LastError = ""
+		// Only poll writes this, and polling stops with the tunnel, so a
+		// challenge left here would outlive the container that raised it: a
+		// stopped tunnel would go on asking every client that connects for a
+		// code no agent is waiting to receive.
+		t.snap.Challenge = nil
 	} else if !t.cfg.NeedsContainer() {
 		t.snap.Reachable = true
 		t.snap.ContainerUp = true
@@ -862,6 +867,8 @@ func (t *Tunnel) setError(err error) {
 	t.snap.ContainerUp = false
 	t.snap.LastError = err.Error()
 	t.snap.Status.State = contract.StateError
+	// Whatever it was asking died with the attempt.
+	t.snap.Challenge = nil
 	after := t.snap
 	t.mu.Unlock()
 

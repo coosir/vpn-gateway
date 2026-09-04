@@ -232,3 +232,101 @@ func TestSessionCurrentAPIAnnouncesTheSwap(t *testing.T) {
 		t.Fatal("a disconnected session still reported an API")
 	}
 }
+
+// stalledPrompter answers nothing until it is told to, the way a person who
+// pressed "later" or walked away from the machine leaves a question.
+type stalledPrompter struct {
+	asked   chan contract.Challenge
+	release chan string
+}
+
+func newStalledPrompter() *stalledPrompter {
+	return &stalledPrompter{asked: make(chan contract.Challenge, 8), release: make(chan string)}
+}
+
+func (s *stalledPrompter) Ask(ctx context.Context, tunnel string, ch contract.Challenge) (string, error) {
+	s.asked <- ch
+	select {
+	case v := <-s.release:
+		return v, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+func (s *stalledPrompter) Notify(string, ...any) {}
+
+// A question nobody has answered must not stop the client hearing the rest of
+// what the server says.
+//
+// Asking used to happen on the goroutine reading the event stream, so one
+// prompt left waiting -- dismissed with "later", or raised for a tunnel that
+// had since been stopped -- deafened the client for as long as it stood. The
+// next tunnel to ask for an SMS code raised it to nobody, and only toggling
+// the connection off and on built a stream that carried the pending challenge
+// again in its opening snapshot.
+func TestAnUnansweredPromptDoesNotDeafenTheStream(t *testing.T) {
+	stale := &contract.Challenge{ID: "stale", Type: contract.ChallengeCaptcha}
+	fresh := &contract.Challenge{ID: "sms-1", Type: contract.ChallengeSMS}
+	srv := newChallengeServer(t,
+		challengeSnapshot("corp", stale),
+		challengeSnapshot("office", fresh),
+	)
+	p := newStalledPrompter()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go WatchChallenges(ctx, NewAPI(srv.URL, "tok"), p)
+
+	select {
+	case ch := <-p.asked:
+		if ch.ID != "stale" {
+			t.Fatalf("first question was %q, want the one raised first", ch.ID)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the first challenge never reached the person")
+	}
+
+	// Nobody answers it. The next tunnel's challenge still has to arrive.
+	select {
+	case ch := <-p.asked:
+		if ch.ID != "sms-1" {
+			t.Fatalf("second question was %q, want the challenge raised after it", ch.ID)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("a challenge raised while an earlier prompt stood was never asked")
+	}
+}
+
+// A question the gateway is no longer asking has to be taken away, or a
+// person types a code into a box that no longer answers anything.
+func TestAWithdrawnChallengeStopsBeingAsked(t *testing.T) {
+	ch := &contract.Challenge{ID: "sms-1", Type: contract.ChallengeSMS}
+	up := Snapshot{Name: "corp", Reachable: true, Status: contract.Status{State: contract.StateUp}}
+	srv := newChallengeServer(t, challengeSnapshot("corp", ch), up)
+	p := newStalledPrompter()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go WatchChallenges(ctx, NewAPI(srv.URL, "tok"), p)
+
+	select {
+	case <-p.asked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the challenge never reached the person")
+	}
+
+	// Let the event saying the tunnel is up be read.
+	time.Sleep(500 * time.Millisecond)
+
+	// The tunnel came up, so Ask must have been cancelled rather than left
+	// standing: releasing it now must not submit an answer.
+	select {
+	case p.release <- "482915":
+		t.Fatal("the prompt was still waiting after the tunnel came up")
+	case <-time.After(time.Second):
+	}
+	if n := len(srv.submitted()); n != 0 {
+		t.Fatalf("a withdrawn challenge submitted %d answers, want 0", n)
+	}
+}
