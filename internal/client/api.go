@@ -82,7 +82,7 @@ func (a *API) Login(ctx context.Context, username, password string) error {
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusUnauthorized {
-		return errors.New("authentication failed: invalid username or password")
+		return fmt.Errorf("authentication failed: %w", ErrBadCredentials)
 	}
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
@@ -223,6 +223,15 @@ func (a *API) request(ctx context.Context, method, path string, body io.Reader) 
 
 // ErrUnauthorized is returned when the server rejects authentication (invalid or revoked session).
 var ErrUnauthorized = errors.New("the server rejected the authorization: session expired or revoked")
+
+// ErrBadCredentials is returned when the server refuses the username and
+// password themselves.
+//
+// It is kept apart from ErrUnauthorized because they call for opposite
+// answers: a session the server no longer knows is what a restart leaves
+// behind, and logging in again fixes it, while a password it does not accept
+// will not start working however many times it is sent.
+var ErrBadCredentials = errors.New("invalid username or password")
 
 func (a *API) do(req *http.Request, out any) error {
 	resp, err := a.HTTP.Do(req)

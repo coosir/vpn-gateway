@@ -166,7 +166,15 @@ before giving up and needing a fresh login. The default is five minutes.
 Restarting the server does not redial. The containers are left running and
 the next start adopts the sessions already dialled, so an upgrade or a
 configuration change costs the moment the listener is unbound rather than a
-fresh login at every gateway. `stop_containers_on_exit: true` asks for the
+fresh login at every gateway.
+
+Clients are a different matter: sessions live in memory, so a restart forgets
+every token it issued and every trojan password derived from one. A connected
+client finds itself refused, and logs in again on its own with a widening
+backoff rather than sitting in failure until somebody notices. It gives up
+only when the server refuses the credentials themselves, which no amount of
+retrying would fix and which every attempt at counts against an account that
+may lock. `stop_containers_on_exit: true` asks for the
 opposite, for a server whose stopping should leave nothing connected.
 
 Rejected credentials stop it immediately, without using up the attempts. In

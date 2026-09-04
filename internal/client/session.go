@@ -59,7 +59,38 @@ type Session struct {
 	// configurations field by field to notice is work; counting is not, and
 	// what reads this only needs to know that they differ.
 	rev uint64
+	// stopRetry ends the loop bringing a lost connection back, so a person
+	// pressing disconnect is not argued with.
+	stopRetry context.CancelFunc
+	// connecting is set while an engine is being built. The engine is built
+	// outside the lock, so this is what keeps two callers from building two.
+	connecting bool
+
+	// newEngine builds and starts the routing engine. It is a field only so a
+	// test can stand in for the two steps that need a real server and a real
+	// routing engine; nothing in the product replaces it.
+	newEngine func(ctx context.Context, cfg *Config, bundle *clientcfg.Bundle, log *slog.Logger) (*Client, error)
 }
+
+// startEngine is what newEngine is unless a test says otherwise.
+func startEngine(ctx context.Context, cfg *Config, bundle *clientcfg.Bundle, log *slog.Logger) (*Client, error) {
+	c, err := New(ctx, cfg, bundle, log)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.Start(ctx); err != nil {
+		c.Close()
+		return nil, err
+	}
+	return c, nil
+}
+
+// Reconnect backoff. A server coming back from a restart is back in seconds;
+// one that is off for the evening should not be knocked on every two.
+const (
+	reconnectMin = 2 * time.Second
+	reconnectMax = time.Minute
+)
 
 // SessionStatus is a session's state, as the interface shows it.
 type SessionStatus struct {
@@ -92,6 +123,7 @@ func NewSession(configPath string, log *slog.Logger) *Session {
 		phase:      PhaseSetup,
 		since:      time.Now(),
 		replaced:   make(chan struct{}),
+		newEngine:  startEngine,
 	}
 	s.load()
 	return s
@@ -267,27 +299,38 @@ func (s *Session) Connect(ctx context.Context) error {
 		s.mu.Unlock()
 		return errors.New("already connected")
 	}
+	// Building the engine happens outside the lock, so without this a second
+	// caller arriving while the first is still working would see nothing
+	// connected and build one of its own. Two of them fight over the same
+	// interface and the same routing table, and only one can win. There are
+	// two callers now: a person pressing connect, and the loop bringing a
+	// dropped connection back.
+	if s.connecting {
+		s.mu.Unlock()
+		return errors.New("already connecting")
+	}
 	if s.bundle == nil {
 		s.mu.Unlock()
 		return errors.New("no server bundle has been imported yet")
 	}
 	cfg, bundle := s.cfg, s.bundle
+	s.connecting = true
 	s.setPhase(PhaseConnecting, nil)
 	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		s.connecting = false
+		s.mu.Unlock()
+	}()
 
 	// The engine outlives this call, so it gets a context of its own rather
 	// than the request's.
 	runCtx, cancel := context.WithCancel(context.Background())
 
-	c, err := New(runCtx, cfg, bundle, s.log)
+	c, err := s.newEngine(runCtx, cfg, bundle, s.log)
 	if err != nil {
 		cancel()
-		s.fail(err)
-		return err
-	}
-	if err := c.Start(runCtx); err != nil {
-		cancel()
-		c.Close()
 		s.fail(err)
 		return err
 	}
@@ -295,9 +338,14 @@ func (s *Session) Connect(ctx context.Context) error {
 	c.SetOnAuthFailed(func(err error) {
 		s.mu.Lock()
 		s.setClient(nil, nil)
-		s.setPhase(PhaseFailed, fmt.Errorf("user authentication revoked by server: %w", err))
 		s.mu.Unlock()
 		cancel()
+		// Not a failure to sit in. A server that restarted forgot every
+		// session it had issued, so this is what a restart looks like from
+		// here, and the answer is to log in again rather than to wait for
+		// somebody to notice and press connect.
+		s.log.Info("the server dropped this session; reconnecting", "error", err)
+		s.retryConnect(fmt.Errorf("the server no longer knows this session: %w", err))
 	})
 
 	go c.Watch(runCtx)
@@ -311,9 +359,88 @@ func (s *Session) Connect(ctx context.Context) error {
 	return nil
 }
 
+// retryConnect brings a connection that was lost back, until it is back, the
+// person asks for something else, or the credentials themselves are refused.
+//
+// It exists because losing a connection is usually nobody's decision: the
+// server was upgraded, the machine rebooted, the network went away. Leaving
+// the client sitting in failure until somebody notices makes a restart that
+// takes seconds into an outage that lasts until the next time a person looks
+// at the tray.
+func (s *Session) retryConnect(reason error) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	s.mu.Lock()
+	if s.stopRetry != nil {
+		s.stopRetry() // only one of these at a time
+	}
+	s.stopRetry = cancel
+	// Said here rather than left to the caller: this loop is what "still
+	// trying" means, so it is the thing that should be saying so.
+	s.setPhase(PhaseConnecting, reason)
+	s.mu.Unlock()
+
+	go func() {
+		defer cancel()
+		backoff := reconnectMin
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			// Somebody connected by hand while this was waiting, or
+			// disconnected on purpose. Either way it is not this loop's
+			// business any more.
+			s.mu.RLock()
+			connected, phase := s.client != nil, s.phase
+			s.mu.RUnlock()
+			if connected || phase == PhaseIdle || phase == PhaseSetup {
+				return
+			}
+
+			err := s.Connect(ctx)
+			if err == nil {
+				s.log.Info("reconnected")
+				return
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			// A password the server does not accept will not start working
+			// however many times it is sent, and every attempt is one more
+			// against an account that may lock.
+			if errors.Is(err, ErrBadCredentials) {
+				s.mu.Lock()
+				s.setPhase(PhaseFailed, err)
+				s.mu.Unlock()
+				s.log.Error("not reconnecting: the server refused the credentials", "error", err)
+				return
+			}
+			s.mu.Lock()
+			s.setPhase(PhaseConnecting, err)
+			s.mu.Unlock()
+			s.log.Warn("could not reconnect; trying again", "error", err, "in", backoff)
+			backoff = min(backoff*2, reconnectMax)
+		}
+	}()
+}
+
+// endRetry stops any loop bringing a connection back. The caller holds s.mu.
+func (s *Session) endRetry() {
+	if s.stopRetry != nil {
+		s.stopRetry()
+		s.stopRetry = nil
+	}
+}
+
 // Disconnect stops the routing engine and puts the system back as it was.
 func (s *Session) Disconnect() error {
 	s.mu.Lock()
+	s.endRetry()
 	c, cancel := s.client, s.cancel
 	s.setClient(nil, nil)
 	if s.phase == PhaseConnected || s.phase == PhaseConnecting {
