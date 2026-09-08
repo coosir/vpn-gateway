@@ -144,7 +144,7 @@ func run(configPath, lang string) error {
 		wake:       make(chan struct{}, 1),
 		configPath: absPath(configPath),
 		session:    session,
-		local:      &localEngine{session: session, link: link},
+		local:      &localEngine{session: session, srv: server, link: link},
 		srv:        server,
 		log:        log,
 	}
@@ -216,6 +216,12 @@ func run(configPath, lang string) error {
 		sv.settle()
 		showWindow(window)
 		go refresh(sv, t, tray, status, connect, menu)
+		// A gateway that signs people in through an identity provider asks
+		// for something no page served from loopback can produce, so this
+		// application shows that one in a window of its own. It follows
+		// whichever engine is in charge, because the question belongs to the
+		// client that is connected, not to this process.
+		go newSignOnWatcher(app, sv, t, log).watch(watchCtx)
 	})
 
 	return app.Run()

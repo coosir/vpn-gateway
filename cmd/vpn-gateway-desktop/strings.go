@@ -34,6 +34,10 @@ var trayStrings = map[string]map[string]string{
 		"tip.connected":   "vpn-gateway — 已连接",
 		"tip.ok":          "vpn-gateway — %d/%d 条隧道在线",
 		"tip.unreachable": "vpn-gateway — 后台服务在运行，但界面连不上",
+
+		"signon.title": "%s — 单点登录",
+		"signon.done":  "登录完成，隧道正在连接。可以关闭这个窗口了。",
+		"signon.lost":  "登录结果没能送回客户端：%s",
 	},
 	"en": {
 		"title":       "vpn-gateway",
@@ -62,6 +66,10 @@ var trayStrings = map[string]map[string]string{
 		"tip.connected":   "vpn-gateway — connected",
 		"tip.ok":          "vpn-gateway — %d/%d tunnels up",
 		"tip.unreachable": "vpn-gateway — the background service is running but its interface cannot be reached",
+
+		"signon.title": "%s — sign in",
+		"signon.done":  "Signed in. The tunnel is connecting; you can close this window.",
+		"signon.lost":  "The sign-on could not be handed back to the client: %s",
 	},
 }
 

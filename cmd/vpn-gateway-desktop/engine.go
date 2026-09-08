@@ -3,9 +3,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -32,6 +34,15 @@ type engine interface {
 	Snapshot() snapshot
 	// Toggle connects or disconnects, whichever the current state calls for.
 	Toggle(ctx context.Context) error
+	// Prompts lists the questions waiting for an answer.
+	//
+	// The page in the window draws them itself. This application reads them
+	// too, for the one kind it has to handle rather than display: a sign-on
+	// whose answer is a cookie inside somebody else's website, which needs a
+	// window this process controls.
+	Prompts() []ui.PromptView
+	// Answer delivers a response collected outside the page.
+	Answer(ctx context.Context, id, value string) error
 }
 
 // snapshot is the little of a client's state that fits in a menu.
@@ -61,12 +72,21 @@ type tunnelLine struct {
 
 type localEngine struct {
 	session *client.Session
-	link    string
+	// srv is this application's own interface, which holds the prompt queue
+	// when the engine in this process is the one connected.
+	srv  *ui.Server
+	link string
 }
 
 func (e *localEngine) Link() string { return e.link }
 
 func (e *localEngine) Snapshot() snapshot { return sessionSnapshot(e.session) }
+
+func (e *localEngine) Prompts() []ui.PromptView { return e.srv.Prompts() }
+
+func (e *localEngine) Answer(_ context.Context, id, value string) error {
+	return e.srv.AnswerPrompt(id, value)
+}
 
 func (e *localEngine) Toggle(ctx context.Context) error {
 	if e.session.Status().Phase == client.PhaseConnected {
@@ -139,6 +159,44 @@ func (e *serviceEngine) Snapshot() snapshot {
 	}
 	sortTunnels(snap.Tunnels)
 	return snap
+}
+
+func (e *serviceEngine) Prompts() []ui.PromptView {
+	var st ui.State
+	if err := e.call(context.Background(), http.MethodGet, "/api/state", &st); err != nil {
+		return nil
+	}
+	return st.Prompts
+}
+
+func (e *serviceEngine) Answer(ctx context.Context, id, value string) error {
+	body, err := json.Marshal(map[string]string{"value": value})
+	if err != nil {
+		return err
+	}
+	return e.send(ctx, http.MethodPost, "/api/prompts/"+url.PathEscape(id), body)
+}
+
+// send is call's counterpart for a request that carries something and expects
+// nothing back. The answer endpoint replies 204, so anything in the 2xx range
+// counts as delivered.
+func (e *serviceEngine) send(ctx context.Context, method, path string, body []byte) error {
+	req, err := http.NewRequestWithContext(ctx, method, e.base+path, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+e.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := e.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("the service answered %s", resp.Status)
+	}
+	return nil
 }
 
 func (e *serviceEngine) Ping(ctx context.Context) error {

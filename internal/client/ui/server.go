@@ -97,6 +97,19 @@ func New(ctl Controller, configPath, token string, log *slog.Logger) *Server {
 // interface instead of a terminal.
 func (s *Server) Prompter() client.Prompter { return s.prompts }
 
+// Prompts lists the questions waiting for an answer.
+//
+// It is the same list the page draws, read directly rather than over HTTP:
+// when the engine is in this process there is nothing to be gained by going
+// out and coming back. What reads it is the desktop shell, deciding whether a
+// question needs a window of its own.
+func (s *Server) Prompts() []PromptView { return s.prompts.pending() }
+
+// AnswerPrompt delivers an answer that was collected somewhere other than the
+// page -- the sign-on window, which reads a cookie out of a site the page
+// itself can never see.
+func (s *Server) AnswerPrompt(id, value string) error { return s.prompts.answer(id, value) }
+
 // Managed tells the interface that an application is displaying it and will
 // move that window itself when the engine changes hands.
 func (s *Server) Managed() { s.managed = true }
@@ -207,7 +220,14 @@ type PromptView struct {
 	Type   string `json:"type"`
 	Prompt string `json:"prompt"`
 	URL    string `json:"url,omitempty"`
-	Image  string `json:"image_b64,omitempty"`
+	// FinalURL and CookieName describe a sign-on that ends in a cookie
+	// rather than in an address somebody can read off a browser. When
+	// CookieName is set the answer is a value only the browser holds, so the
+	// page has to be shown in a view this application can read it out of --
+	// see the sign-on window in the desktop client.
+	FinalURL   string `json:"final_url,omitempty"`
+	CookieName string `json:"cookie_name,omitempty"`
+	Image      string `json:"image_b64,omitempty"`
 	// VNCPort is set when the tunnel needs a graphical login, which this
 	// interface cannot show; it tells the person where to point a viewer.
 	VNCPort int `json:"vnc_port,omitempty"`

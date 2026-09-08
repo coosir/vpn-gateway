@@ -24,7 +24,7 @@ func cfgWith(extra map[string]string) agent.Config {
 func TestPasswordNeverReachesTheCommandLine(t *testing.T) {
 	// An argument is visible in the container's process list; standard input
 	// is not.
-	args := buildArgs("fortinet", cfgWith(nil))
+	args := buildArgs("fortinet", cfgWith(nil), false)
 	for _, a := range args {
 		if strings.Contains(a, "s3cret") {
 			t.Fatalf("the password appears in the arguments: %q", a)
@@ -38,7 +38,7 @@ func TestPasswordNeverReachesTheCommandLine(t *testing.T) {
 func TestNonInteractiveIsNotPassed(t *testing.T) {
 	// --non-inter makes the client exit the moment the gateway asks anything,
 	// which is exactly what the prompt relay is for.
-	for _, a := range buildArgs("fortinet", cfgWith(nil)) {
+	for _, a := range buildArgs("fortinet", cfgWith(nil), false) {
 		if a == "--non-inter" {
 			t.Fatal("--non-inter would defeat the interactive login relay")
 		}
@@ -55,7 +55,7 @@ func TestBuildArgsCarriesTheGatewaySettings(t *testing.T) {
 		"form_entry":  "main:group=staff, main:extra=1",
 		"no_dtls":     "true",
 		"extra_args":  "--reconnect-timeout 60",
-	}))
+	}), false)
 
 	want := []string{
 		"--protocol=gp", "--user=alice", "--passwd-on-stdin",
@@ -78,7 +78,7 @@ func TestBuildArgsCarriesTheGatewaySettings(t *testing.T) {
 func TestDefaultPortIsLeftOut(t *testing.T) {
 	// Passing --port=443 is harmless but noisy, and some gateways behave
 	// differently when the port is stated explicitly.
-	for _, a := range buildArgs("fortinet", cfgWith(nil)) {
+	for _, a := range buildArgs("fortinet", cfgWith(nil), false) {
 		if strings.HasPrefix(a, "--port=") {
 			t.Errorf("the default port was passed anyway: %q", a)
 		}
@@ -350,7 +350,7 @@ func TestAnUnreadableSeedIsPermanent(t *testing.T) {
 func TestSeparateTokenFlagsAreDroppedWhenAppending(t *testing.T) {
 	appended := buildArgs("fortinet", cfgWith(map[string]string{
 		"totp_append": "true", "totp_secret": testSeed,
-	}))
+	}), false)
 	for _, a := range appended {
 		if strings.HasPrefix(a, "--token-") {
 			t.Errorf("%q was passed even though the code goes in the password", a)
@@ -358,7 +358,7 @@ func TestSeparateTokenFlagsAreDroppedWhenAppending(t *testing.T) {
 	}
 
 	// The separate-prompt form still configures them.
-	separate := buildArgs("fortinet", cfgWith(map[string]string{"totp_secret": testSeed}))
+	separate := buildArgs("fortinet", cfgWith(map[string]string{"totp_secret": testSeed}), false)
 	if !slices.Contains(separate, "--token-mode=totp") {
 		t.Error("--token-mode is missing from the separate-prompt form")
 	}
@@ -405,7 +405,7 @@ func TestACodeAboutToExpireIsNotSent(t *testing.T) {
 // or a code. On a gateway that wants an SMS code, running past it is the
 // difference between a blip and somebody reaching for their phone.
 func TestTheReconnectWindowCanBeWidened(t *testing.T) {
-	args := buildArgs("anyconnect", cfgWith(map[string]string{"reconnect_timeout": "1800"}))
+	args := buildArgs("anyconnect", cfgWith(map[string]string{"reconnect_timeout": "1800"}), false)
 	if !slices.Contains(args, "--reconnect-timeout=1800") {
 		t.Errorf("the reconnect window was not passed on: %v", args)
 	}
@@ -413,7 +413,7 @@ func TestTheReconnectWindowCanBeWidened(t *testing.T) {
 
 // Left unset, the client's own default stands rather than one chosen here.
 func TestTheReconnectWindowIsNotSetByDefault(t *testing.T) {
-	for _, a := range buildArgs("anyconnect", cfgWith(nil)) {
+	for _, a := range buildArgs("anyconnect", cfgWith(nil), false) {
 		if strings.HasPrefix(a, "--reconnect-timeout") {
 			t.Errorf("a reconnect window was passed without being asked for: %q", a)
 		}

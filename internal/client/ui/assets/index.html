@@ -1694,6 +1694,8 @@ const STRINGS = {
     "k.totp.t": "动态身份口令 (TOTP)", "k.totp.w": "请输入身份验证器 App (如 Google Authenticator) 当前显示的6位数字：",
     "k.captcha.t": "图形验证码", "k.captcha.w": "请输入图形验证码图片上的字符：",
     "k.url.t": "单点登录跳转 (SSO)", "k.url.w": "请在下方链接完成登录，并将重定向后的地址粘贴回来：",
+    "k.sso.t": "单点登录 (SSO)", "k.sso.w": "桌面客户端会自动弹出登录窗口，登录完成后隧道自行连接，无需在这里填写。"
+      + "若你用的是浏览器界面：请打开下面的链接完成登录，再从开发者工具的 Cookie 里复制 %s 的值粘贴到这里。",
     "k.password.t": "二次密码验证", "k.password.w": "网关要求输入进一步的登录凭据：",
     "k.vnc.t": "图形界面登录 (VNC)", "k.vnc.w": "该隧道需要图形交互认证。",
     "auth.generic": "安全认证挑战",
@@ -1856,6 +1858,8 @@ const STRINGS = {
     "k.totp.t": "Authenticator Code (TOTP)", "k.totp.w": "Enter the 6-digit code from your authenticator app:",
     "k.captcha.t": "Graphic Captcha", "k.captcha.w": "Enter the characters shown in the captcha image:",
     "k.url.t": "SSO Login Link", "k.url.w": "Complete sign-in on the page below and paste back the destination URL:",
+    "k.sso.t": "Single sign-on", "k.sso.w": "The desktop client opens a sign-in window by itself and connects when you are through; nothing needs typing here."
+      + " In a browser: open the link below, sign in, then copy the %s cookie that page leaves behind and paste it in.",
     "k.password.t": "Secondary Password", "k.password.w": "The gateway asks for additional credentials:",
     "k.vnc.t": "Graphical VNC Login", "k.vnc.w": "This gateway requires graphical desktop login.",
     "auth.generic": "Security Challenge",
@@ -3440,6 +3444,17 @@ function renderPrompt(prompts) {
   $("p-title").textContent = known ? t("k." + p.type + ".t") : t("auth.generic");
   $("p-why").textContent = p.prompt || (known ? t("k." + p.type + ".w") : t("prompt.fallback"));
 
+  // A sign-on that ends in a cookie is not one anybody can answer off the
+  // address bar: the value lives inside the gateway's own site, and only a
+  // view the client opened itself can read it. The desktop client does that
+  // and this box is only the fallback, so it says which of the two is
+  // happening rather than asking for an address that would be refused.
+  const cookieSignOn = p.type === "url" && !!p.cookie_name;
+  if (cookieSignOn) {
+    $("p-title").textContent = t("k.sso.t");
+    $("p-why").textContent = (p.prompt ? p.prompt + " " : "") + t("k.sso.w", p.cookie_name);
+  }
+
   const link = $("p-link");
   if (p.url) { link.hidden = false; link.href = p.url; link.textContent = p.url; }
   else if (p.vnc_port) {
@@ -3461,7 +3476,7 @@ function renderPrompt(prompts) {
   } else {
     captchaWrap.hidden = true;
     input.style.display = "block";
-    input.placeholder = p.type === "url" ? "https://…" : "";
+    input.placeholder = cookieSignOn ? p.cookie_name : (p.type === "url" ? "https://…" : "");
   }
 
   $("veil").hidden = false;

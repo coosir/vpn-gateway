@@ -51,7 +51,8 @@ func (q *promptQueue) Ask(ctx context.Context, tunnel string, ch contract.Challe
 		view: PromptView{
 			ID: id, Tunnel: tunnel,
 			Type: string(ch.Type), Prompt: ch.Prompt,
-			URL: ch.URL, Image: ch.ImageB64, VNCPort: ch.VNCPort,
+			URL: ch.URL, FinalURL: ch.FinalURL, CookieName: ch.CookieName,
+			Image: ch.ImageB64, VNCPort: ch.VNCPort,
 			ExpiresAt: ch.ExpiresAt,
 		},
 		answer:   make(chan string, 1),

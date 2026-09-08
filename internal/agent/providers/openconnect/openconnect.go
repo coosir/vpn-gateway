@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -29,6 +30,10 @@ import (
 // agree on whether openconnect belongs in /usr/bin or /usr/sbin, and getting
 // it wrong turns a working image into a permanent failure.
 const defaultBinary = "openconnect"
+
+// protoAnyConnect is OpenConnect's name for Cisco's protocol, which is the
+// only one here that has a single sign-on path.
+const protoAnyConnect = "anyconnect"
 
 // protocols maps a provider name to OpenConnect's own protocol identifier.
 // The names on the left are what someone would call their VPN; the ones on
@@ -68,10 +73,23 @@ func init() {
 //	form_entry     a login form answer, as FORM:OPTION=VALUE; repeat with a
 //	               comma between entries
 //	useragent      pretend to be the vendor's own client, which some
-//	               gateways insist on
+//	               gateways insist on; anyconnect claims to be Cisco's own
+//	               unless this says otherwise
+//	version_string what to report as the client version during login, which
+//	               a gateway filtering on it reads alongside useragent
 //	no_dtls        "true" to stay on TLS where UDP is blocked or unreliable
 //	binary         override the openconnect path
 //	extra_args     additional openconnect flags, space separated
+//
+// AnyConnect gateways that sign in through an identity provider recognise
+// three more:
+//
+//	sso            "off" to never offer single sign-on, for a gateway that
+//	               answers the question badly; anything else leaves it on
+//	sso_timeout    seconds to wait for somebody to finish signing in, 300
+//	               by default
+//	sso_hours      how long a redeemed session is worth trying before asking
+//	               for a fresh sign-on, 24 by default
 type Provider struct {
 	protocol string
 	runner   agent.Runner
@@ -80,30 +98,58 @@ type Provider struct {
 	// crash loop against a wrong password is reported as permanent instead of
 	// being retried against a corporate gateway that may lock the account.
 	authFailed atomic.Bool
+	// cookieRejected records the gateway refusing the session this dial was
+	// built on. Unlike a rejected password it is not permanent: what fixes it
+	// is another sign-on, which is exactly what the next attempt does.
+	cookieRejected atomic.Bool
+
+	// mu guards the sign-on question, which is asked by Run and answered
+	// from the control plane.
+	mu         sync.Mutex
+	ssoPending *contract.Challenge
+	ssoAnswer  chan string
 }
 
 func (p *Provider) Capabilities() []string {
 	// The tunnel is a real interface, so datagrams cross it as readily as
 	// streams; the agent's own SOCKS5 front is what limits this to TCP today.
-	return []string{
+	caps := []string{
 		contract.CapTCP, contract.CapRoutes, contract.CapDNS,
 		contract.CapPassword, contract.CapSMS, contract.CapTOTP,
 	}
+	// Only the Cisco protocol has a sign-on page to send anybody to. Claiming
+	// it for the other six would promise a client something it can never be
+	// asked for.
+	if p.protocol == protoAnyConnect {
+		caps = append(caps, contract.CapURL)
+	}
+	return caps
 }
 
 func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter) error {
 	if cfg.Server == "" {
 		return agent.Permanent(errors.New("VG_SERVER is required"))
 	}
-	if cfg.Username == "" {
-		return agent.Permanent(errors.New("VG_USERNAME is required"))
-	}
 	p.authFailed.Store(false)
-
-	args := buildArgs(p.protocol, cfg)
+	p.cookieRejected.Store(false)
+	p.clearSSO()
 
 	rep.SetNetwork(agent.ApplyNetworkOverrides(cfg, contract.Network{UDP: false, MTU: 1400}))
 
+	// A gateway that signs people in through an identity provider never sees
+	// the password at all, so the question of whether this is one has to be
+	// settled before anything is built around the answer.
+	cookie, fresh, err := p.session(ctx, cfg, rep)
+	if err != nil {
+		return err
+	}
+	if cookie != "" {
+		return p.runSession(ctx, cfg, rep, cookie, fresh)
+	}
+
+	if cfg.Username == "" {
+		return agent.Permanent(errors.New("VG_USERNAME is required"))
+	}
 	password, err := p.password(cfg, rep)
 	if err != nil {
 		return err
@@ -111,7 +157,7 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 
 	p.runner = agent.Runner{
 		Path: cfg.Str("binary", defaultBinary),
-		Args: args,
+		Args: buildArgs(p.protocol, cfg, false),
 		// The password is the first thing the client reads.
 		StdinPrelude: []string{password},
 		// The client installs its routes in this namespace, so traffic
@@ -132,44 +178,128 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 	return err
 }
 
+// runSession brings the tunnel up on a session that was signed in for
+// already, handing openconnect the cookie so it never touches the login.
+//
+// fresh says the session was signed in for moments ago. It decides what a
+// failure means: a stored session the gateway will not honour is one to
+// forget, so the next attempt asks a person instead of failing the same way
+// forever, while a fresh one that fails is a gateway problem and throwing it
+// away would only cost another sign-on.
+func (p *Provider) runSession(ctx context.Context, cfg agent.Config, rep agent.Reporter, cookie string, fresh bool) error {
+	var reachedUp atomic.Bool
+	p.runner = agent.Runner{
+		Path:         cfg.Str("binary", defaultBinary),
+		Args:         buildArgs(p.protocol, cfg, true),
+		StdinPrelude: []string{cookie},
+		DirectDial:   true,
+		ReadyWhen: func() bool {
+			if !agent.TunnelInterfaceUp() {
+				return false
+			}
+			reachedUp.Store(true)
+			return true
+		},
+		// There is no login form left to answer, but a client handed a
+		// session can still stop to ask about something else -- an untrusted
+		// certificate, most likely. Relaying it beats a tunnel that hangs
+		// until the readiness deadline with the question only in the log.
+		Prompts: prompts(),
+		OnLine:  func(line string, rep agent.Reporter) { p.onLine(line, rep) },
+	}
+
+	err := p.runner.Run(ctx, rep)
+	if err == nil {
+		return nil
+	}
+	// A tunnel that carried traffic and then stopped is a link that went
+	// away, not a session that was refused: the cookie is very likely still
+	// good, and discarding it would cost a sign-on to find that out.
+	if !fresh && !reachedUp.Load() {
+		rep.Log("the stored sign-on no longer works; the next attempt will ask for a new one")
+		dropSession(stateDir(cfg))
+	}
+	if p.cookieRejected.Load() {
+		// Deliberately not permanent. What fixes this is another sign-on,
+		// which is what the next attempt does.
+		return fmt.Errorf("the gateway refused the stored sign-on: %w", err)
+	}
+	return err
+}
+
+// userAgent is what the gateway is told is calling.
+//
+// Cisco's protocol gets Cisco's own string unless the configuration says
+// otherwise, because an ASA answers the XML login with 404 when it does not
+// recognise the caller, and openconnect reads that as "no XML login here" and
+// quietly drops to scraping the legacy HTML form. See sso.go for what that
+// looks like from the outside; it is not something a person could diagnose
+// from the prompt they are shown.
+func userAgent(protocol string, cfg agent.Config) string {
+	if protocol == protoAnyConnect {
+		return cfg.Str("useragent", ciscoUserAgent)
+	}
+	return cfg.Str("useragent", "")
+}
+
+func versionString(protocol string, cfg agent.Config) string {
+	if protocol == protoAnyConnect {
+		return cfg.Str("version_string", ciscoVersion)
+	}
+	return cfg.Str("version_string", "")
+}
+
 // buildArgs assembles the openconnect command line.
 //
-// The password is deliberately absent: it goes in on standard input so it
+// The secret is deliberately absent whichever kind it is: the password, or
+// the session cookie a sign-on produced, goes in on standard input so it
 // never appears in the container's process list.
-func buildArgs(protocol string, cfg agent.Config) []string {
+//
+// signedOn says the login has already happened elsewhere and openconnect is
+// only being asked to build the tunnel. Everything to do with answering a
+// login form is left out then, because there is no form left to answer.
+func buildArgs(protocol string, cfg agent.Config, signedOn bool) []string {
 	args := []string{
 		"--protocol=" + protocol,
-		"--user=" + cfg.Username,
-		"--passwd-on-stdin",
 		// The client's own configuration script sets up the interface, the
 		// routes and the resolver. All of it lands in this container's
 		// network namespace and nowhere else.
 		"--script=/etc/vpnc/vpnc-script",
 		"--interface=tun0",
 	}
+	if signedOn {
+		args = append(args, "--cookie-on-stdin")
+	} else {
+		args = append(args, "--user="+cfg.Username, "--passwd-on-stdin")
+	}
 	if port := cfg.Str("port", "443"); port != "443" {
 		args = append(args, "--port="+port)
 	}
-	for _, opt := range []struct{ key, flag string }{
-		{"authgroup", "--authgroup="},
-		{"servercert", "--servercert="},
-		{"useragent", "--useragent="},
-	} {
-		if v := cfg.Str(opt.key, ""); v != "" {
-			args = append(args, opt.flag+v)
+	if v := cfg.Str("servercert", ""); v != "" {
+		args = append(args, "--servercert="+v)
+	}
+	if v := userAgent(protocol, cfg); v != "" {
+		args = append(args, "--useragent="+v)
+	}
+	if v := versionString(protocol, cfg); v != "" {
+		args = append(args, "--version-string="+v)
+	}
+	if !signedOn {
+		if v := cfg.Str("authgroup", ""); v != "" {
+			args = append(args, "--authgroup="+v)
 		}
-	}
-	// The appended form is answered in the password itself, so the client
-	// must not also be told to expect a separate token prompt.
-	if secret := cfg.Str("totp_secret", ""); secret != "" && !cfg.Bool("totp_append", false) {
-		// Answering the token from a seed avoids prompting a person every
-		// time the tunnel reconnects.
-		args = append(args,
-			"--token-mode="+cfg.Str("token_mode", "totp"),
-			"--token-secret="+secret)
-	}
-	for _, entry := range splitList(cfg.Str("form_entry", "")) {
-		args = append(args, "--form-entry="+entry)
+		// The appended form is answered in the password itself, so the client
+		// must not also be told to expect a separate token prompt.
+		if secret := cfg.Str("totp_secret", ""); secret != "" && !cfg.Bool("totp_append", false) {
+			// Answering the token from a seed avoids prompting a person every
+			// time the tunnel reconnects.
+			args = append(args,
+				"--token-mode="+cfg.Str("token_mode", "totp"),
+				"--token-secret="+secret)
+		}
+		for _, entry := range splitList(cfg.Str("form_entry", "")) {
+			args = append(args, "--form-entry="+entry)
+		}
 	}
 	if cfg.Bool("no_dtls", false) {
 		args = append(args, "--no-dtls")
@@ -243,6 +373,142 @@ func (p *Provider) password(cfg agent.Config, rep agent.Reporter) (string, error
 // worth sending.
 const minCodeValidity = 5 * time.Second
 
+// --- single sign-on -------------------------------------------------------
+
+// defaultSSOWait is how long somebody has to finish signing in.
+//
+// It is measured against a person finding a browser window, typing a
+// corporate password, and waiting for a text message, not against a process
+// that is stuck. Too short and the tunnel gives up while they are reading
+// their phone; too long and a tunnel nobody is watching sits at
+// auth_required holding a question that was never asked.
+const defaultSSOWait = 5 * time.Minute
+
+// defaultSSOHours is how long a redeemed session is worth trying before the
+// person is asked again.
+//
+// Erring long is deliberate. Trying a session the gateway has since dropped
+// costs one failed dial and is recovered from automatically; discarding one
+// that would still have worked costs somebody another text message.
+const defaultSSOHours = 24
+
+// stateDir is where this tunnel keeps what has to outlive the container.
+func stateDir(cfg agent.Config) string { return cfg.Str("state_dir", "/data") }
+
+// session produces the cookie to build the tunnel on, asking for a sign-on
+// when there is nothing stored to use.
+//
+// An empty cookie and no error means this gateway wants a password like any
+// other, and the ordinary path takes it from here. That is the answer for the
+// other six protocols without asking, and for a Cisco gateway it is what the
+// gateway itself said.
+func (p *Provider) session(ctx context.Context, cfg agent.Config, rep agent.Reporter) (cookie string, fresh bool, err error) {
+	if p.protocol != protoAnyConnect || strings.EqualFold(cfg.Str("sso", ""), "off") {
+		return "", false, nil
+	}
+
+	dir := stateDir(cfg)
+	ttl := time.Duration(cfg.Int("sso_hours", defaultSSOHours)) * time.Hour
+	if stored := loadSession(dir, cfg.Server, cfg.Username, ttl); stored != "" {
+		rep.Log("reusing the sign-on this tunnel already has; nobody is being asked for anything")
+		return stored, false, nil
+	}
+
+	client, err := newSSOClient(cfg.Server, cfg.Str("port", "443"),
+		userAgent(p.protocol, cfg), versionString(p.protocol, cfg))
+	if err != nil {
+		return "", false, err
+	}
+
+	offer, err := client.offer(ctx)
+	if err != nil {
+		// Falling through is right -- a gateway that cannot be asked may
+		// still take a password -- but it is worth saying out loud. On a
+		// gateway that only does single sign-on, what follows is a password
+		// prompt that can never be satisfied, and the reason is here.
+		rep.Log("could not ask %s how it wants to be signed into (%v); trying the password form", cfg.Server, err)
+		return "", false, nil
+	}
+	if offer == nil {
+		return "", false, nil
+	}
+
+	token, err := p.askSSO(ctx, cfg, rep, offer)
+	if err != nil {
+		return "", false, err
+	}
+
+	cookie, err = client.redeem(ctx, offer, token)
+	if err != nil {
+		return "", false, err
+	}
+	if err := saveSession(dir, cfg.Server, cfg.Username, cookie); err != nil {
+		// Worth continuing: the tunnel comes up either way, and what is lost
+		// is only that the next container pays for the sign-on again.
+		rep.Log("could not keep the sign-on for next time (%v)", err)
+	}
+	return cookie, true, nil
+}
+
+// askSSO raises the sign-on and waits for the value only a browser holds.
+func (p *Provider) askSSO(ctx context.Context, cfg agent.Config, rep agent.Reporter, offer *ssoOffer) (string, error) {
+	wait := defaultSSOWait
+	if secs := cfg.Int("sso_timeout", 0); secs > 0 {
+		wait = time.Duration(secs) * time.Second
+	}
+
+	ch := contract.Challenge{
+		ID:   fmt.Sprintf("sso-%d", time.Now().UnixNano()),
+		Type: contract.ChallengeURL,
+		Prompt: "Sign in to " + cfg.Server +
+			" on the page that opens. The tunnel connects by itself once you are through.",
+		URL:        offer.LoginURL,
+		FinalURL:   offer.FinalURL,
+		CookieName: offer.TokenCookie,
+		ExpiresAt:  time.Now().Add(wait),
+	}
+
+	answer := make(chan string, 1)
+	p.mu.Lock()
+	p.ssoPending = &ch
+	p.ssoAnswer = answer
+	p.mu.Unlock()
+	defer func() {
+		p.clearSSO()
+		// A question that timed out or was abandoned has to come off the
+		// screen too. The agent clears one that was answered; nothing else
+		// clears one that was not, and it would sit there until the next
+		// attempt happened to replace it.
+		rep.SetChallenge(nil)
+	}()
+
+	rep.SetState(contract.StateAuthRequired, nil)
+	rep.SetChallenge(&ch)
+
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-timer.C:
+		return "", fmt.Errorf("nobody finished signing in within %s", wait.Round(time.Second))
+	case v := <-answer:
+		if v == "" {
+			return "", errors.New("the sign-on came back empty")
+		}
+		return v, nil
+	}
+}
+
+// clearSSO takes down the sign-on question, so an answer arriving late is
+// refused rather than delivered to a dial that has moved on.
+func (p *Provider) clearSSO() {
+	p.mu.Lock()
+	p.ssoPending, p.ssoAnswer = nil, nil
+	p.mu.Unlock()
+}
+
 // prompts describe the questions openconnect relays.
 //
 // Their wording comes from the gateway's own login form, so there is no fixed
@@ -293,6 +559,16 @@ func classify(question string) contract.ChallengeType {
 func (p *Provider) onLine(line string, rep agent.Reporter) {
 	l := strings.ToLower(line)
 
+	// A refused session is not a refused credential. The session was good
+	// when it was issued and is not any more, and the way back is another
+	// sign-on rather than a person checking what they typed -- so this is
+	// recorded separately and never parked as permanent.
+	if strings.Contains(l, "cookie was rejected") || strings.Contains(l, "session expired") {
+		p.cookieRejected.Store(true)
+		rep.SetState(contract.StateError, errors.New(strings.TrimSpace(line)))
+		return
+	}
+
 	for _, marker := range []string{
 		"login failed", "authentication failed", "invalid credentials",
 		"password verification failed", "permission denied",
@@ -317,10 +593,29 @@ func (p *Provider) Dial(ctx context.Context, network, addr string) (net.Conn, er
 	return p.runner.Dial(ctx, network, addr)
 }
 
-// Answer forwards a login form answer to the client, which is blocked reading
-// it from standard input.
+// Answer supplies a response to whichever question is outstanding.
+//
+// There are two kinds and they are answered in different places. A sign-on is
+// waiting inside this provider, because no child process has been started
+// yet: the login happens over HTTP and openconnect is handed the result. Every
+// other question is a supervised client blocked on standard input.
 func (p *Provider) Answer(a contract.AuthAnswer) error {
-	return p.runner.Answer(a)
+	p.mu.Lock()
+	pending, answer := p.ssoPending, p.ssoAnswer
+	p.mu.Unlock()
+
+	if pending == nil {
+		return p.runner.Answer(a)
+	}
+	if a.ID != pending.ID {
+		return fmt.Errorf("challenge %q is no longer pending", a.ID)
+	}
+	select {
+	case answer <- strings.TrimSpace(a.Value):
+		return nil
+	default:
+		return errors.New("that sign-on has already been answered")
+	}
 }
 
 func splitList(s string) []string {

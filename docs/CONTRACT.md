@@ -133,6 +133,30 @@ expects whatever it redirects to; a `vnc` carries `vnc_port` and means the
 vendor client has no headless login path, so the client shows a viewer for the
 first login and the session is kept afterwards.
 
+A `url` challenge that also carries `cookie_name` is a different question
+wearing the same type, and the difference decides what the client has to be:
+
+```json
+{
+  "id": "sso-1788022474",
+  "type": "url",
+  "prompt": "Sign in to vpn.corp.example on the page that opens.",
+  "url": "https://vpn.corp.example/+CSCOE+/saml/sp/login?ctx=844729538",
+  "final_url": "https://vpn.corp.example/+CSCOE+/saml_ac_login.html",
+  "cookie_name": "acSamlv2Token"
+}
+```
+
+Without `cookie_name` the answer is the address the sign-on redirected to,
+which anybody can read off a browser. With it the answer is a cookie the
+gateway leaves on its own origin, and nothing outside that origin can read
+one: not a page served from loopback, not the browser the machine happens to
+have. The client has to show the page in a view it controls and take the value
+out itself. `final_url` says where a successful sign-on ends up, for a client
+that would rather watch for the address than for the cookie; it is advisory,
+and a client that can do neither should say so instead of collecting an
+answer that will be refused.
+
 Most supervised clients ask these questions on standard input and block until
 answered. The agent recognises the prompt, raises the challenge, and writes
 the answer back. Two details are easy to get wrong and both are handled:
@@ -169,7 +193,7 @@ Tears down and redials. `202`.
 |-------|-------|
 | `io.vpn-gateway.contract` | `1` |
 | `io.vpn-gateway.provider` | provider name, or a comma-separated list |
-| `io.vpn-gateway.capabilities` | comma-separated: `tcp`, `udp`, `routes`, `dns`, `sms`, `totp`, `vnc` |
+| `io.vpn-gateway.capabilities` | comma-separated: `tcp`, `udp`, `routes`, `dns`, `sms`, `totp`, `url`, `vnc` |
 
 `tcp` is mandatory. Never advertise a capability the image does not honour:
 the client uses `udp` to decide whether DNS can use datagrams at all.

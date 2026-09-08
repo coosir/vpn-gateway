@@ -284,6 +284,61 @@ interrupts open connections. The new configuration is therefore built and
 accepted before the running one is touched, and a rule with a typo in it
 leaves the client running exactly as it was.
 
+Phase 6: a sign-on that is not a question.
+
+Some gateways stopped having a password. An AnyConnect gateway with SAML
+authenticates against an identity provider, and what the client has to produce
+is not something a person can be asked for: it is a cookie the gateway leaves
+on its own website once the browser has been all the way through Microsoft's
+login and whatever second factor sits behind it.
+
+Three things followed from that, and each one is the reason for the next.
+
+**openconnect cannot do this, and the way it fails is the worst kind.** It has
+`--external-browser`, but that is for gateways configured to redirect back to
+a port on the client's own machine, and the ones seen here are not. For the
+other mode it wants an embedded browser it does not have, says "No SSO
+handler", and stops. Worse is what happens before that: an ASA answers the XML
+login with 404 to a User-Agent it does not recognise, openconnect reads the 404
+as "this gateway has no XML login", and falls back to scraping the legacy HTML
+form. On a SAML gateway that form still renders and still takes a password,
+and the tunnel group behind it has no password authentication at all -- so
+every submission comes back as the same blank form. What a person sees is a
+password prompt that repeats forever, which looks exactly like a wrong
+password and is not. One header is the difference between an unanswerable
+question and a truthful error.
+
+**So the agent does the login and hands openconnect the result.** The exchange
+on either side of the browser is plain XML: ask the gateway how it wants to be
+signed into, get back an address and a blob of the gateway's own state, and
+later trade the browser's cookie for a session. openconnect is started with
+`--cookie` and never sees the login. The blob goes back byte for byte, because
+it carries the handle tying the browser's sign-on to this exchange and
+anything reassembled here is a session the gateway has never heard of.
+
+**And the client had to grow a window, because a page could not do it.** Every
+other challenge is something a person reads and types, so the interface
+collects it and sends it on. A cookie on somebody else's origin is not
+readable from a page served on loopback, and no browser on the machine will
+hand one over. The desktop client opens a webview it controls, watches for the
+cookie by name, and sends the page to a one-shot loopback address carrying the
+value -- a navigation rather than a request, because a page on another origin
+is not allowed to make requests here and does not need to be. Nobody presses
+anything: reaching the end of the sign-on is the whole signal.
+
+That window belongs to the application even when the engine does not. A
+background service holds the tunnels and the question; the application is the
+only half with a screen. So it reads the pending questions from whichever
+engine is in charge and posts the answer back to that one.
+
+What the sign-on produces is kept. It goes in the tunnel's own directory,
+which is mounted into the container and outlives it, so recreating a container
+does not cost another text message -- the same bargain as the reconnect
+window, one level up. A stored session the gateway no longer honours is thrown
+away exactly when it fails before the tunnel ever carried traffic; one that
+fails after that is a link that went away, and discarding it would spend a
+sign-on to learn nothing.
+
 Client privilege separation is still open: creating a TUN interface needs
 elevation, and splitting out a signed helper needs an Apple developer identity
 on macOS.

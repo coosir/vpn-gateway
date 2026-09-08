@@ -174,6 +174,20 @@ type Challenge struct {
 	ImageB64 string `json:"image_b64,omitempty"`
 	// URL is an SSO page for the client to open, when applicable.
 	URL string `json:"url,omitempty"`
+	// FinalURL is where a successful sign-on ends up. It is advisory: a
+	// client showing the page in a view of its own uses it to tell the
+	// person they are done, and one that only prints a link ignores it.
+	FinalURL string `json:"final_url,omitempty"`
+	// CookieName is the cookie the sign-on leaves behind on FinalURL's
+	// origin, and which the provider expects back as the answer.
+	//
+	// Its presence is the whole difference between the two kinds of sign-on.
+	// Without it the answer is whatever the page redirected to, which a
+	// person can read off the address bar. With it the answer is a value only
+	// the browser holds, so the client has to show the page itself -- in an
+	// embedded view it can read the cookie out of -- rather than handing the
+	// address to whatever browser the machine happens to have.
+	CookieName string `json:"cookie_name,omitempty"`
 	// VNCPort is the container port serving VNC for ChallengeVNC.
 	VNCPort int `json:"vnc_port,omitempty"`
 

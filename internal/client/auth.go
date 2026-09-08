@@ -300,6 +300,14 @@ func (t *TerminalPrompter) Ask(ctx context.Context, tunnel string, ch contract.C
 	if ch.URL != "" {
 		fmt.Fprintf(t.Out, "  Open: %s\n", ch.URL)
 	}
+	// A sign-on that ends in a cookie cannot be answered off the address bar,
+	// and a terminal has no browser to read one out of. Saying where the
+	// value is beats leaving somebody to paste an address that will be
+	// refused.
+	if ch.CookieName != "" {
+		fmt.Fprintf(t.Out, "  Sign in there, then paste the %q cookie that page leaves behind\n", ch.CookieName)
+		fmt.Fprintf(t.Out, "  (the desktop client does this by itself, in a window of its own)\n")
+	}
 	if ch.ImageB64 != "" {
 		fmt.Fprintf(t.Out, "  (this gateway sent an image; a graphical client can display it)\n")
 	}

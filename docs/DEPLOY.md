@@ -562,6 +562,69 @@ sudo systemctl restart vpn-gateway-server
 sudo vgctl -config /etc/vpn-gateway/config.yaml -host 127.0.0.1 verify
 ```
 
+### A gateway that signs you in through Microsoft (or any other IdP)
+
+Some AnyConnect gateways have no password at all any more: the tunnel group
+authenticates with SAML, so signing in means a browser, a corporate account
+and whatever second factor that account is set up with -- a text message, a
+phone call, an authenticator app.
+
+Nothing extra is configured for this. The provider asks the gateway how it
+wants to be signed into, and takes the sign-on path when the gateway offers
+one:
+
+```yaml
+  - name: corp-sso
+    provider: anyconnect
+    image: coosir/vg-openconnect:latest
+    server: vpn.corp.example
+    username: alice@corp.example   # only used to label the stored session
+    manual: true
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+```
+
+Connect it from the **desktop client**. A window opens on the gateway's own
+sign-on page, you sign in there, and the tunnel connects by itself the moment
+you are through -- there is nothing to type back. It has to be that client and
+not a browser: the gateway finishes by leaving a cookie on its own website,
+and a page served from loopback cannot read one belonging to another origin.
+The browser interface shows the link and a box to paste that cookie into, which
+works but means opening developer tools.
+
+The sign-on happens in the browser on **your** machine while the tunnel is
+built from the **server**. That is normally fine -- the gateway ties the two
+together by a handle of its own, not by address -- but a conditional-access
+policy that compares them can refuse it, and there is nothing this side can do
+about that.
+
+**The session is kept.** What the sign-on produces is written to the tunnel's
+own directory on the server, which is mounted into the container and outlives
+it, so recreating the container -- pulling a new image, `-check` changing the
+configuration, the agent being restarted -- costs nothing. Dialling again
+reuses it silently and nobody is asked for anything:
+
+```yaml
+    extra:
+      sso_hours: "24"       # how long to keep trying a stored sign-on
+      sso_timeout: "300"    # seconds to wait for somebody to finish signing in
+      sso: "off"            # never offer single sign-on for this tunnel
+```
+
+`sso_hours` errs long on purpose. Trying a session the gateway has since
+dropped costs one failed dial and recovers by itself -- the stored session is
+thrown away and the next attempt asks for a fresh sign-on. Throwing away one
+that would still have worked costs somebody another text message.
+
+One thing worth knowing even if you never configure it: every `anyconnect`
+dial now tells the gateway it is Cisco's own client. That is not decoration.
+An ASA answers the XML login with **404** to a caller it does not recognise,
+and openconnect reads that 404 as "no XML login here" and quietly falls back
+to the legacy HTML form -- which on a SAML gateway still renders, still takes
+a password, and rejects every one of them. What that looks like from the
+outside is a password prompt that repeats forever. `extra.useragent` and
+`extra.version_string` override it if a gateway ever wants something else.
+
 **If the gateway wants a one-time code in the password field** rather than
 asking for it separately — a common Fortinet arrangement, where you normally
 type your password with the six digits on the end — set both:
