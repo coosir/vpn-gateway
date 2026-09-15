@@ -115,7 +115,7 @@ func (a *Agent) keepaliveRound(ctx context.Context, st *keepaliveState, timeout 
 	if len(targets) == 0 {
 		if !st.mentioned {
 			st.mentioned = true
-			a.log.Warn("keepalive has nowhere to probe: the VPN pushed no resolvers, so set extra.keepalive_target to an address inside the network")
+			a.log.Warn("keepalive has nowhere to probe: this tunnel pushed no resolvers and installed none, so set extra.keepalive_target to an address inside the network")
 		}
 		return
 	}
@@ -162,15 +162,24 @@ func (a *Agent) probe(ctx context.Context, targets []string, timeout time.Durati
 
 // keepaliveTargets is what to connect to, as "host:port".
 //
-// The resolvers the VPN pushed are the default because they are the one
-// address a tunnel is certain to have: they were named by the gateway itself,
-// they sit inside the network, and a corporate resolver answers TCP on 53.
-// A tunnel whose useful addresses are elsewhere names them instead.
+// The resolvers are the default because they are the one address a tunnel is
+// certain to have: they were named by the gateway itself, they sit inside the
+// network, and a corporate resolver answers TCP on 53. A tunnel whose useful
+// addresses are elsewhere names them instead.
+//
+// They are looked for twice, because a provider reports them only when
+// somebody configured them. A client that installs a tun interface also
+// rewrites /etc/resolv.conf with what the gateway handed out, and that is
+// worth reading: it is the difference between a tunnel that keeps itself
+// alive out of the box and one that needs a line of configuration first.
 func (a *Agent) keepaliveTargets() []string {
 	if v := a.cfg.Str("keepalive_target", ""); v != "" {
 		return withKeepalivePort(splitList(v))
 	}
-	return withKeepalivePort(a.Network().DNS)
+	if dns := a.Network().DNS; len(dns) > 0 {
+		return withKeepalivePort(dns)
+	}
+	return withKeepalivePort(a.baseNet.PushedResolvers())
 }
 
 func withKeepalivePort(hosts []string) []string {

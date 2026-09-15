@@ -76,7 +76,7 @@ counts what the user sent, and DPD is not that.
 |-----|---------|
 | `keepalive` | `false` turns the probe off; on by default |
 | `keepalive_interval` | how often to probe, as a duration or bare seconds (default `30m`, floor 5s) |
-| `keepalive_target` | comma-separated `host:port` inside the network to probe; a host with no port is probed on 53. Defaults to the resolvers the VPN pushed |
+| `keepalive_target` | comma-separated `host:port` inside the network to probe; a host with no port is probed on 53. Defaults to the resolvers the VPN pushed, and failing that to the ones its client wrote into the container's `/etc/resolv.conf` |
 | `keepalive_timeout` | how long one probe may take (default `10s`) |
 
 Probes do not count towards the traffic in `/v1/status`: they are the agent's

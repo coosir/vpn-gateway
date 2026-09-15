@@ -103,10 +103,12 @@ users:
 # Every container tunnel keeps itself alive. A gateway that hangs up on an
 # idle session is looking for traffic, so every half hour -- and only when
 # nothing else has crossed the tunnel in the meantime -- the agent opens and
-# closes one connection to a resolver the VPN pushed. Where a VPN pushes no
-# resolvers, or its resolvers refuse TCP, name somewhere inside the network
-# that will answer, and where a gateway is less patient than half an hour,
-# say how long it waits:
+# closes one connection to a resolver the VPN pushed -- or, where nothing is
+# configured, to whichever resolver its client wrote into the container's
+# /etc/resolv.conf, which is the gateway's own answer. A tunnel that carries
+# traffic through a proxy rather than an interface installs no resolver, so
+# name somewhere inside the network that will answer; and where a gateway is
+# less patient than half an hour, say how long it waits:
 #
 #   extra:
 #     keepalive_target: "10.20.0.53, wiki.corp.example:443"

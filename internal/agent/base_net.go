@@ -104,3 +104,56 @@ func getDefaultGateway() (string, string) {
 
 	return "", ""
 }
+
+// PushedResolvers returns the nameservers in /etc/resolv.conf that were not
+// there before the VPN client ran.
+//
+// A client that installs a tun interface rewrites the resolver too --
+// openconnect through vpnc-script, a vendor client on its own -- so the
+// addresses the gateway handed out are sitting in the file even when nobody
+// configured them anywhere. Comparing against the snapshot taken at startup
+// is what separates them from the container's own resolver, which is on the
+// other side of the tunnel and proves nothing about it.
+func (bn *BaseNetwork) PushedResolvers() []string {
+	if bn == nil {
+		return nil
+	}
+	current, err := os.ReadFile("/etc/resolv.conf")
+	if err != nil {
+		return nil
+	}
+	return pushedResolvers(bn.ResolvConf, current)
+}
+
+// pushedResolvers is the comparison itself: the nameservers in current that
+// base did not already have.
+func pushedResolvers(base, current []byte) []string {
+	was := map[string]bool{}
+	for _, ns := range resolvNameservers(base) {
+		was[ns] = true
+	}
+	var out []string
+	for _, ns := range resolvNameservers(current) {
+		if !was[ns] {
+			out = append(out, ns)
+		}
+	}
+	return out
+}
+
+// resolvNameservers pulls the nameserver addresses out of a resolv.conf.
+func resolvNameservers(data []byte) []string {
+	var out []string
+	s := bufio.NewScanner(bytes.NewReader(data))
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if i := strings.IndexAny(line, "#;"); i >= 0 {
+			line = strings.TrimSpace(line[:i])
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == "nameserver" {
+			out = append(out, fields[1])
+		}
+	}
+	return out
+}
