@@ -62,21 +62,30 @@ func TestKeepaliveProbesOnlyWhileTheTunnelIsUp(t *testing.T) {
 	a.tunnelUp = func() bool { return false }
 	a.SetNetwork(contract.Network{DNS: []string{"10.20.0.53"}})
 
-	var st keepaliveState
+	k := &keepaliveLoop{agent: a, interval: time.Hour, timeout: time.Second}
+	now := time.Now()
+
 	// Connecting, error, down: a tunnel that is not carrying traffic has
 	// nothing to keep alive, and dialling through it would only fail.
-	for _, state := range []contract.State{contract.StateConnecting, contract.StateError, contract.StateDown} {
+	for i, state := range []contract.State{contract.StateConnecting, contract.StateError, contract.StateDown} {
 		a.SetState(state, nil)
-		a.keepaliveRound(context.Background(), &st, time.Second)
+		k.round(context.Background(), now.Add(time.Duration(i)*2*time.Hour))
 	}
 	if n := p.dials.Load(); n != 0 {
 		t.Fatalf("probed %d times while the tunnel was not up, want 0", n)
 	}
 
 	a.SetState(contract.StateUp, nil)
-	a.keepaliveRound(context.Background(), &st, time.Second)
+	// The first look at a fresh session starts its clock rather than
+	// probing: nothing has had a chance to be idle yet.
+	k.round(context.Background(), now)
+	if n := p.dials.Load(); n != 0 {
+		t.Fatalf("probed %d times the moment the tunnel came up, want 0", n)
+	}
+
+	k.round(context.Background(), now.Add(time.Hour))
 	if n := p.dials.Load(); n != 1 {
-		t.Fatalf("probed %d times while up, want 1", n)
+		t.Fatalf("probed %d times after an idle interval, want 1", n)
 	}
 	select {
 	case addr := <-p.addrs:
@@ -98,17 +107,63 @@ func TestKeepaliveLeavesABusyTunnelAlone(t *testing.T) {
 	a.SetNetwork(contract.Network{DNS: []string{"10.20.0.53"}})
 	a.SetState(contract.StateUp, nil)
 
-	var st keepaliveState
-	a.addRx(4096)
-	a.keepaliveRound(context.Background(), &st, time.Second)
+	k := &keepaliveLoop{agent: a, interval: time.Hour, timeout: time.Second}
+	now := time.Now()
+	k.round(context.Background(), now)
+
+	// Traffic every quarter of an hour, for two hours.
+	for i := 1; i <= 8; i++ {
+		a.addRx(4096)
+		k.round(context.Background(), now.Add(time.Duration(i)*15*time.Minute))
+	}
 	if n := p.dials.Load(); n != 0 {
-		t.Fatalf("probed %d times after traffic moved, want 0", n)
+		t.Fatalf("probed %d times on a tunnel that was never idle, want 0", n)
+	}
+}
+
+func TestKeepaliveProbesAnIntervalAfterTrafficStops(t *testing.T) {
+	// The tunnel must be probed an interval after it went quiet, not an
+	// interval after the next look at it: traffic arriving just after one
+	// look would otherwise leave the tunnel untouched for nearly two.
+	p := newDialRecorder(t, false)
+	a := newTestAgent(t, p)
+	a.tunnelUp = func() bool { return false }
+	a.SetNetwork(contract.Network{DNS: []string{"10.20.0.53"}})
+	a.SetState(contract.StateUp, nil)
+
+	k := &keepaliveLoop{agent: a, interval: time.Hour, timeout: time.Second}
+	now := time.Now()
+	k.round(context.Background(), now)
+
+	// Traffic at the start of an interval, and nothing after it.
+	quiet := now.Add(15 * time.Minute)
+	a.addRx(2184)
+	k.round(context.Background(), quiet)
+	if n := p.dials.Load(); n != 0 {
+		t.Fatalf("probed %d times while traffic was moving, want 0", n)
 	}
 
-	// Nothing moved since, so the next round is the one that has to speak up.
-	a.keepaliveRound(context.Background(), &st, time.Second)
+	// Still within the hour after that traffic.
+	k.round(context.Background(), quiet.Add(45*time.Minute))
+	if n := p.dials.Load(); n != 0 {
+		t.Fatalf("probed %d times before the tunnel had been idle an hour, want 0", n)
+	}
+
+	// An hour after the traffic, not an hour after the next look at it.
+	k.round(context.Background(), quiet.Add(time.Hour))
 	if n := p.dials.Load(); n != 1 {
-		t.Fatalf("probed %d times on an idle tunnel, want 1", n)
+		t.Fatalf("probed %d times an hour after the tunnel went quiet, want 1", n)
+	}
+
+	// The probe itself is what kept the tunnel alive, so the next one is a
+	// full interval away rather than every look from here on.
+	k.round(context.Background(), quiet.Add(time.Hour+15*time.Minute))
+	if n := p.dials.Load(); n != 1 {
+		t.Fatalf("probed %d times in one idle hour, want 1", n)
+	}
+	k.round(context.Background(), quiet.Add(2*time.Hour))
+	if n := p.dials.Load(); n != 2 {
+		t.Fatalf("probed %d times in two idle hours, want 2", n)
 	}
 }
 
@@ -120,12 +175,14 @@ func TestKeepaliveNeedsSomewhereToProbe(t *testing.T) {
 	a.tunnelUp = func() bool { return false }
 	a.SetState(contract.StateUp, nil)
 
-	var st keepaliveState
-	a.keepaliveRound(context.Background(), &st, time.Second)
+	k := &keepaliveLoop{agent: a, interval: time.Hour, timeout: time.Second}
+	now := time.Now()
+	k.round(context.Background(), now)
+	k.round(context.Background(), now.Add(time.Hour))
 	if n := p.dials.Load(); n != 0 {
 		t.Fatalf("probed %d times with no target, want 0", n)
 	}
-	if !st.mentioned {
+	if !k.mentioned {
 		t.Error("the missing target was not reported")
 	}
 }
@@ -137,12 +194,14 @@ func TestKeepaliveTriesEveryTargetBeforeGivingUp(t *testing.T) {
 	a.cfg.Extra = map[string]string{"keepalive_target": "10.20.0.53, intranet.corp:443"}
 	a.SetState(contract.StateUp, nil)
 
-	var st keepaliveState
-	a.keepaliveRound(context.Background(), &st, time.Second)
+	k := &keepaliveLoop{agent: a, interval: time.Hour, timeout: time.Second}
+	now := time.Now()
+	k.round(context.Background(), now)
+	k.round(context.Background(), now.Add(time.Hour))
 	if n := p.dials.Load(); n != 2 {
 		t.Fatalf("tried %d targets, want both", n)
 	}
-	if !st.failing {
+	if !k.failing {
 		t.Error("a round where nothing answered was not recorded as failing")
 	}
 }
@@ -263,9 +322,11 @@ func TestKeepaliveAsksTheResolverWhereTheTunnelIsAnInterface(t *testing.T) {
 	a.cfg.Extra = map[string]string{"keepalive_target": answeringResolver(t)}
 	a.SetState(contract.StateUp, nil)
 
-	var st keepaliveState
-	a.keepaliveRound(context.Background(), &st, 3*time.Second)
-	if st.failing {
+	k := &keepaliveLoop{agent: a, interval: time.Hour, timeout: 3 * time.Second}
+	now := time.Now()
+	k.round(context.Background(), now)
+	k.round(context.Background(), now.Add(time.Hour))
+	if k.failing {
 		t.Error("the resolver answered but the round was recorded as failing")
 	}
 	if n := p.dials.Load(); n != 0 {
@@ -282,9 +343,11 @@ func TestKeepaliveFallsBackToAConnection(t *testing.T) {
 	a.cfg.Extra = map[string]string{"keepalive_target": "127.0.0.1:1"}
 	a.SetState(contract.StateUp, nil)
 
-	var st keepaliveState
-	a.keepaliveRound(context.Background(), &st, time.Second)
-	if st.failing {
+	k := &keepaliveLoop{agent: a, interval: time.Hour, timeout: time.Second}
+	now := time.Now()
+	k.round(context.Background(), now)
+	k.round(context.Background(), now.Add(time.Hour))
+	if k.failing {
 		t.Error("the connection succeeded but the round was recorded as failing")
 	}
 	if n := p.dials.Load(); n != 1 {

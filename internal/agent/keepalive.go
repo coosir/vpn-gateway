@@ -68,76 +68,113 @@ func (a *Agent) keepalive(ctx context.Context) {
 	timeout := cfgDuration(a.cfg, "keepalive_timeout", defaultKeepaliveTimeout)
 	a.log.Info("keepalive running", "every", interval, "timeout", timeout)
 
-	ticker := time.NewTicker(interval)
+	k := &keepaliveLoop{agent: a, interval: interval, timeout: timeout}
+	ticker := time.NewTicker(interval / keepaliveSamples)
 	defer ticker.Stop()
-
-	var st keepaliveState
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case now := <-ticker.C:
+			k.round(ctx, now)
 		}
-		a.keepaliveRound(ctx, &st, timeout)
 	}
 }
 
-// keepaliveState is what one round remembers from the last: whether it is in
-// a spell of failure, whether the missing target has been mentioned, and how
-// much traffic had crossed the tunnel by then.
-type keepaliveState struct {
-	failing   bool
+// keepaliveSamples is how many times an interval the traffic counters are
+// looked at.
+//
+// The question being asked is whether the tunnel has been idle for an
+// interval, and answering it by comparing against the last look would mean
+// something else: traffic arriving just after one look leaves the next one
+// with nothing to report, and the tunnel then sits untouched for nearly two
+// intervals before anybody asks after it. Looking more often than the
+// interval is what makes "idle for an interval" mean what it says.
+const keepaliveSamples = 4
+
+// keepaliveLoop is one agent's keepalive: what it was configured with, and
+// what it has seen.
+type keepaliveLoop struct {
+	agent    *Agent
+	interval time.Duration
+	timeout  time.Duration
+
+	// lastActivity is when the tunnel last carried something -- real traffic,
+	// or a probe of our own, which serves the same purpose. Zero means the
+	// tunnel has only just come up and has not been watched yet.
+	lastActivity time.Time
+	lastBytes    uint64
+	// failing records a spell of probes that went unanswered, so it is
+	// reported when it starts and when it ends rather than every round.
+	failing bool
+	// mentioned records that a tunnel with nowhere to probe has been
+	// reported once.
 	mentioned bool
-	lastBytes uint64
 }
 
-// keepaliveRound is one tick: probe the tunnel unless something else already
-// has.
-func (a *Agent) keepaliveRound(ctx context.Context, st *keepaliveState, timeout time.Duration) {
+// round is one look at the tunnel: probe it if nothing else has.
+func (k *keepaliveLoop) round(ctx context.Context, now time.Time) {
+	a := k.agent
+
 	a.mu.RLock()
 	state := a.state
 	a.mu.RUnlock()
 	if state != contract.StateUp {
 		// Nothing to keep alive, and whatever the last probe found says
-		// nothing about the session that comes back.
-		st.failing = false
+		// nothing about the session that comes back. The clock starts again
+		// with that session.
+		k.failing = false
+		k.lastActivity = time.Time{}
 		return
 	}
 
-	// Real traffic is the best keepalive there is. If any crossed the tunnel
-	// since the last tick, the gateway has already seen what this probe was
-	// going to tell it.
-	if bytes := a.tx.Load() + a.rx.Load(); bytes != st.lastBytes {
-		st.lastBytes = bytes
-		st.failing = false
+	bytes := a.tx.Load() + a.rx.Load()
+	if k.lastActivity.IsZero() {
+		k.lastBytes = bytes
+		k.lastActivity = now
+		return
+	}
+	if bytes != k.lastBytes {
+		// Real traffic is the best keepalive there is: the gateway has just
+		// seen everything a probe was going to tell it.
+		k.lastBytes = bytes
+		k.lastActivity = now
+		k.failing = false
+		return
+	}
+	if now.Sub(k.lastActivity) < k.interval {
 		return
 	}
 
 	targets := a.keepaliveTargets()
 	if len(targets) == 0 {
-		if !st.mentioned {
-			st.mentioned = true
+		if !k.mentioned {
+			k.mentioned = true
 			a.log.Warn("keepalive has nowhere to probe: this tunnel pushed no resolvers and installed none, so set extra.keepalive_target to an address inside the network")
 		}
+		k.lastActivity = now
 		return
 	}
-	st.mentioned = false
+	k.mentioned = false
+	// Whatever the answer, the asking is what the gateway was waiting for, so
+	// the next one is a full interval away.
+	k.lastActivity = now
 
-	err := a.probe(ctx, targets, timeout)
+	err := a.probe(ctx, targets, k.timeout)
 	switch {
-	case err == nil && st.failing:
-		st.failing = false
+	case err == nil && k.failing:
+		k.failing = false
 		a.Log("keepalive is reaching the network again")
 	case err == nil:
 		a.log.Debug("keepalive", "targets", targets)
 	case ctx.Err() != nil:
 		return
-	case !st.failing:
+	case !k.failing:
 		// Said once per spell of failure, not once per round. A refused
 		// connection still crossed the tunnel and still kept the session
 		// alive; this is reported so a target that will never answer can be
 		// corrected, not because the tunnel is in trouble.
-		st.failing = true
+		k.failing = true
 		a.log.Warn("keepalive could not reach anything through the tunnel",
 			"targets", targets, "error", err)
 	}

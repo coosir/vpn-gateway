@@ -62,8 +62,10 @@ Overrides replace rather than merge, so a wrong guess can be corrected.
 
 Corporate gateways hang up on a session that has sent nothing for a while, so
 the agent sends a little traffic through the tunnel itself: while the state is
-`up` and nothing else has crossed the tunnel since the last tick, it asks one
-question of the network on the other side.
+`up` and nothing has crossed the tunnel for a whole interval, it asks one
+question of the network on the other side. The counters are sampled several
+times an interval, so a tunnel goes unasked after for an interval of quiet
+rather than for anything up to two.
 
 How it asks depends on the tunnel. Where the client installed an interface in
 this container, it sends a DNS query over UDP to a resolver inside the network
