@@ -75,7 +75,7 @@ counts what the user sent, and DPD is not that.
 | Key | Meaning |
 |-----|---------|
 | `keepalive` | `false` turns the probe off; on by default |
-| `keepalive_interval` | how often to probe, as a duration or bare seconds (default `1m`, floor 5s) |
+| `keepalive_interval` | how often to probe, as a duration or bare seconds (default `30m`, floor 5s) |
 | `keepalive_target` | comma-separated `host:port` inside the network to probe; a host with no port is probed on 53. Defaults to the resolvers the VPN pushed |
 | `keepalive_timeout` | how long one probe may take (default `10s`) |
 

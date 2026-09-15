@@ -13,12 +13,17 @@ import (
 
 // Keepalive settings.
 //
-// A gateway that hangs up on an idle session measures idleness in tens of
-// minutes, so once a minute is far more often than it has to be and still
-// costs almost nothing: one TCP handshake, and only when nothing else has
-// crossed the tunnel in the meantime.
+// A gateway that hangs up on an idle session is generous about it: the idle
+// windows in the wild are hours, or most of an hour at the tightest. So the
+// probe is rare by default. Probing more often than the gateway's patience
+// requires buys nothing and puts a connection at a corporate network every
+// time; a gateway that is stricter than this is told so with
+// keepalive_interval.
+//
+// The timeout is the other kind of number: it bounds one probe, which either
+// answers in a moment or is not going to.
 const (
-	defaultKeepaliveInterval = time.Minute
+	defaultKeepaliveInterval = 30 * time.Minute
 	defaultKeepaliveTimeout  = 10 * time.Second
 
 	// minKeepaliveInterval is the floor under a configured interval. Below
@@ -126,7 +131,7 @@ func (a *Agent) keepaliveRound(ctx context.Context, st *keepaliveState, timeout 
 	case ctx.Err() != nil:
 		return
 	case !st.failing:
-		// Said once per spell of failure, not once a minute. A refused
+		// Said once per spell of failure, not once per round. A refused
 		// connection still crossed the tunnel and still kept the session
 		// alive; this is reported so a target that will never answer can be
 		// corrected, not because the tunnel is in trouble.
