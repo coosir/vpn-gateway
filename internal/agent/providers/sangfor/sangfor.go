@@ -45,6 +45,8 @@ func init() {
 //	port           gateway port (default 443)
 //	totp_secret    TOTP seed, when the gateway demands two-factor auth
 //	remote_dns     resolver to use inside the tunnel
+//	keep_alive_url a URL inside the network for the client to fetch every
+//	               minute, which is what keeps this gateway's session alive
 //	binary         override the zju-connect path
 //	extra_args     additional zju-connect flags, space separated
 //
@@ -169,16 +171,8 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 		args = append(args, "--graph-code-file", graphCodeFile)
 	}
 
-	for _, opt := range []struct{ key, flag string }{
-		{"totp_secret", "--totp-secret"},
-		{"remote_dns", "--remote-dns-server"},
-		{"auth_type", "--auth-type"},
-		{"phone", "--phone"},
-	} {
-		if v := cfg.Str(opt.key, ""); v != "" {
-			args = append(args, opt.flag, v)
-		}
-	}
+	args = append(args, optionArgs(cfg)...)
+
 	if p.protocol != "atrust" {
 		if v := cfg.Str("login_domain", ""); v != "" {
 			args = append(args, "--login-domain", v)
@@ -213,6 +207,41 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 		return agent.Permanent(fmt.Errorf("%s rejected the credentials: %w", p.protocol, err))
 	}
 	return err
+}
+
+// optionArgs turns the settings that are a plain value into zju-connect
+// flags.
+//
+// keep_alive_url is the one worth explaining. A Sangfor session expires on the
+// gateway's own schedule -- one seen here went every forty minutes -- and no
+// amount of traffic through the tunnel prevents it, because what expires is
+// the session token rather than the link. Only the client can refresh that, by
+// fetching this URL over its own protocol path once a minute; the agent's
+// keepalive cannot, since it dials through a tunnel the token has already
+// stopped authorising. Without it the client says so, in as many words:
+//
+//	Keep alive is disabled because remote DNS is disabled,
+//	and no KeepAliveURL is provided
+//
+// The URL has to be one that answers. zju-connect verifies certificates and
+// has no way to be told not to, so an intranet HTTPS address signed by a
+// private CA fails every request -- which looks like a keepalive that is
+// running and is in fact one that never completes. Plain HTTP to something
+// inside the tunnel is what works.
+func optionArgs(cfg agent.Config) []string {
+	var args []string
+	for _, opt := range []struct{ key, flag string }{
+		{"totp_secret", "--totp-secret"},
+		{"remote_dns", "--remote-dns-server"},
+		{"keep_alive_url", "--keep-alive-url"},
+		{"auth_type", "--auth-type"},
+		{"phone", "--phone"},
+	} {
+		if v := cfg.Str(opt.key, ""); v != "" {
+			args = append(args, opt.flag, v)
+		}
+	}
+	return args
 }
 
 // onLine watches the child's output for the two failures the agent has to act

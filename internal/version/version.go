@@ -7,7 +7,7 @@ const (
 	Version = "v1.0"
 
 	// Build is the sequential build identifier, updated on code commits.
-	Build = "0052"
+	Build = "0053"
 )
 
 // Full returns the formatted version string, e.g. "v1.0 build(0001)".

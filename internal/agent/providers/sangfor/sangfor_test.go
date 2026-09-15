@@ -3,6 +3,7 @@ package sangfor
 import (
 	"testing"
 
+	"github.com/vpn-gateway/vpn-gateway/internal/agent"
 	"github.com/vpn-gateway/vpn-gateway/pkg/contract"
 )
 
@@ -68,5 +69,38 @@ func TestOrdinaryOutputChangesNothing(t *testing.T) {
 	p.onLine("Best node in group 162a5d3c: zt.example.com:441 with quality score 78 ms", rep)
 	if p.authFailed.Load() || rep.state != "" {
 		t.Errorf("a routine log line was treated as a failure: state=%q", rep.state)
+	}
+}
+
+func TestKeepAliveURLReachesTheClient(t *testing.T) {
+	// The session token this refreshes is the one thing the agent's own
+	// keepalive cannot touch, so a setting that quietly failed to reach the
+	// client would look exactly like the bug it fixes: a tunnel that dies
+	// every forty minutes for no visible reason.
+	cfg := agent.Config{Extra: map[string]string{
+		"keep_alive_url": "http://10.0.2.24:8100",
+		"totp_secret":    "SEED",
+	}}
+	args := optionArgs(cfg)
+
+	var found bool
+	for i, a := range args {
+		if a == "--keep-alive-url" {
+			if i+1 >= len(args) || args[i+1] != "http://10.0.2.24:8100" {
+				t.Fatalf("--keep-alive-url was passed without its value: %v", args)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("keep_alive_url did not reach the client: %v", args)
+	}
+}
+
+func TestUnsetOptionsArePassedAtAll(t *testing.T) {
+	// An empty setting must not become an empty flag: zju-connect would take
+	// "--keep-alive-url" followed by the next flag as its value.
+	if args := optionArgs(agent.Config{}); len(args) != 0 {
+		t.Errorf("unset options produced %v, want nothing", args)
 	}
 }

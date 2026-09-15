@@ -173,6 +173,15 @@ tunnels:
       routes: "10.0.0.0/8,192.168.0.0/16"
       dns: "10.10.0.21"
       search_domains: "example.edu.cn"
+      # A Sangfor session expires on the gateway's own schedule -- one seen in
+      # the wild went every forty minutes -- and traffic through the tunnel
+      # does not prevent it, because what expires is the session token rather
+      # than the link. Only the client can refresh it, by fetching this once a
+      # minute over its own protocol path. Give it plain HTTP to something
+      # inside the network that answers: zju-connect verifies certificates and
+      # cannot be told not to, so an intranet HTTPS address signed by a private
+      # CA leaves a keepalive that runs and never completes.
+      keep_alive_url: "http://10.0.2.24:8100"
     disabled: true
 
   # Fortinet, through OpenConnect. The same image also serves GlobalProtect,
