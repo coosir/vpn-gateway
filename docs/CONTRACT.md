@@ -62,11 +62,15 @@ Overrides replace rather than merge, so a wrong guess can be corrected.
 
 Corporate gateways hang up on a session that has sent nothing for a while, so
 the agent sends a little traffic through the tunnel itself: while the state is
-`up` and nothing else has crossed the tunnel since the last tick, it opens and
-immediately closes one TCP connection through the provider's `Dial`. That is
-the one path every provider has, so every tunnel is kept alive the same way,
-whether its traffic leaves through a client's SOCKS proxy or through routes
-installed in the container's namespace.
+`up` and nothing else has crossed the tunnel since the last tick, it asks one
+question of the network on the other side.
+
+How it asks depends on the tunnel. Where the client installed an interface in
+this container, it sends a DNS query over UDP to a resolver inside the network
+and waits for the answer -- a round trip, and a resolver that refuses TCP on
+53 still answers a datagram. Where the client handed us a proxy instead, it
+opens and immediately closes one TCP connection through the provider's `Dial`.
+Either way it is one exchange every provider can carry.
 
 This is not the client's own dead-peer detection. DPD keeps the link from
 being declared dead by the protocol; the timer that drops an idle session

@@ -84,6 +84,11 @@ type Agent struct {
 
 	// redial fires when something asks for an immediate reconnect.
 	redial chan struct{}
+
+	// tunnelUp reports whether the tunnel is an interface in this container
+	// rather than a proxy, which decides how the keepalive asks. Unset means
+	// look at the interfaces themselves.
+	tunnelUp func() bool
 }
 
 // NewAgent builds an agent for cfg using the provider registered under

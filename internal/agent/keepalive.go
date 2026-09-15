@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"strconv"
 	"strings"
@@ -141,11 +143,32 @@ func (a *Agent) keepaliveRound(ctx context.Context, st *keepaliveState, timeout 
 	}
 }
 
-// probe opens and immediately closes a connection through the tunnel,
-// stopping at the first target that answers.
+// probe sends something through the tunnel and reports whether anything came
+// back, stopping at the first target that answers.
+//
+// There are two ways to ask, because there are two kinds of tunnel here. One
+// installs an interface in this container and gets a resolver with it; the
+// other hands us a proxy and installs nothing. The interface kind is asked a
+// question its resolver will answer, because a corporate resolver that
+// refuses TCP on 53 still answers a datagram -- one of the gateways here does
+// exactly that, and a keepalive that only knew how to open a socket would
+// send unanswered packets at it forever and call itself broken.
 func (a *Agent) probe(ctx context.Context, targets []string, timeout time.Duration) error {
+	viaInterface := a.onAnInterface()
 	var first error
+	note := func(t string, err error) {
+		if first == nil {
+			first = fmt.Errorf("%s: %w", t, err)
+		}
+	}
 	for _, t := range targets {
+		if viaInterface {
+			if err := a.resolverProbe(ctx, t, timeout); err == nil {
+				return nil
+			} else {
+				note(t, err)
+			}
+		}
 		dialCtx, cancel := context.WithTimeout(ctx, timeout)
 		conn, err := a.Dial(dialCtx, "tcp", t)
 		cancel()
@@ -153,11 +176,95 @@ func (a *Agent) probe(ctx context.Context, targets []string, timeout time.Durati
 			conn.Close()
 			return nil
 		}
-		if first == nil {
-			first = fmt.Errorf("%s: %w", t, err)
-		}
+		note(t, err)
 	}
 	return first
+}
+
+// onAnInterface reports whether the tunnel is an interface in this container.
+func (a *Agent) onAnInterface() bool {
+	if a.tunnelUp != nil {
+		return a.tunnelUp()
+	}
+	return TunnelInterfaceUp()
+}
+
+// resolverProbe asks the resolver at target to look up a name, over UDP,
+// through whatever interface the routing table says reaches it.
+//
+// What the resolver says about the name does not matter: an answer of any
+// kind is a round trip through the tunnel, which is both the traffic the
+// gateway is waiting to see and proof that the session still carries it. So
+// the question is written and read here rather than handed to a resolver
+// library, which reports a nameserver that said nothing at all and one that
+// said "no such name" as the same thing -- and those are opposite answers to
+// the only question being asked.
+func (a *Agent) resolverProbe(ctx context.Context, target string, timeout time.Duration) error {
+	dialCtx, cancel := context.WithTimeout(ctx, timeout)
+	var d net.Dialer
+	conn, err := d.DialContext(dialCtx, "udp", target)
+	cancel()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(timeout))
+
+	query, id := dnsQuery(a.keepaliveName())
+	if _, err := conn.Write(query); err != nil {
+		return err
+	}
+	buf := make([]byte, 512)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return err
+	}
+	if n < dnsHeaderLen || buf[0] != byte(id>>8) || buf[1] != byte(id) || buf[2]&0x80 == 0 {
+		return errors.New("the resolver sent something that was not an answer")
+	}
+	return nil
+}
+
+// dnsHeaderLen is the fixed part of a DNS message.
+const dnsHeaderLen = 12
+
+// dnsQuery builds a question about name's address record, and returns it with
+// the id that identifies the answer.
+func dnsQuery(name string) ([]byte, uint16) {
+	id := uint16(rand.Uint32())
+	msg := make([]byte, 0, dnsHeaderLen+len(name)+6)
+	msg = append(msg,
+		byte(id>>8), byte(id),
+		0x01, 0x00, // a recursive question
+		0x00, 0x01, // one of them
+		0, 0, 0, 0, 0, 0,
+	)
+	for _, label := range strings.Split(strings.TrimSuffix(name, "."), ".") {
+		if label == "" || len(label) > 63 {
+			continue
+		}
+		msg = append(msg, byte(len(label)))
+		msg = append(msg, label...)
+	}
+	msg = append(msg,
+		0x00,       // the root label ends the name
+		0x00, 0x01, // an address
+		0x00, 0x01, // on the internet
+	)
+	return msg, id
+}
+
+// keepaliveName is the name the resolver probe asks about: the gateway's own
+// hostname, which is the one name every tunnel here is certain to know.
+func (a *Agent) keepaliveName() string {
+	name := a.cfg.Server
+	if host, _, err := net.SplitHostPort(name); err == nil {
+		name = host
+	}
+	if name == "" {
+		return "localhost"
+	}
+	return name
 }
 
 // keepaliveTargets is what to connect to, as "host:port".

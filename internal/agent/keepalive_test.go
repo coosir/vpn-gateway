@@ -59,6 +59,7 @@ func (p *dialRecorder) Dial(ctx context.Context, network, addr string) (net.Conn
 func TestKeepaliveProbesOnlyWhileTheTunnelIsUp(t *testing.T) {
 	p := newDialRecorder(t, false)
 	a := newTestAgent(t, p)
+	a.tunnelUp = func() bool { return false }
 	a.SetNetwork(contract.Network{DNS: []string{"10.20.0.53"}})
 
 	var st keepaliveState
@@ -93,6 +94,7 @@ func TestKeepaliveLeavesABusyTunnelAlone(t *testing.T) {
 	// network.
 	p := newDialRecorder(t, false)
 	a := newTestAgent(t, p)
+	a.tunnelUp = func() bool { return false }
 	a.SetNetwork(contract.Network{DNS: []string{"10.20.0.53"}})
 	a.SetState(contract.StateUp, nil)
 
@@ -115,6 +117,7 @@ func TestKeepaliveNeedsSomewhereToProbe(t *testing.T) {
 	// dial; it must say so rather than dial nowhere.
 	p := newDialRecorder(t, false)
 	a := newTestAgent(t, p)
+	a.tunnelUp = func() bool { return false }
 	a.SetState(contract.StateUp, nil)
 
 	var st keepaliveState
@@ -130,6 +133,7 @@ func TestKeepaliveNeedsSomewhereToProbe(t *testing.T) {
 func TestKeepaliveTriesEveryTargetBeforeGivingUp(t *testing.T) {
 	p := newDialRecorder(t, true)
 	a := newTestAgent(t, p)
+	a.tunnelUp = func() bool { return false }
 	a.cfg.Extra = map[string]string{"keepalive_target": "10.20.0.53, intranet.corp:443"}
 	a.SetState(contract.StateUp, nil)
 
@@ -213,6 +217,92 @@ func TestCfgDuration(t *testing.T) {
 		cfg := Config{Extra: map[string]string{"keepalive_interval": tt.value}}
 		if got := cfgDuration(cfg, "keepalive_interval", time.Minute); got != tt.want {
 			t.Errorf("cfgDuration(%q) = %s, want %s", tt.value, got, tt.want)
+		}
+	}
+}
+
+// answeringResolver is a nameserver that replies to anything with an empty
+// answer. What it says does not matter: a reply of any kind is the round trip
+// the keepalive is looking for.
+func answeringResolver(t *testing.T) string {
+	t.Helper()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen udp: %v", err)
+	}
+	t.Cleanup(func() { pc.Close() })
+	go func() {
+		buf := make([]byte, 512)
+		for {
+			n, addr, err := pc.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			if n < 12 {
+				continue
+			}
+			reply := make([]byte, n)
+			copy(reply, buf[:n])
+			reply[2] |= 0x80 // this is a response
+			reply[3] &^= 0x0f
+			reply[6], reply[7] = 0, 0 // and it has no answers
+			pc.WriteTo(reply, addr)
+		}
+	}()
+	return pc.LocalAddr().String()
+}
+
+func TestKeepaliveAsksTheResolverWhereTheTunnelIsAnInterface(t *testing.T) {
+	// A corporate resolver that refuses TCP on 53 still answers a datagram,
+	// so a tunnel that installed an interface asks it a question rather than
+	// sending it a connection it will never accept.
+	p := newDialRecorder(t, true)
+	a := newTestAgent(t, p)
+	a.tunnelUp = func() bool { return true }
+	a.cfg.Server = "vpn.corp.example"
+	a.cfg.Extra = map[string]string{"keepalive_target": answeringResolver(t)}
+	a.SetState(contract.StateUp, nil)
+
+	var st keepaliveState
+	a.keepaliveRound(context.Background(), &st, 3*time.Second)
+	if st.failing {
+		t.Error("the resolver answered but the round was recorded as failing")
+	}
+	if n := p.dials.Load(); n != 0 {
+		t.Errorf("opened %d connections as well, want none: the answer was enough", n)
+	}
+}
+
+func TestKeepaliveFallsBackToAConnection(t *testing.T) {
+	// Nothing is listening on that port, so the resolver probe fails and the
+	// tunnel is kept alive the other way.
+	p := newDialRecorder(t, false)
+	a := newTestAgent(t, p)
+	a.tunnelUp = func() bool { return true }
+	a.cfg.Extra = map[string]string{"keepalive_target": "127.0.0.1:1"}
+	a.SetState(contract.StateUp, nil)
+
+	var st keepaliveState
+	a.keepaliveRound(context.Background(), &st, time.Second)
+	if st.failing {
+		t.Error("the connection succeeded but the round was recorded as failing")
+	}
+	if n := p.dials.Load(); n != 1 {
+		t.Errorf("opened %d connections, want 1 after the resolver said nothing", n)
+	}
+}
+
+func TestKeepaliveName(t *testing.T) {
+	tests := []struct{ server, want string }{
+		{"vpn.corp.example", "vpn.corp.example"},
+		{"zt.secchipera.com:4430", "zt.secchipera.com"},
+		{"", "localhost"},
+	}
+	for _, tt := range tests {
+		a := newTestAgent(t, &dialRecorder{})
+		a.cfg.Server = tt.server
+		if got := a.keepaliveName(); got != tt.want {
+			t.Errorf("keepaliveName(%q) = %q, want %q", tt.server, got, tt.want)
 		}
 	}
 }
