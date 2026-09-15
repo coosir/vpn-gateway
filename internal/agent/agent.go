@@ -326,6 +326,11 @@ func (a *Agent) publish(ev contract.Event) {
 // DefaultMaxAttempts. After that the tunnel parks in error and waits to be
 // told to try again, rather than knocking at a gateway that is refusing it.
 func (a *Agent) Supervise(ctx context.Context) {
+	// Runs alongside the dialling for the agent's whole life: it probes only
+	// while the tunnel is up, and a tunnel that is down has the supervisor's
+	// attention already.
+	go a.keepalive(ctx)
+
 	backoff := retryMin
 	attempts := 0
 	for {

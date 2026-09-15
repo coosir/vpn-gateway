@@ -99,6 +99,18 @@ users:
 # Past that window, or if the gateway rejects the session outright, the client
 # exits. A manual tunnel then waits to be told rather than logging in again on
 # its own -- inside the container as well as on this side.
+#
+# Every container tunnel keeps itself alive. A gateway that hangs up on an
+# idle session is looking for traffic, so once a minute -- and only when
+# nothing else has crossed the tunnel in the meantime -- the agent opens and
+# closes one connection to a resolver the VPN pushed. Where a VPN pushes no
+# resolvers, or its resolvers refuse TCP, name somewhere inside the network
+# that will answer:
+#
+#   extra:
+#     keepalive_target: "10.20.0.53, wiki.corp.example:443"
+#     keepalive_interval: "5m"
+#     keepalive: "false"      # only for a gateway that dislikes the traffic
 
 tunnels:
   # Server LAN / Direct Host Tunnel (no container required).

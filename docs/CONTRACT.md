@@ -58,6 +58,32 @@ auto-discovered:
 
 Overrides replace rather than merge, so a wrong guess can be corrected.
 
+### Keepalive
+
+Corporate gateways hang up on a session that has sent nothing for a while, so
+the agent sends a little traffic through the tunnel itself: while the state is
+`up` and nothing else has crossed the tunnel since the last tick, it opens and
+immediately closes one TCP connection through the provider's `Dial`. That is
+the one path every provider has, so every tunnel is kept alive the same way,
+whether its traffic leaves through a client's SOCKS proxy or through routes
+installed in the container's namespace.
+
+This is not the client's own dead-peer detection. DPD keeps the link from
+being declared dead by the protocol; the timer that drops an idle session
+counts what the user sent, and DPD is not that.
+
+| Key | Meaning |
+|-----|---------|
+| `keepalive` | `false` turns the probe off; on by default |
+| `keepalive_interval` | how often to probe, as a duration or bare seconds (default `1m`, floor 5s) |
+| `keepalive_target` | comma-separated `host:port` inside the network to probe; a host with no port is probed on 53. Defaults to the resolvers the VPN pushed |
+| `keepalive_timeout` | how long one probe may take (default `10s`) |
+
+Probes do not count towards the traffic in `/v1/status`: they are the agent's
+own bookkeeping, not what the tunnel carried. A refused connection still
+crossed the tunnel and still kept the session alive; it is logged once per
+spell of failure so a target that will never answer can be corrected.
+
 ## Control plane endpoints
 
 ### `GET /v1/status`
