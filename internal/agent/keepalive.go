@@ -15,17 +15,16 @@ import (
 
 // Keepalive settings.
 //
-// A gateway that hangs up on an idle session is generous about it: the idle
-// windows in the wild are hours, or most of an hour at the tightest. So the
-// probe is rare by default. Probing more often than the gateway's patience
-// requires buys nothing and puts a connection at a corporate network every
-// time; a gateway that is stricter than this is told so with
-// keepalive_interval.
+// The default interval has to fit inside the patience of the strictest
+// gateway it will meet, because an interval as long as the gateway's timeout
+// is a race with it -- and one of the gateways here hangs up at thirty
+// minutes to the second. Ten leaves room for a probe to be lost and another
+// to follow it, and costs one DNS query.
 //
 // The timeout is the other kind of number: it bounds one probe, which either
 // answers in a moment or is not going to.
 const (
-	defaultKeepaliveInterval = 30 * time.Minute
+	defaultKeepaliveInterval = 10 * time.Minute
 	defaultKeepaliveTimeout  = 10 * time.Second
 
 	// minKeepaliveInterval is the floor under a configured interval. Below
