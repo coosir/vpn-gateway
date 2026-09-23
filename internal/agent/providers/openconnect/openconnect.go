@@ -103,6 +103,14 @@ type Provider struct {
 	// is another sign-on, which is exactly what the next attempt does.
 	cookieRejected atomic.Bool
 
+	// codeMu guards the one-time codes joined onto the password: the one the
+	// current dial sent, and the last one the gateway turned down. A code is
+	// good for one login at most, so a retry inside the same period must wait
+	// for the next one rather than send the refused one again.
+	codeMu      sync.Mutex
+	sentCode    string
+	refusedCode string
+
 	// mu guards the sign-on question, which is asked by Run and answered
 	// from the control plane.
 	mu         sync.Mutex
@@ -167,7 +175,7 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 		// a phrase in the output: the wording differs across the seven
 		// protocols and changes between versions.
 		ReadyWhen: agent.TunnelInterfaceUp,
-		Prompts:   prompts(),
+		Prompts:   p.passwordPrompts(cfg.Bool("totp_append", false)),
 		OnLine:    func(line string, rep agent.Reporter) { p.onLine(line, rep) },
 	}
 
@@ -365,8 +373,55 @@ func (p *Provider) password(cfg agent.Config, rep agent.Reporter) (string, error
 		// A seed that cannot be read will not start working later.
 		return "", agent.Permanent(err)
 	}
+
+	p.codeMu.Lock()
+	refused := p.refusedCode
+	p.codeMu.Unlock()
+	if code == refused {
+		left := agent.TOTPValidFor(time.Now(), opts)
+		rep.Log("the gateway turned this one-time code down; waiting %s for the next", left.Round(time.Second))
+		time.Sleep(left)
+		if code, err = agent.TOTP(secret, time.Now(), opts); err != nil {
+			return "", agent.Permanent(err)
+		}
+	}
+
+	p.codeMu.Lock()
+	p.sentCode = code
+	p.codeMu.Unlock()
 	rep.Log("using a one-time code joined to the password")
 	return cfg.Password + code, nil
+}
+
+// passwordPrompts describe the questions a login with a password can raise.
+//
+// The password goes in on standard input before openconnect asks, so it only
+// ever asks for one after the gateway has turned down the one it was given.
+// When that password carries a one-time code, nobody watching can answer
+// better than the configuration did: the refusal is often the gateway's own
+// token check failing once, and the way back is another login with a fresh
+// code. Relaying the question instead leaves the tunnel in auth_required for
+// as long as nobody looks -- once, twelve hours overnight. Ending the attempt
+// hands it to the supervisor, whose retry limit keeps a gateway that keeps
+// refusing from locking the account.
+func (p *Provider) passwordPrompts(appended bool) []agent.Prompt {
+	if !appended {
+		return prompts()
+	}
+	isQuestion := agent.GatewayQuestion()
+	refused := agent.Prompt{
+		Match: func(line string, complete bool) bool {
+			return isQuestion(line, complete) && classify(question(line)) == contract.ChallengePassword
+		},
+		Type: contract.ChallengePassword,
+		Refuse: func(line string) error {
+			p.codeMu.Lock()
+			p.refusedCode = p.sentCode
+			p.codeMu.Unlock()
+			return fmt.Errorf("the gateway turned down the password and one-time code, and asked again (%q)", question(line))
+		},
+	}
+	return append([]agent.Prompt{refused}, prompts()...)
 }
 
 // minCodeValidity is how much of a code's life has to remain for it to be
@@ -520,15 +575,20 @@ func prompts() []agent.Prompt {
 			Match: agent.GatewayQuestion(),
 			Type:  contract.ChallengePassword,
 			Describe: func(line string, recent []string) contract.Challenge {
-				question := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), ":"))
+				q := question(line)
 				ch := contract.Challenge{
-					Type:   classify(question),
-					Prompt: question + " (asked by the VPN gateway)",
+					Type:   classify(q),
+					Prompt: q + " (asked by the VPN gateway)",
 				}
 				return ch
 			},
 		},
 	}
+}
+
+// question is a prompt's wording without the colon it ends on.
+func question(line string) string {
+	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), ":"))
 }
 
 // classify guesses what kind of answer a gateway's question wants, so a

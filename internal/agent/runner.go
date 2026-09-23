@@ -94,6 +94,12 @@ type Prompt struct {
 	// Describe builds the challenge shown to the person answering. recent
 	// holds the preceding output lines, newest last.
 	Describe func(line string, recent []string) contract.Challenge
+	// Refuse, when set, ends the run with the error it returns instead of
+	// relaying the question. It is for a question that can only mean the
+	// answers given in advance were turned down: nobody watching could answer
+	// it better than the configuration already did, and relaying it leaves the
+	// tunnel waiting in auth_required, with no deadline, until somebody notices.
+	Refuse func(line string) error
 }
 
 // Marker matches output containing s, case-insensitively. It suits a client
@@ -449,6 +455,10 @@ func (r *Runner) checkPrompt(line string, complete bool, rep Reporter) {
 	for _, p := range r.Prompts {
 		if p.Match == nil || !p.Match(line, complete) {
 			continue
+		}
+		if p.Refuse != nil {
+			r.Fail(p.Refuse(strings.TrimSpace(line)))
+			return
 		}
 
 		r.mu.Lock()

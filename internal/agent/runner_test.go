@@ -940,3 +940,40 @@ func TestFailOutsideARunIsHarmless(t *testing.T) {
 	r := &Runner{Path: "/bin/sh"}
 	r.Fail(errors.New("nothing is running"))
 }
+
+// TestARefusedQuestionEndsTheRunInsteadOfWaiting: a question that only means
+// the answers given in advance were turned down must not be parked for a
+// person. Once it was, and the tunnel sat in auth_required for twelve hours.
+func TestARefusedQuestionEndsTheRunInsteadOfWaiting(t *testing.T) {
+	want := errors.New("the gateway turned the login down")
+
+	r := &Runner{
+		Path:       "/bin/sh",
+		Args:       []string{"-c", `printf 'Password:'; while true; do sleep 1; done`},
+		DirectDial: true,
+		ReadyWhen:  func() bool { return false },
+		Prompts: []Prompt{{
+			Match:  GatewayQuestion(),
+			Type:   contract.ChallengePassword,
+			Refuse: func(string) error { return want },
+		}},
+	}
+	rep := &countingReporter{}
+
+	done := make(chan error, 1)
+	go func() { done <- r.Run(context.Background(), rep) }()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, want) {
+			t.Fatalf("Run returned %v, want %v", err, want)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Run did not return; the tunnel would wait on a question nobody should answer")
+	}
+	rep.mu.Lock()
+	defer rep.mu.Unlock()
+	if rep.challenges != 0 {
+		t.Errorf("raised %d challenges, want none", rep.challenges)
+	}
+}

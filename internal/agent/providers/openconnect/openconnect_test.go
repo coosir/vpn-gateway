@@ -419,3 +419,65 @@ func TestTheReconnectWindowIsNotSetByDefault(t *testing.T) {
 		}
 	}
 }
+
+// TestARepeatedPasswordQuestionIsARefusedCode: with --passwd-on-stdin the
+// password is never asked for, so a gateway asking for it means the password
+// and code were turned down. That is retried with a fresh code, not relayed.
+func TestARepeatedPasswordQuestionIsARefusedCode(t *testing.T) {
+	p := &Provider{protocol: "fortinet"}
+	p.sentCode = "123456"
+
+	ps := p.passwordPrompts(true)
+	refused := ps[0]
+	if refused.Refuse == nil {
+		t.Fatal("the first prompt does not end the attempt")
+	}
+	if !refused.Match("Password:", false) {
+		t.Error("the gateway asking for the password again was not recognised")
+	}
+	if refused.Match("Please enter your token:", false) {
+		t.Error("a token question was taken for a refused password")
+	}
+	if err := refused.Refuse("Password:"); err == nil || errors.Is(err, agent.ErrPermanent) {
+		t.Errorf("Refuse = %v, want an error worth retrying", err)
+	}
+	if p.refusedCode != "123456" {
+		t.Errorf("refused code = %q, want the one that was sent", p.refusedCode)
+	}
+}
+
+func TestAPlainPasswordQuestionIsStillRelayed(t *testing.T) {
+	// Without a code in the password there is nothing a retry would change.
+	p := &Provider{protocol: "fortinet"}
+	for _, pr := range p.passwordPrompts(false) {
+		if pr.Refuse != nil {
+			t.Error("a login without an appended code refuses a question")
+		}
+	}
+}
+
+func TestARefusedCodeIsNotSentAgain(t *testing.T) {
+	// A short period, so waiting out the refused code takes seconds.
+	opts := agent.TOTPOptions{Period: 6 * time.Second}
+	cfg := cfgWith(map[string]string{
+		"totp_append": "true", "totp_secret": testSeed, "totp_period": "6",
+	})
+
+	p := &Provider{protocol: "fortinet"}
+	now, err := agent.TOTP(testSeed, time.Now(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.refusedCode = now
+
+	got, err := p.password(cfg, &quietReporter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimPrefix(got, "s3cret") == now {
+		t.Error("sent the code the gateway had just turned down")
+	}
+	if p.sentCode != strings.TrimPrefix(got, "s3cret") {
+		t.Errorf("sent code recorded as %q", p.sentCode)
+	}
+}
