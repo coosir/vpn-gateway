@@ -161,6 +161,23 @@ vgctl -config /etc/vpn-gateway/config.yaml user delete alice
 Initial users can also be placed in `config.yaml` or generated via `vgctl hash-password`.
 When a user is deleted or their password is changed on the server, any active client connection for that user is automatically terminated and disconnected in real time.
 
+### Alerts when a tunnel goes offline
+
+To hear about it when a tunnel drops and is not coming back on its own, point
+the server at a [Bark](https://github.com/Finb/Bark) device:
+
+```yaml
+alerts:
+  bark_url: https://api.day.app/<device key>
+  grace: 3m          # optional, the default
+```
+
+A manual tunnel whose session ended is reported immediately. Any other tunnel
+that should be up is reported once it has been down longer than `grace`, which
+leaves room for the agent's own redials; a drop that recovers in time sends
+nothing. A tunnel somebody stopped is never reported. Each outage sends one
+alert, and one more when the tunnel is back up.
+
 `server_name` is baked into the certificate your clients will pin, so set it
 now. Changing it later means re-pinning every device.
 

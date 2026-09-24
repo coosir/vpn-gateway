@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/server"
+	"github.com/vpn-gateway/vpn-gateway/internal/server/alert"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/api"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/certs"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/proxy"
@@ -162,6 +163,18 @@ func run(configPath string, check bool, logLevel string) error {
 	}
 
 	var wg sync.WaitGroup
+	if cfg.Alerts.BarkURL != "" {
+		watcher := alert.New(alert.Options{
+			Notifier: alert.Bark{URL: cfg.Alerts.BarkURL},
+			Grace:    cfg.Alerts.Grace,
+			Label:    alertLabel(cfg),
+			Manual:   manualTunnels(cfg),
+			Log:      log.With("component", "alert"),
+		})
+		wg.Add(1)
+		go func() { defer wg.Done(); watcher.Run(ctx, mgr) }()
+		log.Info("alerting offline tunnels through Bark", "grace", cfg.Alerts.Grace)
+	}
 	wg.Add(1)
 	go func() { defer wg.Done(); mgr.Run(ctx) }()
 
@@ -191,6 +204,28 @@ func run(configPath string, check bool, logLevel string) error {
 	defer cancel()
 	mgr.Shutdown(shutCtx)
 	return nil
+}
+
+// alertLabel names this server in alerts, for someone running more than one.
+func alertLabel(cfg *server.Config) string {
+	if cfg.Alerts.Name != "" {
+		return cfg.Alerts.Name
+	}
+	if cfg.Trojan.ServerName != "" {
+		return cfg.Trojan.ServerName
+	}
+	host, _ := os.Hostname()
+	return host
+}
+
+func manualTunnels(cfg *server.Config) map[string]bool {
+	out := map[string]bool{}
+	for _, t := range cfg.Tunnels {
+		if t.Manual {
+			out[t.Name] = true
+		}
+	}
+	return out
 }
 
 // resolveTLS produces the certificate the listener serves.

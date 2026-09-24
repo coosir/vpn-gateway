@@ -56,6 +56,20 @@ trojan:
 
   log_level: warn
 
+# Push an alert through Bark when a tunnel goes offline and will not come back
+# by itself (optional; leave bark_url out to turn alerts off).
+#   - a manual tunnel whose session ended: reported at once, since nothing
+#     redials it until a person does
+#   - any other tunnel that should be up but is still not up after `grace`
+#     (default 3m): its agent gave up, the gateway wants a code, the container
+#     will not start. Drops that redial in time send nothing.
+# A tunnel somebody stopped is not reported. One alert per outage, and one
+# more when it is back.
+# alerts:
+#   bark_url: https://api.day.app/<device key>   # query params (sound=...) are kept
+#   grace: 3m
+#   name: home-nas        # labels every alert; defaults to trojan.server_name
+
 # User authentication for clients connecting to this server (optional).
 # When configured, clients must provide a valid username and password to connect.
 # Password hashes can be generated using: vgctl hash-password <password>

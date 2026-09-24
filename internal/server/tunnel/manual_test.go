@@ -192,6 +192,8 @@ func TestAManualTunnelStandsDownWhenItStopsBeingUp(t *testing.T) {
 		DataPort: port + 1000, ControlPort: port, Manual: true,
 	}
 	m := managerIn(t, t.TempDir(), &fakeEngine{present: true}, cfg)
+	events, release := m.Subscribe()
+	defer release()
 
 	runManager(t, m)
 
@@ -199,6 +201,17 @@ func TestAManualTunnelStandsDownWhenItStopsBeingUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, 20*time.Second, func() bool { return !wantedOf(t, m, "yanfeng") })
+
+	// Standing down is announced as such, so it can be told from a stop.
+	stoodDown := false
+	for len(events) > 0 {
+		if ev := <-events; ev.StoodDown && !ev.Tunnel.Wanted {
+			stoodDown = true
+		}
+	}
+	if !stoodDown {
+		t.Error("standing down was not marked on the event it published")
+	}
 
 	// Why it is down has to survive standing down, or whoever comes back to
 	// it is shown a tunnel that looks merely switched off.

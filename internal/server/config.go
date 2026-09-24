@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
@@ -63,6 +65,10 @@ type Config struct {
 
 	// Trojan configures the listener clients connect to.
 	Trojan TrojanConfig `yaml:"trojan"`
+
+	// Alerts tells someone when a tunnel goes offline and will not come back
+	// by itself.
+	Alerts AlertsConfig `yaml:"alerts,omitempty"`
 
 	// Users defines authorized clients that must authenticate to connect.
 	Users []UserConfig `yaml:"users,omitempty"`
@@ -132,6 +138,27 @@ type TrojanConfig struct {
 	// before any client exists.
 	Disabled bool `yaml:"disabled"`
 }
+
+// AlertsConfig describes where offline tunnels are reported.
+type AlertsConfig struct {
+	// BarkURL is a Bark push endpoint, e.g. https://api.day.app/<device key>.
+	// Empty turns alerts off. Query parameters (sound, group, level...) are
+	// kept and sent along with every push.
+	BarkURL string `yaml:"bark_url"`
+
+	// Grace is how long a tunnel that should be up may spend coming up --
+	// dialling, waiting on a code, being recreated -- before that is reported
+	// too. A tunnel whose agent gave up is reported at once, whatever this is.
+	Grace time.Duration `yaml:"grace"`
+
+	// Name labels this server in every alert, for someone running more than
+	// one. Defaults to trojan.server_name, then the host name.
+	Name string `yaml:"name"`
+}
+
+// DefaultAlertGrace is how long a wanted tunnel may take to come up before an
+// alert says it has not.
+const DefaultAlertGrace = 3 * time.Minute
 
 // TunnelConfig describes one VPN connection. Each becomes one container and
 // one trojan user.
@@ -321,6 +348,9 @@ func (c *Config) applyDefaults() {
 	if c.Trojan.LogLevel == "" {
 		c.Trojan.LogLevel = "warn"
 	}
+	if c.Alerts.Grace == 0 {
+		c.Alerts.Grace = DefaultAlertGrace
+	}
 }
 
 // Validate reports every problem it finds rather than only the first, so a
@@ -345,6 +375,7 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("tunnels: at least one tunnel is required"))
 	}
 	errs = append(errs, c.Trojan.validate()...)
+	errs = append(errs, c.Alerts.validate()...)
 
 	seenUsers := map[string]bool{}
 	for i, u := range c.Users {
@@ -404,6 +435,20 @@ func (c *Config) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (a AlertsConfig) validate() []error {
+	var errs []error
+	if a.BarkURL != "" {
+		u, err := url.Parse(a.BarkURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			errs = append(errs, fmt.Errorf("alerts.bark_url: want an http(s) URL such as https://api.day.app/<key>, got %q", a.BarkURL))
+		}
+	}
+	if a.Grace < 0 {
+		errs = append(errs, fmt.Errorf("alerts.grace: must not be negative, got %s", a.Grace))
+	}
+	return errs
 }
 
 func (t TrojanConfig) validate() []error {

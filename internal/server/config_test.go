@@ -421,3 +421,40 @@ tunnels:
 	}
 }
 
+
+func TestAlertsConfig(t *testing.T) {
+	cfg, err := LoadConfig(writeConfig(t, `
+trojan: {server_name: vpn.test}
+alerts: {bark_url: "https://api.day.app/key", grace: 90s}
+tunnels:
+  - {name: a, provider: mock, image: img}
+`))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Alerts.BarkURL != "https://api.day.app/key" || cfg.Alerts.Grace.Seconds() != 90 {
+		t.Fatalf("got %+v", cfg.Alerts)
+	}
+
+	cfg, err = LoadConfig(writeConfig(t, `
+trojan: {server_name: vpn.test}
+tunnels:
+  - {name: a, provider: mock, image: img}
+`))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Alerts.BarkURL != "" || cfg.Alerts.Grace != DefaultAlertGrace {
+		t.Fatalf("got %+v", cfg.Alerts)
+	}
+
+	_, err = LoadConfig(writeConfig(t, `
+trojan: {server_name: vpn.test}
+alerts: {bark_url: "api.day.app/key"}
+tunnels:
+  - {name: a, provider: mock, image: img}
+`))
+	if err == nil || !strings.Contains(err.Error(), "alerts.bark_url") {
+		t.Fatalf("want a bark_url error, got %v", err)
+	}
+}

@@ -110,6 +110,11 @@ type Tunnel struct {
 type Event struct {
 	At     time.Time `json:"at"`
 	Tunnel Snapshot  `json:"tunnel"`
+	// StoodDown marks the event of a manual tunnel being put down because
+	// its session ended, not because anybody pressed stop. The snapshot alone
+	// cannot tell the two apart once the reason is empty, and only one of
+	// them is something a person needs to hear about.
+	StoodDown bool `json:"stood_down,omitempty"`
 }
 
 // Manager owns every tunnel.
@@ -392,7 +397,7 @@ func (t *Tunnel) setWish(want, keepReason bool) {
 	after := t.snap
 	t.mu.Unlock()
 
-	t.publish(after)
+	t.publishEvent(Event{Tunnel: after, StoodDown: keepReason && !want})
 	if want {
 		t.log.Info("asked to dial")
 	} else {
@@ -938,10 +943,13 @@ func changed(before, after Snapshot) bool {
 		!slices.Equal(before.Network.DNS, after.Network.DNS)
 }
 
-func (t *Tunnel) publish(snap Snapshot) {
+func (t *Tunnel) publish(snap Snapshot) { t.publishEvent(Event{Tunnel: snap}) }
+
+func (t *Tunnel) publishEvent(ev Event) {
 	if t.mgr != nil {
-		snap.TrojanPassword = t.trojanPassword
-		t.mgr.publish(Event{At: time.Now(), Tunnel: snap})
+		ev.At = time.Now()
+		ev.Tunnel.TrojanPassword = t.trojanPassword
+		t.mgr.publish(ev)
 	}
 }
 
