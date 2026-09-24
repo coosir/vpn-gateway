@@ -234,7 +234,7 @@ func (w *Watcher) check() {
 		}
 		st.alerted = true
 		w.enqueue(fmt.Sprintf("%s 离线", name),
-			withReason(fmt.Sprintf("自动重连 %s 仍未成功（当前状态：%s）。", roundDuration(down), describe(st.snap)),
+			withReason(fmt.Sprintf("已离线 %s，仍未自动恢复（当前状态：%s）。", roundDuration(down), describe(st.snap)),
 				st.snap.LastError))
 	}
 }

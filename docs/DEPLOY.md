@@ -172,6 +172,14 @@ alerts:
   grace: 3m          # optional, the default
 ```
 
+A trojan tunnel has no agent to report on it, so the server checks it itself:
+every `probe.interval` (5m) it fetches `probe.url` through the node, and two
+failures in a row mark it `error` with the reason, which the alerts below then
+pick up. A tunnel whose clients are getting answers through it is not probed.
+Point `probe_url` on a tunnel at a page inside the network it leads to for a
+check that proves the way in rather than only the way out; it must answer with
+a status below 400.
+
 A manual tunnel whose session ended is reported immediately. Any other tunnel
 that should be up is reported once it has been down longer than `grace`, which
 leaves room for the agent's own redials; a drop that recovers in time sends

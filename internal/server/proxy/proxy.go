@@ -220,6 +220,7 @@ func BuildConfig(opts Options) ([]byte, error) {
 // Proxy owns a running sing-box instance.
 type Proxy struct {
 	instance *box.Box
+	traffic  *trafficTracker
 	log      *slog.Logger
 }
 
@@ -243,6 +244,8 @@ func New(ctx context.Context, opts Options, log *slog.Logger) (*Proxy, error) {
 	if err != nil {
 		return nil, fmt.Errorf("proxy: build listener: %w", err)
 	}
+	traffic := newTrafficTracker(opts.Routes)
+	instance.Router().AppendTracker(traffic)
 	if err := instance.Start(); err != nil {
 		instance.Close()
 		return nil, fmt.Errorf("proxy: start listener on %s: %w", opts.Listen, err)
@@ -250,7 +253,7 @@ func New(ctx context.Context, opts Options, log *slog.Logger) (*Proxy, error) {
 
 	log.Info("trojan listener started",
 		"listen", opts.Listen, "server_name", opts.ServerName, "tunnels", len(opts.Routes))
-	return &Proxy{instance: instance, log: log}, nil
+	return &Proxy{instance: instance, traffic: traffic, log: log}, nil
 }
 
 // Close stops the listener.

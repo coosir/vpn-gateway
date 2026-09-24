@@ -56,6 +56,18 @@ trojan:
 
   log_level: warn
 
+# A trojan tunnel has no agent to say whether it works, and the protocol will
+# not say either: a node that is down, one that no longer takes the password
+# and one whose own network is gone all still answer TLS. So the server fetches
+# a URL through each one and marks it error after two failures in a row (the
+# second 30s after the first), and up again at the first success. Real client
+# traffic coming back through a working tunnel counts as a check, so a busy
+# one is not probed at all. The URL must answer with a status below 400.
+# Direct tunnels are probed only when given their own probe_url.
+# probe:
+#   interval: 5m
+#   url: http://cp.cloudflare.com/generate_204
+
 # Push an alert through Bark when a tunnel goes offline and will not come back
 # by itself (optional; leave bark_url out to turn alerts off).
 #   - a manual tunnel whose session ended: reported at once, since nothing
@@ -151,6 +163,9 @@ tunnels:
     # sni: hk.node.example.com    # optional SNI override
     password: "your-trojan-password" # or use password_env: HK_TROJAN_PASS
     # insecure: true              # optional: skip TLS cert verification
+    # probe_url: http://10.0.0.5/  # optional: check through this instead of
+    #                              # probe.url -- an intranet page proves the
+    #                              # way in; "off" stops probing this tunnel
     extra:
       domains: "google.com,github.com"
       routes: "1.0.0.1/32"

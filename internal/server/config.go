@@ -66,6 +66,10 @@ type Config struct {
 	// Trojan configures the listener clients connect to.
 	Trojan TrojanConfig `yaml:"trojan"`
 
+	// Probe checks that tunnels without an agent of their own -- an upstream
+	// trojan node above all -- actually carry traffic.
+	Probe ProbeConfig `yaml:"probe,omitempty"`
+
 	// Alerts tells someone when a tunnel goes offline and will not come back
 	// by itself.
 	Alerts AlertsConfig `yaml:"alerts,omitempty"`
@@ -138,6 +142,31 @@ type TrojanConfig struct {
 	// before any client exists.
 	Disabled bool `yaml:"disabled"`
 }
+
+// ProbeConfig describes how tunnels with no agent are checked.
+//
+// A container tunnel has an agent that says whether its VPN is up. An upstream
+// trojan node has nobody to ask, and the protocol will not say either: a node
+// that is down, a password it no longer takes and a node whose own network is
+// gone all look like a TLS port that answers. The only way to know is to send
+// something through it and see what comes back.
+type ProbeConfig struct {
+	// Interval is how long a tunnel that works goes between checks. Real
+	// traffic coming back through it in that time counts as a check.
+	Interval time.Duration `yaml:"interval"`
+	// URL is what is fetched through the tunnel. It must answer below 400;
+	// see TunnelConfig.ProbeURL for pointing one tunnel somewhere else.
+	URL string `yaml:"url"`
+}
+
+// Probe defaults.
+const (
+	DefaultProbeInterval = 5 * time.Minute
+	DefaultProbeURL      = "http://cp.cloudflare.com/generate_204"
+)
+
+// ProbeOff as a tunnel's probe_url turns probing off for it.
+const ProbeOff = "off"
 
 // AlertsConfig describes where offline tunnels are reported.
 type AlertsConfig struct {
@@ -231,6 +260,15 @@ type TunnelConfig struct {
 	// be told to try again. Zero uses the agent's own default.
 	MaxAttempts int `yaml:"max_attempts"`
 
+	// ProbeURL is what is fetched through this tunnel to check it works,
+	// overriding probe.url. An address inside the network the node leads to
+	// is the better check -- it proves the way in, not only the way out --
+	// provided it answers with a status below 400. "off" stops probing.
+	//
+	// Trojan tunnels are probed unless this is "off"; direct tunnels only
+	// when this is set. Container tunnels have an agent to ask instead.
+	ProbeURL string `yaml:"probe_url"`
+
 	// DataPort and ControlPort pin the loopback ports. Zero means the server
 	// allocates them from PortBase in name order.
 	DataPort    int `yaml:"data_port"`
@@ -266,6 +304,21 @@ func (t TunnelConfig) IsTrojan() bool {
 // NeedsContainer reports whether this tunnel requires running a container runtime.
 func (t TunnelConfig) NeedsContainer() bool {
 	return !t.IsDirect() && !t.IsTrojan()
+}
+
+// ProbeTarget returns the URL to probe this tunnel with, or "" when it is not
+// probed.
+func (t TunnelConfig) ProbeTarget(defaultURL string) string {
+	switch {
+	case t.ProbeURL == ProbeOff || t.NeedsContainer():
+		return ""
+	case t.ProbeURL != "":
+		return t.ProbeURL
+	case t.IsTrojan():
+		return defaultURL
+	default:
+		return ""
+	}
 }
 
 // UpstreamHostPort returns the target host and port for an upstream trojan tunnel.
@@ -348,6 +401,12 @@ func (c *Config) applyDefaults() {
 	if c.Trojan.LogLevel == "" {
 		c.Trojan.LogLevel = "warn"
 	}
+	if c.Probe.Interval == 0 {
+		c.Probe.Interval = DefaultProbeInterval
+	}
+	if c.Probe.URL == "" {
+		c.Probe.URL = DefaultProbeURL
+	}
 	if c.Alerts.Grace == 0 {
 		c.Alerts.Grace = DefaultAlertGrace
 	}
@@ -376,6 +435,12 @@ func (c *Config) Validate() error {
 	}
 	errs = append(errs, c.Trojan.validate()...)
 	errs = append(errs, c.Alerts.validate()...)
+	if c.Probe.Interval < 10*time.Second {
+		errs = append(errs, fmt.Errorf("probe.interval: want at least 10s, got %s", c.Probe.Interval))
+	}
+	if err := validateProbeURL(c.Probe.URL); err != nil {
+		errs = append(errs, fmt.Errorf("probe.url: %w", err))
+	}
 
 	seenUsers := map[string]bool{}
 	for i, u := range c.Users {
@@ -424,6 +489,13 @@ func (c *Config) Validate() error {
 		} else if t.NeedsContainer() && t.Image == "" {
 			errs = append(errs, fmt.Errorf("%s: image is required", where))
 		}
+		if t.ProbeURL != "" && t.ProbeURL != ProbeOff {
+			if t.NeedsContainer() {
+				errs = append(errs, fmt.Errorf("%s: probe_url is for trojan and direct tunnels; a container tunnel's agent reports its own state", where))
+			} else if err := validateProbeURL(t.ProbeURL); err != nil {
+				errs = append(errs, fmt.Errorf("%s: probe_url: %w", where, err))
+			}
+		}
 		n := 0
 		for _, set := range []bool{t.Password != "", t.PasswordEnv != "", t.PasswordFile != ""} {
 			if set {
@@ -435,6 +507,14 @@ func (c *Config) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func validateProbeURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("want an http(s) URL or %q, got %q", ProbeOff, raw)
+	}
+	return nil
 }
 
 func (a AlertsConfig) validate() []error {

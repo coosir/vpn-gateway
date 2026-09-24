@@ -48,6 +48,16 @@ const (
 	adoptProbes     = 3
 	adoptProbeDelay = time.Second
 
+	// probeFailLimit is how many probes in a row must fail before a tunnel
+	// is called down. One lost request is a blip, not an outage.
+	probeFailLimit = 2
+	// probeRetry is how soon a failed probe is asked again, so a real outage
+	// is confirmed in seconds rather than a whole interval later.
+	probeRetry = 30 * time.Second
+	// probeWhileDown is how often a tunnel already called down is probed, so
+	// it is seen coming back without waiting out the interval.
+	probeWhileDown = time.Minute
+
 	// vncContainerPort is where an image that needs a graphical login serves
 	// it, by convention across the tier that wraps a vendor client.
 	vncContainerPort = 5901
@@ -117,12 +127,21 @@ type Event struct {
 	StoodDown bool `json:"stood_down,omitempty"`
 }
 
+// Prober checks a tunnel that has no agent to report on it.
+type Prober interface {
+	// Probe fetches url through the tunnel, reporting nil when it answered.
+	Probe(ctx context.Context, tunnel, url string) error
+	// LastTraffic is when the tunnel last carried an answer back to a client.
+	LastTraffic(tunnel string) time.Time
+}
+
 // Manager owns every tunnel.
 type Manager struct {
 	cfg     *server.Config
 	engine  runtime.Engine
 	log     *slog.Logger
 	tunnels []*Tunnel
+	prober  Prober
 
 	subsMu sync.Mutex
 	subs   map[int]chan Event
@@ -162,6 +181,22 @@ func (m *Manager) publish(ev Event) {
 		select {
 		case ch <- ev:
 		default:
+		}
+	}
+}
+
+// SetProber gives the manager what checks trojan and direct tunnels. Without
+// one, as when the listener is disabled, they are taken as up whenever they
+// are wanted. It must be called before Run.
+func (m *Manager) SetProber(p Prober) {
+	m.prober = p
+	for _, t := range m.tunnels {
+		if t.probed() {
+			t.mu.Lock()
+			if t.snap.Status.State == contract.StateUp {
+				t.snap.Status.State = contract.StateConnecting
+			}
+			t.mu.Unlock()
 		}
 	}
 }
@@ -392,6 +427,10 @@ func (t *Tunnel) setWish(want, keepReason bool) {
 		t.snap.Reachable = true
 		t.snap.ContainerUp = true
 		t.snap.Status.State = contract.StateUp
+		if t.probed() {
+			// Not up until something has come back through it.
+			t.snap.Status.State = contract.StateConnecting
+		}
 		t.snap.LastError = ""
 	}
 	after := t.snap
@@ -500,6 +539,10 @@ func (t *Tunnel) supervise(ctx context.Context) {
 		return
 	}
 
+	if t.probed() {
+		t.superviseProbed(ctx)
+		return
+	}
 	if !t.cfg.NeedsContainer() {
 		start := time.Now()
 		for {
@@ -589,6 +632,131 @@ func (t *Tunnel) supervise(ctx context.Context) {
 			continue
 		}
 	}
+}
+
+// probeTarget is the URL this tunnel is checked with, "" when it is not.
+func (t *Tunnel) probeTarget() string {
+	if t.mgr == nil || t.mgr.prober == nil {
+		return ""
+	}
+	return t.cfg.ProbeTarget(t.mgr.cfg.Probe.URL)
+}
+
+func (t *Tunnel) probed() bool { return t.probeTarget() != "" }
+
+// superviseProbed keeps a tunnel with no agent -- an upstream trojan node, or
+// a direct tunnel given a URL -- honest about whether it carries traffic.
+//
+// Nothing here dials anything on the tunnel's behalf beyond the probe: there is
+// no session to hold up, so all there is to do is look.
+func (t *Tunnel) superviseProbed(ctx context.Context) {
+	fails := 0
+	for {
+		wait := time.Duration(0)
+		if t.wanted.Load() {
+			wait = t.checkPath(ctx, &fails)
+		} else {
+			fails = 0
+			t.mu.Lock()
+			t.snap.Wanted = false
+			t.snap.ContainerUp = false
+			t.snap.Status.State = contract.StateDown
+			t.snap.Status.UptimeSeconds = 0
+			t.mu.Unlock()
+		}
+
+		var timer *time.Timer
+		var fire <-chan time.Time
+		if wait > 0 {
+			timer = time.NewTimer(wait)
+			fire = timer.C
+		}
+		select {
+		case <-ctx.Done():
+		case <-t.wake:
+		case <-fire:
+		}
+		if timer != nil {
+			timer.Stop()
+		}
+		if ctx.Err() != nil {
+			return
+		}
+	}
+}
+
+// checkPath takes one look at whether the tunnel works and says how long to
+// wait before the next.
+func (t *Tunnel) checkPath(ctx context.Context, fails *int) time.Duration {
+	interval := t.mgr.cfg.Probe.Interval
+	now := time.Now()
+
+	t.mu.RLock()
+	wasUp := t.snap.Status.State == contract.StateUp
+	t.mu.RUnlock()
+
+	// An answer a client already got through it is as good as a probe, and
+	// costs nothing. Only while it is working, though: a node refusing us
+	// hands the stream to its cover website, whose reply to a client is data
+	// coming back all the same, and that must not be what calls it recovered.
+	var err error
+	if !wasUp || now.Sub(t.mgr.prober.LastTraffic(t.cfg.Name)) >= interval {
+		err = t.mgr.prober.Probe(ctx, t.cfg.Name, t.probeTarget())
+		if ctx.Err() != nil {
+			return 0
+		}
+	}
+
+	t.mu.Lock()
+	// Stopped while the probe was out: what it found no longer matters, and
+	// writing it would put a stopped tunnel back up.
+	if !t.wanted.Load() {
+		t.mu.Unlock()
+		return 0
+	}
+	before := t.snap
+	t.snap.Wanted = true
+	t.snap.Reachable = true
+	t.snap.ContainerUp = true
+	var next time.Duration
+	switch {
+	case err == nil:
+		*fails = 0
+		if !wasUp {
+			t.snap.Status.Since = now
+			t.snap.Status.ConnectedAt = &now
+			t.log.Info("the tunnel carries traffic")
+		}
+		t.snap.Status.State = contract.StateUp
+		t.snap.Status.Error = ""
+		t.snap.LastError = ""
+		if t.snap.Status.ConnectedAt != nil {
+			t.snap.Status.UptimeSeconds = int64(now.Sub(*t.snap.Status.ConnectedAt).Seconds())
+		}
+		next = interval
+	default:
+		*fails++
+		if *fails < probeFailLimit {
+			next = probeRetry
+			break
+		}
+		if t.snap.Status.State != contract.StateError {
+			t.snap.Status.Since = now
+			t.log.Warn("the tunnel does not carry traffic", "error", err)
+		}
+		t.snap.Status.State = contract.StateError
+		t.snap.Status.Error = err.Error()
+		t.snap.Status.UptimeSeconds = 0
+		t.snap.LastError = err.Error()
+		next = min(interval, probeWhileDown)
+	}
+	after := t.snap
+	t.mu.Unlock()
+
+	if changed(before, after) {
+		t.publish(after)
+	}
+	return next
 }
 
 // sessionIsUp reports whether this tunnel's container is running and its agent

@@ -97,6 +97,9 @@ func run(configPath string, check bool, logLevel string) error {
 				fmt.Printf("  %-20s %-14s %-9s data=%d control=%d\n",
 					t.Name, t.Provider, state, t.DataPort, t.ControlPort)
 			}
+			if target := t.ProbeTarget(cfg.Probe.URL); target != "" {
+				fmt.Printf("  %-20s probe %s every %s\n", "", target, cfg.Probe.Interval)
+			}
 		}
 		return nil
 	}
@@ -158,6 +161,10 @@ func run(configPath string, check bool, logLevel string) error {
 			return err
 		}
 		defer listener.Close()
+		// The listener holds each tunnel's outbound, so it is what can send
+		// a probe the way a client's traffic goes.
+		mgr.SetProber(listener)
+		log.Info("probing tunnels without an agent", "interval", cfg.Probe.Interval, "url", cfg.Probe.URL)
 	} else {
 		log.Warn("the trojan listener is disabled; no client can connect")
 	}

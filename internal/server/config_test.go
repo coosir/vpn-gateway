@@ -458,3 +458,32 @@ tunnels:
 		t.Fatalf("want a bark_url error, got %v", err)
 	}
 }
+
+func TestProbeConfig(t *testing.T) {
+	cfg, err := LoadConfig(writeConfig(t, `
+trojan: {server_name: vpn.test}
+tunnels:
+  - {name: a, provider: trojan, server: "n.test:443", password: x}
+  - {name: b, provider: trojan, server: "n.test:443", password: x, probe_url: "http://10.0.0.1/"}
+  - {name: c, provider: trojan, server: "n.test:443", password: x, probe_url: "off"}
+`))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Probe.Interval != DefaultProbeInterval || cfg.Probe.URL != DefaultProbeURL {
+		t.Fatalf("defaults: %+v", cfg.Probe)
+	}
+
+	_, err = LoadConfig(writeConfig(t, `
+trojan: {server_name: vpn.test}
+probe: {interval: 1s, url: "ftp://x"}
+tunnels:
+  - {name: a, provider: mock, image: img, probe_url: "http://10.0.0.1/"}
+  - {name: b, provider: trojan, server: "n.test:443", password: x, probe_url: "10.0.0.1"}
+`))
+	for _, want := range []string{"probe.interval", "probe.url", `tunnels["a"]: probe_url is for`, `tunnels["b"]: probe_url`} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("want an error mentioning %q, got %v", want, err)
+		}
+	}
+}
