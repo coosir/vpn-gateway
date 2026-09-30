@@ -15,8 +15,7 @@
 #   make image-inode        # to try it here
 #   make push-inode         # to publish it for the server to pull
 #
-# The published image carries H3C's client, so its repository is kept
-# private. The client is x86_64 only, and so is the image.
+# The client is x86_64 only, and so is the image.
 
 FROM golang:1.26-alpine AS agent
 WORKDIR /src

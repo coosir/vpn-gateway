@@ -21,8 +21,7 @@ make push PLATFORMS=linux/amd64
 ```
 
 发布 `mock`、`sangfor`、`openconnect`、`inode` 四个镜像到 `coosir/vg-*:latest`。
-`inode` 需要 `images/inode/` 下的 H3C 安装包（git 忽略），且只构建 amd64；
-它在 Docker Hub 上应保持私有仓库。
+`inode` 需要 `images/inode/` 下的 H3C 安装包（git 忽略），且只构建 amd64。
 需要 arm64 时才去掉 `PLATFORMS` 覆盖（默认值是 amd64+arm64）。
 
 ## 3. 每完成一个需求变更：升 build 号 → 编译 → 提交并推送

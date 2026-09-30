@@ -503,9 +503,8 @@ it is published with the rest by `make push`, or alone:
 make push-inode
 ```
 
-The image carries H3C's client, so keep `coosir/vg-inode` a private
-repository on Docker Hub, and log the server in (`docker login`) so it can
-pull it. The client is x86_64 only, and so is the image.
+The server pulls it like any other image. The client is x86_64 only, and so
+is the image.
 
 The client's window never runs: the agent saves the connection the way the
 window would, with the password encrypted as it expects, and the client's

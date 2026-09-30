@@ -142,8 +142,7 @@ PLATFORMS ?= linux/amd64,linux/arm64
 BUILDER ?= vpn-gateway
 
 # Everything the server pulls. inode is among them so its tunnels are pulled
-# like any other, but it is built from H3C's installer, which is not ours to
-# hand out: keep coosir/vg-inode a private repository on Docker Hub.
+# like any other; it is built from H3C's installer, see image-inode below.
 PUBLISHED := mock sangfor openconnect inode
 
 # Build for this machine only and keep the result loadable, for trying an
