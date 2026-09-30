@@ -17,6 +17,8 @@ type fakeEngine struct {
 	pulls    []string
 	pullErr  error
 	existErr error
+	// duringPull runs inside Pull, to look at the tunnel mid-fetch.
+	duringPull func()
 }
 
 func (f *fakeEngine) Name() string { return "fake" }
@@ -24,6 +26,9 @@ func (f *fakeEngine) HasImage(ctx context.Context, image string) (bool, error) {
 	return f.present, f.existErr
 }
 func (f *fakeEngine) Pull(ctx context.Context, image string) error {
+	if f.duringPull != nil {
+		f.duringPull()
+	}
 	if f.pullErr != nil {
 		return f.pullErr
 	}
@@ -61,6 +66,25 @@ func TestAMissingImageIsFetched(t *testing.T) {
 	}
 	if len(e.pulls) != 1 || e.pulls[0] != "coosir/vg-mock:latest" {
 		t.Errorf("fetched %v", e.pulls)
+	}
+}
+
+// The fetch shows on the tunnel while it runs, so an alert does not read a
+// slow registry as a tunnel that is down, and is gone again however the fetch
+// ends.
+func TestAFetchShowsWhileItRuns(t *testing.T) {
+	for _, pullErr := range []error{nil, errors.New("no route to host")} {
+		e := &fakeEngine{present: false, pullErr: pullErr}
+		tn := tunnelWith("missing", e)
+		var during bool
+		e.duringPull = func() { during = tn.Snapshot().FetchingImage }
+		tn.ensureImage(context.Background())
+		if !during {
+			t.Errorf("pull error %v: the snapshot did not show the fetch while it ran", pullErr)
+		}
+		if tn.Snapshot().FetchingImage {
+			t.Errorf("pull error %v: the snapshot still shows a fetch after it ended", pullErr)
+		}
 	}
 }
 

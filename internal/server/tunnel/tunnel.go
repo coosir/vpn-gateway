@@ -81,6 +81,10 @@ type Snapshot struct {
 	ContainerExists bool   `json:"container_exists"`
 	ContainerUp     bool   `json:"container_up"`
 	LastError       string `json:"last_error,omitempty"`
+	// FetchingImage is set while the tunnel's image is being fetched. A
+	// first pull of a large image over a slow link takes minutes, and the
+	// tunnel is not down for any reason worth reporting in that time.
+	FetchingImage bool `json:"fetching_image,omitempty"`
 
 	Status    contract.Status     `json:"status"`
 	Network   contract.Network    `json:"network"`
@@ -945,6 +949,8 @@ func (t *Tunnel) ensureImage(ctx context.Context) error {
 	}
 
 	t.log.Info("fetching the image", "image", t.cfg.Image)
+	t.setFetching(true)
+	defer t.setFetching(false)
 	if err := t.engine.Pull(ctx, t.cfg.Image); err != nil {
 		// A cancelled fetch is the server shutting down, not a registry that
 		// is unreachable, and starting a container on the way out helps
@@ -962,6 +968,20 @@ func (t *Tunnel) ensureImage(ctx context.Context) error {
 	}
 	t.log.Info("image fetched", "image", t.cfg.Image)
 	return nil
+}
+
+// setFetching records whether the image is being fetched, and says so to
+// whoever is watching.
+func (t *Tunnel) setFetching(on bool) {
+	t.mu.Lock()
+	if t.snap.FetchingImage == on {
+		t.mu.Unlock()
+		return
+	}
+	t.snap.FetchingImage = on
+	after := t.snap
+	t.mu.Unlock()
+	t.publish(after)
 }
 
 // pollOutcome says why polling stopped, because the three reasons call for

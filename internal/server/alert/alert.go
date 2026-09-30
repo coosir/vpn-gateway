@@ -195,6 +195,11 @@ func (w *Watcher) observe(ev tunnel.Event) {
 		// stays open, so the tunnel coming back still says so.
 		st.downSince = time.Time{}
 
+	case s.FetchingImage:
+		// Waiting on a registry, not failing. The grace period starts over
+		// once the image is here and the tunnel has had its chance to dial.
+		st.downSince = time.Time{}
+
 	case s.Status.State == contract.StateUp && s.Reachable:
 		st.downSince = time.Time{}
 		if st.alerted {

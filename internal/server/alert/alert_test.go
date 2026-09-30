@@ -124,6 +124,37 @@ func TestAutostartThatNeverComesUpAlerts(t *testing.T) {
 	}
 }
 
+// Seen on svr12: a first pull of a 196MB image took six minutes, and the
+// tunnel was reported offline three minutes into it.
+func TestFetchingTheImageIsNotTimed(t *testing.T) {
+	w, now := newTestWatcher()
+	w.observe(tunnel.Event{At: *now, Tunnel: snap("a", true, contract.StateDown, false)})
+	fetching := snap("a", true, contract.StateDown, false)
+	fetching.FetchingImage = true
+	w.observe(tunnel.Event{At: now.Add(time.Second), Tunnel: fetching})
+	*now = now.Add(6 * time.Minute)
+	w.check()
+	if got := drain(w); len(got) != 0 {
+		t.Fatalf("alerted while the image was being fetched: %+v", got)
+	}
+
+	// The image is here. The grace period starts from now, not from before
+	// the fetch.
+	w.observe(tunnel.Event{At: *now, Tunnel: snap("a", true, contract.StateDown, false)})
+	*now = now.Add(2 * time.Minute)
+	w.check()
+	if got := drain(w); len(got) != 0 {
+		t.Fatalf("alerted inside the grace period after the fetch: %+v", got)
+	}
+
+	// Still not up well after it: that is a real outage.
+	*now = now.Add(2 * time.Minute)
+	w.check()
+	if got := drain(w); len(got) != 1 || got[0].title != "[home] a 离线" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
 func TestManualDiallingIsNotTimed(t *testing.T) {
 	w, now := newTestWatcher("hk")
 	w.observe(tunnel.Event{At: *now, Tunnel: snap("hk", true, contract.StateAuthRequired, true)})
