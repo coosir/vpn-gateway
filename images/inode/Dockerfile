@@ -26,9 +26,29 @@ COPY internal ./internal
 COPY cmd ./cmd
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/vg-agent ./cmd/vg-agent
 
-FROM ubuntu:22.04
+# The client is installed and pruned in a stage of its own. The image takes
+# only /opt/inode and /etc/iNode from it, so neither the installer (26MB) nor
+# what the vendor ships for its window reaches the image: a file removed in
+# a later layer still costs what it cost in the layer that added it.
+FROM ubuntu:22.04 AS inode
 
 ARG INODE_INSTALLER
+ARG DEBIAN_FRONTEND=noninteractive
+
+# binutils for strip; procps for the pkill that makes sure the vendor's boot
+# script left nothing running.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends binutils procps \
+ && rm -rf /var/lib/apt/lists/*
+
+# Copied and installed only when one was supplied, so the image can still be
+# built (and the failure explained clearly at runtime) without it.
+COPY ${INODE_INSTALLER:-images/inode/Dockerfile} /tmp/inode-installer
+COPY images/inode/install.sh /tmp/install.sh
+RUN sh /tmp/install.sh
+
+FROM ubuntu:22.04
+
 ARG DEBIAN_FRONTEND=noninteractive
 
 # netbase is not optional: without /etc/protocols the service's
@@ -41,17 +61,12 @@ ARG DEBIAN_FRONTEND=noninteractive
 # first process, would be their parent and never reap them.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      ca-certificates netbase procps psmisc iproute2 net-tools iptables tini \
+      ca-certificates netbase procps iproute2 net-tools iptables tini \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=agent /out/vg-agent /usr/local/bin/vg-agent
-
-# The installer is copied and installed only when one was supplied, so the
-# image can still be built (and the failure explained clearly at runtime)
-# without it.
-COPY ${INODE_INSTALLER:-images/inode/Dockerfile} /tmp/inode-installer
-COPY images/inode/install.sh /tmp/install.sh
-RUN sh /tmp/install.sh && rm -f /tmp/install.sh /tmp/inode-installer
+COPY --from=inode /etc/iNode /etc/iNode
+COPY --from=inode /opt/inode /opt/inode
 
 COPY images/inode/start-inode.sh /opt/vpn-gateway/start-inode.sh
 RUN chmod +x /opt/vpn-gateway/start-inode.sh
