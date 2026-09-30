@@ -9,13 +9,14 @@
 # which dials a saved connection by itself on start; the agent writes that
 # connection, and the window -- and the desktop it would need -- never runs.
 #
-# The vendor's installer is NOT redistributed. Supply your own licensed copy:
+# The vendor's installer is not in the repository. Supply your own licensed
+# copy in images/inode/ and build or publish it like the others:
 #
-#   make image-inode INODE_INSTALLER=images/inode/iNodeClient_Linux_X64.tar.gz
+#   make image-inode        # to try it here
+#   make push-inode         # to publish it for the server to pull
 #
-# with the installer in the build context. It is not published alongside the
-# others, so this one goes straight onto the machines that need it. The
-# client is x86_64 only.
+# The published image carries H3C's client, so its repository is kept
+# private. The client is x86_64 only, and so is the image.
 
 FROM golang:1.26-alpine AS agent
 WORKDIR /src

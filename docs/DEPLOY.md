@@ -495,13 +495,17 @@ interface inside its container, so that container needs two extra things:
       authgroup: "corp"       # the realm, if the login form has one
 ```
 
-H3C iNode runs H3C's own client, so its image is built here from your copy
-of the installer and never published. Put the tarball in `images/inode/`
-(git ignores it there) and build on the x86_64 machine that will run it:
+H3C iNode runs H3C's own client, so its image is built from your copy of
+the installer. Put the tarball in `images/inode/` (git ignores it there) and
+it is published with the rest by `make push`, or alone:
 
 ```
-make image-inode
+make push-inode
 ```
+
+The image carries H3C's client, so keep `coosir/vg-inode` a private
+repository on Docker Hub, and log the server in (`docker login`) so it can
+pull it. The client is x86_64 only, and so is the image.
 
 The client's window never runs: the agent saves the connection the way the
 window would, with the password encrypted as it expects, and the client's

@@ -8,7 +8,7 @@ DIST_OS   ?= linux
 DIST_ARCH ?= amd64
 DIST      := dist/$(DIST_OS)-$(DIST_ARCH)
 
-.PHONY: all build test vet check check-desktop clean dist desktop app images push builder image-inode
+.PHONY: all build test vet check check-desktop clean dist desktop app images push builder image-inode push-inode
 
 all: build
 
@@ -141,9 +141,10 @@ PLATFORMS ?= linux/amd64,linux/arm64
 # once and reuses it.
 BUILDER ?= vpn-gateway
 
-# The vendor tier is not published: its images are built from an installer
-# that cannot be redistributed.
-PUBLISHED := mock sangfor openconnect
+# Everything the server pulls. inode is among them so its tunnels are pulled
+# like any other, but it is built from H3C's installer, which is not ours to
+# hand out: keep coosir/vg-inode a private repository on Docker Hub.
+PUBLISHED := mock sangfor openconnect inode
 
 # Build for this machine only and keep the result loadable, for trying an
 # image out before publishing it. buildx cannot load a multi-platform result
@@ -173,16 +174,26 @@ push-%: builder
 		-f images/$*/Dockerfile \
 		-t $(REGISTRY)$*:$(IMAGE_TAG) .
 
-# H3C's installer is not redistributable, so this image is built from your own
-# copy and stays on machines you control. A tarball dropped into images/inode/
-# is found by itself (git ignores it there); otherwise name it:
+# iNode is built from your own copy of H3C's installer. A tarball dropped into
+# images/inode/ is found by itself (git ignores it there); otherwise name it:
 #   make image-inode INODE_INSTALLER=path/to/iNodeClient_Linux_X64.tar.gz
-# The client is x86_64 only, so the image is too.
+# The client is x86_64 only, so the image is too, whatever PLATFORMS says.
+# Both rules refuse to run without the installer: an image built without one
+# starts and only says what is missing, and publishing that would replace a
+# working one.
 INODE_INSTALLER ?= $(firstword $(wildcard images/inode/*.tar.gz))
 
 image-inode:
 	@test -n "$(INODE_INSTALLER)" || { echo "set INODE_INSTALLER to H3C's installer"; exit 1; }
 	docker buildx build --load --platform linux/amd64 \
+		-f images/inode/Dockerfile \
+		--build-arg INODE_INSTALLER=$(INODE_INSTALLER) \
+		-t $(REGISTRY)inode:$(IMAGE_TAG) .
+
+push-inode: builder
+	@test -n "$(INODE_INSTALLER)" || { echo "set INODE_INSTALLER to H3C's installer"; exit 1; }
+	docker buildx build --push --builder $(BUILDER) \
+		--platform linux/amd64 \
 		-f images/inode/Dockerfile \
 		--build-arg INODE_INSTALLER=$(INODE_INSTALLER) \
 		-t $(REGISTRY)inode:$(IMAGE_TAG) .
