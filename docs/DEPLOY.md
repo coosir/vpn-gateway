@@ -495,6 +495,34 @@ interface inside its container, so that container needs two extra things:
       authgroup: "corp"       # the realm, if the login form has one
 ```
 
+H3C iNode runs H3C's own client, so its image is built here from your copy
+of the installer and never published. Put the tarball in `images/inode/`
+(git ignores it there) and build on the x86_64 machine that will run it:
+
+```
+make image-inode
+```
+
+The client's window never runs: the agent saves the connection the way the
+window would, with the password encrypted as it expects, and the client's
+service dials it by itself. That rules out a gateway that asks for a captcha
+or an SMS code — the question would go to a window that is not there.
+
+```yaml
+  - name: corp-inode
+    provider: inode
+    image: coosir/vg-inode:latest
+    server: vpn.corp.example      # or vpn.corp.example:4433
+    username: alice
+    password_env: CORP_INODE_PASSWORD
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+    extra:
+      routes: "10.40.0.0/16"
+      dns: "10.40.0.53"
+      # domain: "staff"           # when the login form offers several
+```
+
 For accessing the server's own local area network (LAN), local subnets, or VPC intranet without running a container:
 
 ```yaml
@@ -752,6 +780,8 @@ every one of them.
 
 - The client needs elevation itself to create a TUN interface. The systemd
   unit grants only `CAP_NET_ADMIN`; on macOS it runs as root.
-- The iNode image is written but untested: H3C's installer is not
-  redistributable, so it is supplied at build time and its start script will
-  probably need adjusting for the version you have.
+- The iNode image has been checked against a stand-in gateway, not a real
+  one: it dials, fails and retries as it should, but a successful login, and
+  what the gateway says when it turns one down, are still to be seen. Built
+  from the 2022 Linux client (`iNodeClient_Linux_X64.tar.gz`); another
+  version may name or place things differently.

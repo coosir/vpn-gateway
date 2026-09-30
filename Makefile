@@ -174,11 +174,15 @@ push-%: builder
 		-t $(REGISTRY)$*:$(IMAGE_TAG) .
 
 # H3C's installer is not redistributable, so this image is built from your own
-# copy and stays on machines you control:
-#   make image-inode INODE_INSTALLER=iNodeClient.tar.gz
+# copy and stays on machines you control. A tarball dropped into images/inode/
+# is found by itself (git ignores it there); otherwise name it:
+#   make image-inode INODE_INSTALLER=path/to/iNodeClient_Linux_X64.tar.gz
+# The client is x86_64 only, so the image is too.
+INODE_INSTALLER ?= $(firstword $(wildcard images/inode/*.tar.gz))
+
 image-inode:
 	@test -n "$(INODE_INSTALLER)" || { echo "set INODE_INSTALLER to H3C's installer"; exit 1; }
-	docker buildx build --load \
+	docker buildx build --load --platform linux/amd64 \
 		-f images/inode/Dockerfile \
 		--build-arg INODE_INSTALLER=$(INODE_INSTALLER) \
 		-t $(REGISTRY)inode:$(IMAGE_TAG) .

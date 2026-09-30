@@ -51,8 +51,9 @@ Phases 0 to 2 are complete and verified end to end. What works today:
   helper service for TUN mode), Windows, and Linux
 
 Not built yet: privilege separation on the client (it currently needs
-elevation itself, see below). The iNode image is written but cannot be built
-or tested without H3C's installer.
+elevation itself, see below). The iNode image is built from H3C's own
+installer, which is not redistributed; it logs in without a desktop, but has
+so far only been run against a stand-in gateway.
 
 ## The interface
 

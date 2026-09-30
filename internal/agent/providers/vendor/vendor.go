@@ -31,19 +31,10 @@ import (
 
 func init() {
 	agent.Register("vendor", func() agent.Provider { return &Provider{} })
-	// iNode is the vendor provider with H3C's defaults; the image supplies
-	// the client itself.
-	agent.Register("inode", func() agent.Provider { return &Provider{defaults: inodeDefaults} })
 }
 
-// inodeDefaults describe H3C's iNode client as the image installs it.
-var inodeDefaults = defaults{
-	entrypoint: "/opt/vpn-gateway/start-inode.sh",
-	vncPort:    5901,
-	// iNode's Linux client has no headless login.
-	graphical: true,
-}
-
+// defaults are what a provider built on this one fills in, so its image need
+// not be configured by hand.
 type defaults struct {
 	entrypoint string
 	vncPort    int

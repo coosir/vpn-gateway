@@ -271,6 +271,26 @@ tunnels:
       # servercert: "pin-sha256:..."   # pin certificate if self-signed or internal CA
     disabled: true
 
+  # H3C iNode, through H3C's own client. The image is built locally from your
+  # copy of the installer (make image-inode) and never published. The client
+  # logs in by itself, with no window, so a gateway that wants a captcha or an
+  # SMS code cannot be served.
+  - name: corp-inode
+    provider: inode
+    image: coosir/vg-inode:latest
+    server: vpn.inode.example
+    username: alice
+    password_env: CORP_INODE_PASSWORD
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+    extra:
+      routes: "10.40.0.0/16"
+      dns: "10.40.0.53"
+      # port: "4433"            # when server names none and it is not 443
+      # domain: "staff"         # the authentication domain, if offered
+      # ready_probe: "10.40.0.10:80"  # an intranet host:port that proves it works
+    disabled: true
+
   # Sangfor aTrust: the same image, a different protocol.
   - name: corp-atrust
     provider: atrust

@@ -24,6 +24,7 @@ import (
 
 	// Providers register themselves on import. Adding a VPN to vpn-gateway
 	// starts here.
+	_ "github.com/vpn-gateway/vpn-gateway/internal/agent/providers/inode"
 	_ "github.com/vpn-gateway/vpn-gateway/internal/agent/providers/mock"
 	_ "github.com/vpn-gateway/vpn-gateway/internal/agent/providers/openconnect"
 	_ "github.com/vpn-gateway/vpn-gateway/internal/agent/providers/sangfor"
