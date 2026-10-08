@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/vpn-gateway/vpn-gateway/internal/addrmap"
 	"github.com/vpn-gateway/vpn-gateway/pkg/contract"
 )
 
@@ -85,6 +86,10 @@ type Agent struct {
 	// redial fires when something asks for an immediate reconnect.
 	redial chan struct{}
 
+	// addrMap gives this tunnel's ranges a second name, for when another
+	// tunnel leads to the same addresses. See addrmap.Map.
+	addrMap addrmap.Map
+
 	// tunnelUp reports whether the tunnel is an interface in this container
 	// rather than a proxy, which decides how the keepalive asks. Unset means
 	// look at the interfaces themselves.
@@ -98,6 +103,13 @@ func NewAgent(cfg Config, log *slog.Logger) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
+	addrMap, err := addrmap.Parse(cfg.Str("map", ""))
+	if err != nil {
+		return nil, fmt.Errorf("extra.map: %w", err)
+	}
+	if !addrMap.Empty() {
+		log.Info("address map", "virtual=real", addrMap.String())
+	}
 	attempts := cfg.Int("max_attempts", DefaultMaxAttempts)
 	if attempts < 1 {
 		attempts = 1
@@ -109,6 +121,7 @@ func NewAgent(cfg Config, log *slog.Logger) (*Agent, error) {
 		baseNet:     CaptureBaseNetwork(),
 		secret:      cfg.Secret,
 		maxAttempts: attempts,
+		addrMap:     addrMap,
 		manual:      cfg.Bool("manual", false),
 		state:       contract.StateConnecting,
 		since:       time.Now(),
@@ -221,7 +234,7 @@ func (a *Agent) Dial(ctx context.Context, network, addr string) (net.Conn, error
 	if state != contract.StateUp {
 		return nil, fmt.Errorf("tunnel is %s, not up", state)
 	}
-	return a.provider.Dial(ctx, network, addr)
+	return a.provider.Dial(ctx, network, a.addrMap.Dest(addr))
 }
 
 // --- Reporter -------------------------------------------------------------
@@ -256,6 +269,9 @@ func (a *Agent) SetState(s contract.State, err error) {
 
 // SetNetwork publishes the routes and DNS the VPN pushed.
 func (a *Agent) SetNetwork(n contract.Network) {
+	// Whatever the provider found, a mapped range is announced under its
+	// virtual name only, or the client would go on sending the real one here.
+	n.Routes = a.addrMap.Routes(n.Routes)
 	a.mu.Lock()
 	a.network = n
 	a.mu.Unlock()

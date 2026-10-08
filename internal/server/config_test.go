@@ -487,3 +487,28 @@ tunnels:
 		}
 	}
 }
+
+// A map that cannot work is caught by -check, not by a container that starts
+// and refuses to run.
+func TestAddressMapIsChecked(t *testing.T) {
+	path := writeConfig(t, `
+trojan: {server_name: vpn.test}
+tunnels:
+  - {name: good, provider: mock, image: img, extra: {map: "10.211.12.0/24=10.11.12.0/24"}}
+  - {name: sizes, provider: mock, image: img, extra: {map: "10.211.12.0/24=10.11.0.0/16"}}
+  - {name: lan, provider: direct, extra: {map: "10.211.12.0/24=10.11.12.0/24"}}
+`)
+	_, err := LoadConfig(path)
+	if err == nil {
+		t.Fatal("expected validation to fail")
+	}
+	msg := err.Error()
+	for _, want := range []string{`tunnels["sizes"]: extra.map`, `tunnels["lan"]: extra.map is for container tunnels`} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error is missing %q; got:\n%s", want, msg)
+		}
+	}
+	if strings.Contains(msg, `"good"`) {
+		t.Errorf("a valid map was refused:\n%s", msg)
+	}
+}

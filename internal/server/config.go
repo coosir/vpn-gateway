@@ -18,6 +18,8 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
+
+	"github.com/vpn-gateway/vpn-gateway/internal/addrmap"
 )
 
 // DefaultPortBase is the first loopback port handed to a tunnel container.
@@ -494,6 +496,14 @@ func (c *Config) Validate() error {
 				errs = append(errs, fmt.Errorf("%s: probe_url is for trojan and direct tunnels; a container tunnel's agent reports its own state", where))
 			} else if err := validateProbeURL(t.ProbeURL); err != nil {
 				errs = append(errs, fmt.Errorf("%s: probe_url: %w", where, err))
+			}
+		}
+		if v := t.Extra["map"]; v != "" {
+			if !t.NeedsContainer() {
+				// The rewriting is done by a tunnel's agent, and these have none.
+				errs = append(errs, fmt.Errorf("%s: extra.map is for container tunnels; a %s tunnel has no agent to rewrite addresses", where, t.Provider))
+			} else if _, err := addrmap.Parse(v); err != nil {
+				errs = append(errs, fmt.Errorf("%s: extra.map: %w", where, err))
 			}
 		}
 		n := 0

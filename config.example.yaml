@@ -143,6 +143,20 @@ users:
 #     keepalive_target: "10.20.0.53, wiki.corp.example:443"
 #     keepalive_interval: "5m"
 #     keepalive: "false"      # only for a gateway that dislikes the traffic
+#
+# Two networks can use the same private addresses. Say two tunnels both lead
+# to 10.11.12.2: a client can send that address to one of them, never both.
+# Give one of them a second name for the range, and reach its hosts by that:
+#
+#   extra:
+#     map: "10.211.12.0/24=10.11.12.0/24"   # virtual=real, same size; comma for more
+#
+# Connections to 10.211.12.x go to this tunnel, which dials 10.11.12.x inside
+# it. The routes it announces carry 10.211.12.0/24 instead of the real range,
+# so the other tunnel keeps 10.11.12.0/24 to itself. Any protocol works; a
+# host is reached by its mapped address, not by a name that resolves to the
+# real one. Container tunnels only: trojan and direct tunnels have no agent
+# to rewrite anything.
 
 tunnels:
   # Server LAN / Direct Host Tunnel (no container required).

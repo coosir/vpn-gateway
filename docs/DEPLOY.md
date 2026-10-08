@@ -721,6 +721,32 @@ rules:
 - **Auto Rules**: When `auto_routes` or `auto_domains` is enabled, routes and search domains reported by active tunnels are automatically listed at the bottom (lower priority). They are marked with an `[Auto]` badge and are read-only (cannot be edited or deleted).
 - **Enabling & Disabling Rules**: Any rule — custom or auto-derived — can be toggled between Enabled and Disabled via the interface or by setting `disabled: true` in `client.yaml`. Disabled rules are skipped during routing.
 
+### Two tunnels that lead to the same addresses
+
+Two networks are free to use the same private range, and a client can send
+`10.11.12.2` to one tunnel or the other, never both. Give one of them a second
+name for its range on the server:
+
+```yaml
+  - name: corp-b
+    # ...
+    extra:
+      map: "10.211.12.0/24=10.11.12.0/24"   # virtual=real; comma-separate several
+```
+
+Now `10.211.12.2` goes to `corp-b`, whose agent dials `10.11.12.2` inside it,
+while `10.11.12.2` stays with the other tunnel. The routes `corp-b` announces
+carry the virtual range in place of the real one (a wider route such as
+`10.0.0.0/8` keeps everything except it), so automatic rules sort this out by
+themselves.
+
+- Both sides must be the same size; the host part is kept.
+- Any protocol works, RDP and SSH included, but only by address: a name that
+  resolves to `10.11.12.2`, or a page that links to it, still means the other
+  tunnel.
+- Container tunnels only. Trojan and direct tunnels have no agent to rewrite
+  anything, and `-check` says so.
+
 Check where something actually goes:
 
 ```sh
