@@ -14,14 +14,18 @@ macOS 的 `make app` / `make desktop`、Linux 的桌面构建，只有在明确�
 
 ## 2. agent 变化：构建 docker 镜像，默认只 amd64 并推送
 
-改动涉及 `cmd/vg-agent/`、被 agent 引用的 `internal/`、`pkg/`，或 `images/*/Dockerfile` 时：
+改动涉及 `cmd/vg-agent/`、被 agent 引用的 `internal/`、`pkg/`，或 `images/*/Dockerfile`（`images/inode-base/` 除外）时：
 
 ```
 make push PLATFORMS=linux/amd64
 ```
 
 发布 `mock`、`sangfor`、`openconnect`、`inode` 四个镜像到 `coosir/vg-*:latest`。
-`inode` 需要 `images/inode/` 下的 H3C 安装包（git 忽略），且只构建 amd64。
+`inode` 基于 `coosir/vg-inode-base` 构建，固定只构建 amd64，不需要安装包。
+
+`coosir/vg-inode-base`（H3C 客户端 + 系统依赖）只在明确要求时手动构建：
+`make push-inode-base`，需要 `images/inode-base/` 下的 H3C 安装包（git 忽略）。
+`images/inode-base/` 有改动时也只按要求构建，不随 agent 变化推送。
 需要 arm64 时才去掉 `PLATFORMS` 覆盖（默认值是 amd64+arm64）。
 
 ## 3. 每完成一个需求变更：升 build 号 → 编译 → 提交并推送

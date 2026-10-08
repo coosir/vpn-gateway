@@ -9,13 +9,12 @@
 # which dials a saved connection by itself on start; the agent writes that
 # connection, and the window -- and the desktop it would need -- never runs.
 #
-# The vendor's installer is not in the repository. Supply your own licensed
-# copy in images/inode/ and build or publish it like the others:
-#
-#   make image-inode        # to try it here
-#   make push-inode         # to publish it for the server to pull
-#
-# The client is x86_64 only, and so is the image.
+# The client comes from coosir/vg-inode-base (images/inode-base), which is
+# built by hand from H3C's installer. This image only adds the agent, so it is
+# built and published with the others. The base is x86_64 only, and so is
+# this.
+
+ARG BASE=coosir/vg-inode-base:latest
 
 FROM golang:1.26-alpine AS agent
 WORKDIR /src
@@ -26,48 +25,9 @@ COPY internal ./internal
 COPY cmd ./cmd
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/vg-agent ./cmd/vg-agent
 
-# The client is installed and pruned in a stage of its own. The image takes
-# only /opt/inode and /etc/iNode from it, so neither the installer (26MB) nor
-# what the vendor ships for its window reaches the image: a file removed in
-# a later layer still costs what it cost in the layer that added it.
-FROM ubuntu:22.04 AS inode
-
-ARG INODE_INSTALLER
-ARG DEBIAN_FRONTEND=noninteractive
-
-# binutils for strip; procps for the pkill that makes sure the vendor's boot
-# script left nothing running.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends binutils procps \
- && rm -rf /var/lib/apt/lists/*
-
-# Copied and installed only when one was supplied, so the image can still be
-# built (and the failure explained clearly at runtime) without it.
-COPY ${INODE_INSTALLER:-images/inode/Dockerfile} /tmp/inode-installer
-COPY images/inode/install.sh /tmp/install.sh
-RUN sh /tmp/install.sh
-
-FROM ubuntu:22.04
-
-ARG DEBIAN_FRONTEND=noninteractive
-
-# netbase is not optional: without /etc/protocols the service's
-# getprotobyname() returns NULL and it crashes the moment it opens tun0.
-# procps is for the start script; net-tools and iptables are what the
-# client's libraries shell out to for routes and its own firewall rules.
-#
-# tini, because the service forks itself into the background: every dial
-# leaves processes whose parent is gone, and vg-agent, as the container's
-# first process, would be their parent and never reap them.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-      ca-certificates netbase procps iproute2 net-tools iptables tini \
- && rm -rf /var/lib/apt/lists/*
+FROM ${BASE}
 
 COPY --from=agent /out/vg-agent /usr/local/bin/vg-agent
-COPY --from=inode /etc/iNode /etc/iNode
-COPY --from=inode /opt/inode /opt/inode
-
 COPY images/inode/start-inode.sh /opt/vpn-gateway/start-inode.sh
 RUN chmod +x /opt/vpn-gateway/start-inode.sh
 

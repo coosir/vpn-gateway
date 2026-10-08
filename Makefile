@@ -8,7 +8,7 @@ DIST_OS   ?= linux
 DIST_ARCH ?= amd64
 DIST      := dist/$(DIST_OS)-$(DIST_ARCH)
 
-.PHONY: all build test vet check check-desktop clean dist desktop app images push builder image-inode push-inode
+.PHONY: all build test vet check check-desktop clean dist desktop app images push builder image-inode push-inode image-inode-base push-inode-base
 
 all: build
 
@@ -141,8 +141,8 @@ PLATFORMS ?= linux/amd64,linux/arm64
 # once and reuses it.
 BUILDER ?= vpn-gateway
 
-# Everything the server pulls. inode is among them so its tunnels are pulled
-# like any other; it is built from H3C's installer, see image-inode below.
+# Everything the server pulls. inode is among them; its base, which carries
+# H3C's client, is built by hand -- see push-inode-base below.
 PUBLISHED := mock sangfor openconnect inode
 
 # Build for this machine only and keep the result loadable, for trying an
@@ -173,29 +173,44 @@ push-%: builder
 		-f images/$*/Dockerfile \
 		-t $(REGISTRY)$*:$(IMAGE_TAG) .
 
-# iNode is built from your own copy of H3C's installer. A tarball dropped into
-# images/inode/ is found by itself (git ignores it there); otherwise name it:
-#   make image-inode INODE_INSTALLER=path/to/iNodeClient_Linux_X64.tar.gz
-# The client is x86_64 only, so the image is too, whatever PLATFORMS says.
-# Both rules refuse to run without the installer: an image built without one
-# starts and only says what is missing, and publishing that would replace a
-# working one.
-INODE_INSTALLER ?= $(firstword $(wildcard images/inode/*.tar.gz))
+# iNode stands on a base image that carries H3C's client: coosir/vg-inode-base,
+# built by hand from your own copy of the installer, and only when the client
+# or its system packages change. A tarball dropped into images/inode-base/ is
+# found by itself (git ignores it there); otherwise name it:
+#   make push-inode-base INODE_INSTALLER=path/to/iNodeClient_Linux_X64.tar.gz
+#
+# vg-inode itself only adds the agent, so it is built and published with the
+# rest. The client is x86_64 only, so both are, whatever PLATFORMS says.
+INODE_INSTALLER ?= $(firstword $(wildcard images/inode-base/*.tar.gz))
+INODE_BASE      := $(REGISTRY)inode-base:$(IMAGE_TAG)
 
 image-inode:
-	@test -n "$(INODE_INSTALLER)" || { echo "set INODE_INSTALLER to H3C's installer"; exit 1; }
 	docker buildx build --load --platform linux/amd64 \
 		-f images/inode/Dockerfile \
-		--build-arg INODE_INSTALLER=$(INODE_INSTALLER) \
+		--build-arg BASE=$(INODE_BASE) \
 		-t $(REGISTRY)inode:$(IMAGE_TAG) .
 
 push-inode: builder
-	@test -n "$(INODE_INSTALLER)" || { echo "set INODE_INSTALLER to H3C's installer"; exit 1; }
 	docker buildx build --push --builder $(BUILDER) \
 		--platform linux/amd64 \
 		-f images/inode/Dockerfile \
-		--build-arg INODE_INSTALLER=$(INODE_INSTALLER) \
+		--build-arg BASE=$(INODE_BASE) \
 		-t $(REGISTRY)inode:$(IMAGE_TAG) .
+
+image-inode-base:
+	@test -n "$(INODE_INSTALLER)" || { echo "set INODE_INSTALLER to H3C's installer"; exit 1; }
+	docker buildx build --load --platform linux/amd64 \
+		-f images/inode-base/Dockerfile \
+		--build-arg INODE_INSTALLER=$(INODE_INSTALLER) \
+		-t $(INODE_BASE) .
+
+push-inode-base: builder
+	@test -n "$(INODE_INSTALLER)" || { echo "set INODE_INSTALLER to H3C's installer"; exit 1; }
+	docker buildx build --push --builder $(BUILDER) \
+		--platform linux/amd64 \
+		-f images/inode-base/Dockerfile \
+		--build-arg INODE_INSTALLER=$(INODE_INSTALLER) \
+		-t $(INODE_BASE) .
 
 clean:
 	rm -rf $(BIN) dist $(PACKED)

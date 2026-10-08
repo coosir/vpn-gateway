@@ -495,16 +495,18 @@ interface inside its container, so that container needs two extra things:
       authgroup: "corp"       # the realm, if the login form has one
 ```
 
-H3C iNode runs H3C's own client, so its image is built from your copy of
-the installer. Put the tarball in `images/inode/` (git ignores it there) and
-it is published with the rest by `make push`, or alone:
+H3C iNode runs H3C's own client, which comes from a base image,
+`coosir/vg-inode-base`, built by hand from your copy of the installer. Put
+the tarball in `images/inode-base/` (git ignores it there) and publish the
+base once, and again only when the client changes:
 
 ```
-make push-inode
+make push-inode-base
 ```
 
-The server pulls it like any other image. The client is x86_64 only, and so
-is the image.
+`coosir/vg-inode` adds the agent on top, so it needs no installer and is
+published with the rest by `make push`. The server pulls it like any other
+image. The client is x86_64 only, and so are both images.
 
 The client's window never runs: the agent saves the connection the way the
 window would, with the password encrypted as it expects, and the client's

@@ -5,17 +5,13 @@
 # This runs in a build stage of its own; the image takes /opt/inode and
 # /etc/iNode from it and nothing else, so neither the installer nor anything
 # removed here reaches the image.
-#
-# Building without an installer is allowed on purpose: the image then starts,
-# and the agent says what is missing, rather than the build failing with a
-# message about a COPY path.
 set -e
 
 mkdir -p /opt/inode /etc/iNode
 
 if ! head -c 2 /tmp/inode-installer | grep -q "$(printf '\037\213')"; then
-	echo "no iNode installer was supplied; build with make image-inode INODE_INSTALLER=<file>" >&2
-	exit 0
+	echo "INODE_INSTALLER is not H3C's gzipped installer" >&2
+	exit 1
 fi
 
 # The tarball holds one directory, iNodeClient/, with the vendor's own

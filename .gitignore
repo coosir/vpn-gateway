@@ -9,7 +9,8 @@ config.yaml
 internal/clientbin/client.bin
 
 # H3C's iNode installer: not redistributable, supplied locally for
-# `make image-inode`.
+# `make push-inode-base`.
+/images/inode-base/*.tar.gz
 /images/inode/*.tar.gz
 
 # Root binaries

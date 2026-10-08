@@ -49,6 +49,7 @@ func TestDocumentedTargetsExist(t *testing.T) {
 		"push",    // built here, published
 		"builder", // the multi-platform builder push needs
 		"image-inode",
+		"push-inode-base", // by hand, from H3C's installer
 		"clean",
 	} {
 		if !defined[name] {
