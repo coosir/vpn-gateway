@@ -82,6 +82,9 @@ type Runner struct {
 	// carrying traffic without exiting. It belongs to one run and is replaced
 	// at the start of the next.
 	fatal chan error
+	// proc is the running child, so it can be signalled from outside Run. It
+	// is nil between runs.
+	proc *os.Process
 }
 
 // Prompt recognises one interactive question a supervised client can ask.
@@ -187,6 +190,19 @@ func (r *Runner) Fail(err error) {
 	}
 }
 
+// Signal sends sig to the running child. It is how a provider asks a client
+// for something the client takes as a signal rather than as input -- a
+// reconnect on the session it already holds, for one.
+func (r *Runner) Signal(sig os.Signal) error {
+	r.mu.RLock()
+	p := r.proc
+	r.mu.RUnlock()
+	if p == nil {
+		return errors.New("runner: no client is running")
+	}
+	return p.Signal(sig)
+}
+
 // Run starts the child, waits for its proxy to accept connections, reports
 // StateUp, and blocks until the child exits or ctx is cancelled.
 func (r *Runner) Run(ctx context.Context, rep Reporter) error {
@@ -247,6 +263,14 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 		}
 		return fmt.Errorf("start %s: %w", r.Path, err)
 	}
+	r.mu.Lock()
+	r.proc = cmd.Process
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		r.proc = nil
+		r.mu.Unlock()
+	}()
 
 	for _, line := range r.StdinPrelude {
 		if _, err := io.WriteString(stdin, line+"\n"); err != nil {

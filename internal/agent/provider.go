@@ -135,6 +135,17 @@ type Provider interface {
 	Answer(a contract.AuthAnswer) error
 }
 
+// Refresher is a Provider that can rebuild its data path on the session it
+// already holds, asking the gateway for nothing: no password, no code.
+//
+// It is for a tunnel that still answers but has stopped carrying what it
+// should -- a client that settled on a path MTU far below the real one, say.
+// A full redial would fix that too, at the price of a fresh login, which on
+// some gateways here means somebody reading an SMS.
+type Refresher interface {
+	Refresh() error
+}
+
 var (
 	registryMu sync.RWMutex
 	registry   = map[string]func() Provider{}

@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/agent"
@@ -648,6 +649,12 @@ func (p *Provider) onLine(line string, rep agent.Reporter) {
 			"the gateway's certificate is not trusted; check its fingerprint and set extra.servercert"))
 	}
 }
+
+// Refresh asks openconnect to drop its link and reconnect with the cookie it
+// holds. That redoes the DTLS handshake and its MTU detection, which is what
+// brings back a data path that settled on 576 bytes after a lossy moment and
+// never looked again.
+func (p *Provider) Refresh() error { return p.runner.Signal(syscall.SIGUSR2) }
 
 func (p *Provider) Dial(ctx context.Context, network, addr string) (net.Conn, error) {
 	return p.runner.Dial(ctx, network, addr)

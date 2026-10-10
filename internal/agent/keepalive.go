@@ -67,7 +67,10 @@ func (a *Agent) keepalive(ctx context.Context) {
 	timeout := cfgDuration(a.cfg, "keepalive_timeout", defaultKeepaliveTimeout)
 	a.log.Info("keepalive running", "every", interval, "timeout", timeout)
 
-	k := &keepaliveLoop{agent: a, interval: interval, timeout: timeout}
+	k := &keepaliveLoop{
+		agent: a, interval: interval, timeout: timeout,
+		pathSize: a.cfg.Int("path_probe_size", defaultPathProbeSize),
+	}
 	ticker := time.NewTicker(interval / keepaliveSamples)
 	defer ticker.Stop()
 	for {
@@ -109,6 +112,13 @@ type keepaliveLoop struct {
 	// mentioned records that a tunnel with nowhere to probe has been
 	// reported once.
 	mentioned bool
+
+	// pathSize is the packet size checkPath sends, 0 for no check. lastPath
+	// is when it last asked, and pathBroken records a spell of the large
+	// packet being lost while small ones still crossed.
+	pathSize   int
+	lastPath   time.Time
+	pathBroken bool
 }
 
 // round is one look at the tunnel: probe it if nothing else has.
@@ -124,8 +134,11 @@ func (k *keepaliveLoop) round(ctx context.Context, now time.Time) {
 		// with that session.
 		k.failing = false
 		k.lastActivity = time.Time{}
+		k.lastPath = time.Time{}
+		k.pathBroken = false
 		return
 	}
+	k.checkPath(ctx, now)
 
 	bytes := a.tx.Load() + a.rx.Load()
 	if k.lastActivity.IsZero() {
@@ -236,6 +249,13 @@ func (a *Agent) onAnInterface() bool {
 // said "no such name" as the same thing -- and those are opposite answers to
 // the only question being asked.
 func (a *Agent) resolverProbe(ctx context.Context, target string, timeout time.Duration) error {
+	query, id := dnsQuery(a.keepaliveName())
+	return a.askResolver(ctx, target, query, id, timeout)
+}
+
+// askResolver sends query to the resolver at target and waits for anything
+// that answers it.
+func (a *Agent) askResolver(ctx context.Context, target string, query []byte, id uint16, timeout time.Duration) error {
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	var d net.Dialer
 	conn, err := d.DialContext(dialCtx, "udp", target)
@@ -246,7 +266,6 @@ func (a *Agent) resolverProbe(ctx context.Context, target string, timeout time.D
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(timeout))
 
-	query, id := dnsQuery(a.keepaliveName())
 	if _, err := conn.Write(query); err != nil {
 		return err
 	}

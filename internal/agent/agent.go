@@ -94,6 +94,10 @@ type Agent struct {
 	// rather than a proxy, which decides how the keepalive asks. Unset means
 	// look at the interfaces themselves.
 	tunnelUp func() bool
+
+	// echo sends one ICMP echo of size bytes of IP packet to host and waits
+	// for the reply. Unset means a real one; tests answer it themselves.
+	echo func(ctx context.Context, host string, size int, timeout time.Duration) error
 }
 
 // NewAgent builds an agent for cfg using the provider registered under

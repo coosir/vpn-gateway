@@ -84,6 +84,7 @@ counts what the user sent, and DPD is not that.
 | `keepalive_interval` | how often to probe, as a duration or bare seconds (default `10m`, floor 5s). It must be comfortably shorter than the gateway's idle timeout, not equal to it |
 | `keepalive_target` | comma-separated `host:port` inside the network to probe; a host with no port is probed on 53. Defaults to the resolvers the VPN pushed, and failing that to the ones its client wrote into the container's `/etc/resolv.conf` |
 | `keepalive_timeout` | how long one probe may take (default `10s`) |
+| `path_probe_size` | size in bytes of the large ICMP echo the path check sends every interval, busy or not, to the same hosts (default `1200`, `0` turns the check off). Only for tunnels that are an interface in the container. A host that answers a plain ping but loses this one is a path dropping full-sized packets -- openconnect stuck on a 576-byte DTLS MTU looks exactly like that -- and the client is asked to rebuild its data path on the session it holds (openconnect: `SIGUSR2`), which needs no login |
 
 Probes do not count towards the traffic in `/v1/status`: they are the agent's
 own bookkeeping, not what the tunnel carried. A refused connection still
