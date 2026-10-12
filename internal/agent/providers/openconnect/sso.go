@@ -78,9 +78,15 @@ type ssoOffer struct {
 // recreating one does not cost another round of somebody's phone. Nothing
 // else in here is worth keeping: the cookie is the whole session.
 type ssoSession struct {
-	Server   string    `json:"server"`
-	Username string    `json:"username"`
-	Cookie   string    `json:"cookie"`
+	Server   string `json:"server"`
+	Username string `json:"username"`
+	Cookie   string `json:"cookie"`
+	// Obtained is when the session was last known to work: when it was
+	// signed in for, and again each time a tunnel built on it was seen up.
+	// The age that matters is how long since the gateway last honoured it,
+	// not how long since somebody first signed in -- one session here has
+	// carried a tunnel for weeks, and measured from its sign-on it would have
+	// been thrown away on its second day.
 	Obtained time.Time `json:"obtained_at"`
 }
 
@@ -323,6 +329,24 @@ func saveSession(dir, server, username, cookie string) error {
 	// directory is shared with the host, so the mode is the only thing
 	// standing between it and anything else that can read that volume.
 	return os.WriteFile(sessionFile(dir), raw, 0o600)
+}
+
+// touchSession records that the stored session still works, so its age is
+// counted from now. It changes nothing unless the stored session is the one
+// in cookie: a session replaced in the meantime is not this one's to renew.
+func touchSession(dir, cookie string) error {
+	raw, err := os.ReadFile(sessionFile(dir))
+	if err != nil {
+		return err
+	}
+	var s ssoSession
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return err
+	}
+	if s.Cookie != cookie {
+		return nil
+	}
+	return saveSession(dir, s.Server, s.Username, s.Cookie)
 }
 
 // dropSession forgets a session the gateway no longer honours, so the next

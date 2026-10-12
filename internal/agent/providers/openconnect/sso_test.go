@@ -400,3 +400,37 @@ func TestARefusedSessionIsNotTreatedAsBadCredentials(t *testing.T) {
 		t.Error("a refused session was recorded as rejected credentials")
 	}
 }
+
+// A session that keeps carrying a tunnel is renewed, so its age counts from
+// the last time it worked rather than from the sign-on.
+func TestARenewedSessionCountsFromItsLastUse(t *testing.T) {
+	dir := t.TempDir()
+	if err := saveSession(dir, "vpn.corp.example", "alice", "webvpn=abc"); err != nil {
+		t.Fatal(err)
+	}
+	// Signed in for weeks ago.
+	raw, _ := os.ReadFile(sessionFile(dir))
+	var s ssoSession
+	json.Unmarshal(raw, &s)
+	s.Obtained = time.Now().Add(-27 * 24 * time.Hour)
+	raw, _ = json.Marshal(s)
+	os.WriteFile(sessionFile(dir), raw, 0o600)
+	if got := loadSession(dir, "vpn.corp.example", "alice", 24*time.Hour); got != "" {
+		t.Fatalf("a session last seen weeks ago was offered: %q", got)
+	}
+
+	// Another session's renewal leaves this one alone.
+	if err := touchSession(dir, "webvpn=other"); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadSession(dir, "vpn.corp.example", "alice", 24*time.Hour); got != "" {
+		t.Fatalf("renewing a different cookie renewed this one: %q", got)
+	}
+
+	if err := touchSession(dir, "webvpn=abc"); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadSession(dir, "vpn.corp.example", "alice", 24*time.Hour); got != "webvpn=abc" {
+		t.Errorf("a session renewed just now = %q, want webvpn=abc", got)
+	}
+}

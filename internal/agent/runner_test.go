@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -448,10 +449,21 @@ func TestARealQuestionStillBecomesAChallenge(t *testing.T) {
 type countingReporter struct {
 	mu         sync.Mutex
 	challenges int
+	state      contract.State
 }
 
-func (c *countingReporter) SetState(contract.State, error) {}
-func (c *countingReporter) SetNetwork(contract.Network)    {}
+func (c *countingReporter) SetState(s contract.State, _ error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.state = s
+}
+
+func (c *countingReporter) lastState() contract.State {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.state
+}
+func (c *countingReporter) SetNetwork(contract.Network) {}
 func (c *countingReporter) SetChallenge(ch *contract.Challenge) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -975,5 +987,47 @@ func TestARefusedQuestionEndsTheRunInsteadOfWaiting(t *testing.T) {
 	defer rep.mu.Unlock()
 	if rep.challenges != 0 {
 		t.Errorf("raised %d challenges, want none", rep.challenges)
+	}
+}
+
+// TestRunStopsTheChildWithItsStopSignal: openconnect takes SIGTERM as "log
+// the session off", so a provider that wants its session kept names another
+// signal, and that is the one the child must receive when the run ends.
+func TestRunStopsTheChildWithItsStopSignal(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "signal")
+	r := &Runner{
+		Path: "/bin/sh",
+		Args: []string{"-c", `trap 'echo HUP > ` + marker + `; exit 0' HUP; trap 'echo TERM > ` + marker + `; exit 0' TERM; while :; do sleep 0.05; done`},
+		// Up from the start: what is being tested is the way down.
+		ReadyWhen:  func() bool { return true },
+		DirectDial: true,
+		StopSignal: syscall.SIGHUP,
+	}
+	rep := &countingReporter{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- r.Run(ctx, rep) }()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for rep.lastState() != contract.StateUp {
+		if time.Now().After(deadline) {
+			t.Fatal("the child never came up")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// The shell must have its traps in place before it is signalled.
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return after it was cancelled")
+	}
+	got, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("the child recorded no signal: %v", err)
+	}
+	if s := strings.TrimSpace(string(got)); s != "HUP" {
+		t.Errorf("the child was stopped with %s, want HUP", s)
 	}
 }

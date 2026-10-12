@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -89,7 +90,8 @@ func init() {
 //	               answers the question badly; anything else leaves it on
 //	sso_timeout    seconds to wait for somebody to finish signing in, 300
 //	               by default
-//	sso_hours      how long a redeemed session is worth trying before asking
+//	sso_hours      how long since a stored session last worked it is still worth
+//	               trying before asking
 //	               for a fresh sign-on, 24 by default
 type Provider struct {
 	protocol string
@@ -196,17 +198,48 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 // forever, while a fresh one that fails is a gateway problem and throwing it
 // away would only cost another sign-on.
 func (p *Provider) runSession(ctx context.Context, cfg agent.Config, rep agent.Reporter, cookie string, fresh bool) error {
+	dir := stateDir(cfg)
 	var reachedUp atomic.Bool
+	// The session is renewed on disk while it carries a tunnel, so the
+	// container after this one finds it young however long this one ran.
+	renew := func() {
+		if err := touchSession(dir, cookie); err != nil && !errors.Is(err, os.ErrNotExist) {
+			rep.Log("could not record that the sign-on still works (%v)", err)
+		}
+	}
+	runCtx, stopRenewing := context.WithCancel(ctx)
+	defer stopRenewing()
 	p.runner = agent.Runner{
 		Path:         cfg.Str("binary", defaultBinary),
 		Args:         buildArgs(p.protocol, cfg, true),
 		StdinPrelude: []string{cookie},
 		DirectDial:   true,
+		// SIGTERM would have openconnect log the session off on its way out,
+		// and the session is the thing worth keeping: a container stopped to
+		// pull a new image would leave a stored cookie the gateway has
+		// already cancelled, and the next one would ask for a sign-on.
+		// SIGHUP unwinds routes and resolver just the same and leaves the
+		// session for the next container to pick up.
+		StopSignal: syscall.SIGHUP,
 		ReadyWhen: func() bool {
 			if !agent.TunnelInterfaceUp() {
 				return false
 			}
-			reachedUp.Store(true)
+			if !reachedUp.Swap(true) {
+				renew()
+				go func() {
+					t := time.NewTicker(sessionRenewEvery)
+					defer t.Stop()
+					for {
+						select {
+						case <-runCtx.Done():
+							return
+						case <-t.C:
+							renew()
+						}
+					}
+				}()
+			}
 			return true
 		},
 		// There is no login form left to answer, but a client handed a
@@ -218,6 +251,10 @@ func (p *Provider) runSession(ctx context.Context, cfg agent.Config, rep agent.R
 	}
 
 	err := p.runner.Run(ctx, rep)
+	stopRenewing()
+	if reachedUp.Load() {
+		renew()
+	}
 	if err == nil {
 		return nil
 	}
@@ -226,7 +263,7 @@ func (p *Provider) runSession(ctx context.Context, cfg agent.Config, rep agent.R
 	// good, and discarding it would cost a sign-on to find that out.
 	if !fresh && !reachedUp.Load() {
 		rep.Log("the stored sign-on no longer works; the next attempt will ask for a new one")
-		dropSession(stateDir(cfg))
+		dropSession(dir)
 	}
 	if p.cookieRejected.Load() {
 		// Deliberately not permanent. What fixes this is another sign-on,
@@ -235,6 +272,11 @@ func (p *Provider) runSession(ctx context.Context, cfg agent.Config, rep agent.R
 	}
 	return err
 }
+
+// sessionRenewEvery is how often a stored session carrying a tunnel is marked
+// as still working. It only has to be well inside sso_hours, so a container
+// that dies without a clean exit leaves a session that still counts as young.
+const sessionRenewEvery = time.Hour
 
 // userAgent is what the gateway is told is calling.
 //

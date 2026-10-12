@@ -66,6 +66,15 @@ type Runner struct {
 	// an argument, which is where it would be visible in the process list.
 	StdinPrelude []string
 
+	// StopSignal is what the child is asked to stop with. Unset means
+	// SIGTERM.
+	//
+	// It is not always the polite choice it looks like. openconnect takes
+	// SIGTERM as "log the session off", which spends a cookie that could
+	// have carried the next container straight back in; SIGHUP disconnects
+	// and unwinds the same way but leaves the session standing.
+	StopSignal os.Signal
+
 	// ReadyTimeout bounds how long the child may take to start serving its
 	// SOCKS5 port before the attempt is abandoned.
 	ReadyTimeout time.Duration
@@ -146,7 +155,7 @@ const stopGrace = 5 * time.Second
 // and WaitDelay. This is for the paths that stop a child for their own
 // reasons: without the kill behind the signal, a client that ignores SIGTERM
 // would leave Run waiting on an exit that never arrives.
-func stopChild(p *os.Process, exited <-chan struct{}) {
+func stopChild(p *os.Process, sig os.Signal, exited <-chan struct{}) {
 	if exited == nil {
 		// A child that has only just started has installed nothing worth
 		// unwinding, and there is no exit here to wait for, so it gets no
@@ -154,7 +163,7 @@ func stopChild(p *os.Process, exited <-chan struct{}) {
 		p.Kill()
 		return
 	}
-	if err := p.Signal(syscall.SIGTERM); err != nil {
+	if err := p.Signal(sig); err != nil {
 		// Already gone, or a platform that will not deliver it.
 		p.Kill()
 		return
@@ -230,7 +239,11 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 	//
 	// WaitDelay is the other half: os/exec sends SIGKILL itself once it
 	// elapses, so a client that ignores SIGTERM still goes.
-	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	stopSig := r.StopSignal
+	if stopSig == nil {
+		stopSig = syscall.SIGTERM
+	}
+	cmd.Cancel = func() error { return cmd.Process.Signal(stopSig) }
 	cmd.WaitDelay = stopGrace
 
 	stdout, err := cmd.StdoutPipe()
@@ -274,7 +287,7 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 
 	for _, line := range r.StdinPrelude {
 		if _, err := io.WriteString(stdin, line+"\n"); err != nil {
-			stopChild(cmd.Process, nil)
+			stopChild(cmd.Process, stopSig, nil)
 			return fmt.Errorf("send the opening input to %s: %w", r.Path, err)
 		}
 	}
@@ -300,7 +313,7 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 		ready = DefaultReadyTimeout
 	}
 	if err := r.waitReady(ctx, ready, exit, fatal); err != nil {
-		stopChild(cmd.Process, exit.done)
+		stopChild(cmd.Process, stopSig, exit.done)
 		<-exit.done
 		return err
 	}
@@ -328,7 +341,7 @@ func (r *Runner) Run(ctx context.Context, rep Reporter) error {
 	case err := <-fatal:
 		// The child is still running and still failing every connection, so
 		// it has to go before the supervisor can dial a fresh one.
-		stopChild(cmd.Process, exit.done)
+		stopChild(cmd.Process, stopSig, exit.done)
 		<-exit.done
 		r.mu.Lock()
 		r.dialer = nil

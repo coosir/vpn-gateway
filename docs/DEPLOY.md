@@ -664,7 +664,7 @@ reuses it silently and nobody is asked for anything:
 
 ```yaml
     extra:
-      sso_hours: "24"       # how long to keep trying a stored sign-on
+      sso_hours: "24"       # how long since a stored sign-on last worked to keep trying it
       sso_timeout: "300"    # seconds to wait for somebody to finish signing in
       sso: "off"            # never offer single sign-on for this tunnel
 ```
@@ -673,6 +673,13 @@ reuses it silently and nobody is asked for anything:
 dropped costs one failed dial and recovers by itself -- the stored session is
 thrown away and the next attempt asks for a fresh sign-on. Throwing away one
 that would still have worked costs somebody another text message.
+
+The hours count from when the session was last seen working, not from the
+sign-on: a tunnel running on it marks it as good when it comes up, every hour
+while it stays up, and when it goes down. And stopping such a tunnel does not
+log the session off -- openconnect is stopped with `SIGHUP`, not `SIGTERM`,
+because SIGTERM tells it to log off and would cancel the very cookie the next
+container is meant to reuse.
 
 One thing worth knowing even if you never configure it: every `anyconnect`
 dial now tells the gateway it is Cisco's own client. That is not decoration.
