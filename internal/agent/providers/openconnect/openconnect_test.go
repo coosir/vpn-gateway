@@ -2,6 +2,7 @@ package openconnect
 
 import (
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -61,7 +62,7 @@ func TestBuildArgsCarriesTheGatewaySettings(t *testing.T) {
 		"--protocol=gp", "--user=alice", "--passwd-on-stdin",
 		"--port=10443", "--authgroup=corp-realm", "--servercert=pin-sha256:abc",
 		"--useragent=PAN GlobalProtect",
-		"--token-mode=totp", "--token-secret=SEED",
+		"--token-mode=totp", "--token-secret=@" + tokenSecretFile(),
 		"--form-entry=main:group=staff", "--form-entry=main:extra=1",
 		"--no-dtls", "--reconnect-timeout", "60",
 	}
@@ -479,5 +480,36 @@ func TestARefusedCodeIsNotSentAgain(t *testing.T) {
 	}
 	if p.sentCode != strings.TrimPrefix(got, "s3cret") {
 		t.Errorf("sent code recorded as %q", p.sentCode)
+	}
+}
+
+// The seed must never be on the client's command line, where ps and docker
+// top show it to anybody: openconnect is told to read it from a file only
+// this user can open, and the file goes when the run does.
+func TestTheTokenSeedStaysOffTheCommandLine(t *testing.T) {
+	args := buildArgs("fortinet", cfgWith(map[string]string{"totp_secret": testSeed}), false)
+	for _, a := range args {
+		if strings.Contains(a, testSeed) {
+			t.Errorf("the seed is on the command line: %q", a)
+		}
+	}
+
+	remove, err := writeTokenSecret(testSeed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(tokenSecretFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Errorf("the seed file is %v, want 0600", mode)
+	}
+	if got, _ := os.ReadFile(tokenSecretFile()); string(got) != testSeed {
+		t.Errorf("the seed file holds %q", got)
+	}
+	remove()
+	if _, err := os.Stat(tokenSecretFile()); !os.IsNotExist(err) {
+		t.Error("the seed file outlived the run")
 	}
 }

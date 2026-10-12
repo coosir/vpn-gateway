@@ -100,7 +100,6 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 		"--server", cfg.Server,
 		"--port", cfg.Str("port", "443"),
 		"--username", cfg.Username,
-		"--password", cfg.Password,
 		"--socks-bind", childSOCKS,
 		"--http-bind", childHTTP,
 		// Routing is decided by the vpn-gateway client, so the tunnel must
@@ -188,6 +187,7 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 	p.runner = agent.Runner{
 		Path:     cfg.Str("binary", defaultBinary),
 		Args:     args,
+		Env:      secretEnv(cfg),
 		Upstream: childSOCKS,
 		OnLine:   func(line string, rep agent.Reporter) { p.onLine(line, rep) },
 		Prompts:  prompts(),
@@ -231,7 +231,6 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 func optionArgs(cfg agent.Config) []string {
 	var args []string
 	for _, opt := range []struct{ key, flag string }{
-		{"totp_secret", "--totp-secret"},
 		{"remote_dns", "--remote-dns-server"},
 		{"keep_alive_url", "--keep-alive-url"},
 		{"auth_type", "--auth-type"},
@@ -242,6 +241,25 @@ func optionArgs(cfg agent.Config) []string {
 		}
 	}
 	return args
+}
+
+// secretEnv hands zju-connect the password and the TOTP seed through its
+// environment rather than its command line.
+//
+// A command line is anybody's to read: ps, docker top, /proc/<pid>/cmdline
+// for any user in the container. An environment is readable only by the
+// process's own user and root. zju-connect takes every setting as
+// ZJU_CONNECT_<key> and layers flags over it, so moving these two changes
+// nothing else about how it is configured.
+func secretEnv(cfg agent.Config) []string {
+	var env []string
+	if cfg.Password != "" {
+		env = append(env, "ZJU_CONNECT_PASSWORD="+cfg.Password)
+	}
+	if v := cfg.Str("totp_secret", ""); v != "" {
+		env = append(env, "ZJU_CONNECT_TOTP_SECRET="+v)
+	}
+	return env
 }
 
 // onLine watches the child's output for the two failures the agent has to act

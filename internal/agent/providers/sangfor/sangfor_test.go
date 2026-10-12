@@ -1,6 +1,10 @@
 package sangfor
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/agent"
@@ -102,5 +106,50 @@ func TestUnsetOptionsArePassedAtAll(t *testing.T) {
 	// "--keep-alive-url" followed by the next flag as its value.
 	if args := optionArgs(agent.Config{}); len(args) != 0 {
 		t.Errorf("unset options produced %v, want nothing", args)
+	}
+}
+
+// The password and the TOTP seed must never be on zju-connect's command line,
+// where ps and docker top show them to anybody. They travel in its
+// environment, which it reads as ZJU_CONNECT_<key>.
+func TestSecretsStayOffTheCommandLine(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "seen")
+	script := filepath.Join(dir, "zju-connect")
+	// Stands in for the client: records what it was given, then exits.
+	body := "#!/bin/sh\n" +
+		"{ printf 'ARGS %s\\n' \"$*\"; printf 'PASSWORD %s\\n' \"$ZJU_CONNECT_PASSWORD\"; printf 'SEED %s\\n' \"$ZJU_CONNECT_TOTP_SECRET\"; } > " + out + "\n" +
+		"exit 1\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := agent.Config{
+		Server:   "vpn.corp.example",
+		Username: "alice",
+		Password: "hunter2-secret",
+		Extra: map[string]string{
+			"binary":      script,
+			"totp_secret": "SEEDVALUE",
+		},
+	}
+	p := &Provider{protocol: "easyconnect"}
+	_ = p.Run(context.Background(), cfg, &recordingReporter{})
+
+	raw, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("the stand-in client never ran: %v", err)
+	}
+	seen := string(raw)
+	args := strings.SplitN(seen, "\n", 2)[0]
+	for _, secret := range []string{"hunter2-secret", "SEEDVALUE", "--password", "--totp-secret"} {
+		if strings.Contains(args, secret) {
+			t.Errorf("%q is on the command line: %s", secret, args)
+		}
+	}
+	if !strings.Contains(seen, "PASSWORD hunter2-secret") {
+		t.Errorf("the password did not reach the client's environment:\n%s", seen)
+	}
+	if !strings.Contains(seen, "SEED SEEDVALUE") {
+		t.Errorf("the TOTP seed did not reach the client's environment:\n%s", seen)
 	}
 }

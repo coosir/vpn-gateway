@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -166,6 +167,14 @@ func (p *Provider) Run(ctx context.Context, cfg agent.Config, rep agent.Reporter
 		return err
 	}
 
+	if separateToken(cfg) {
+		remove, err := writeTokenSecret(cfg.Str("totp_secret", ""))
+		if err != nil {
+			return fmt.Errorf("could not hand the client its token seed: %w", err)
+		}
+		defer remove()
+	}
+
 	p.runner = agent.Runner{
 		Path: cfg.Str("binary", defaultBinary),
 		Args: buildArgs(p.protocol, cfg, false),
@@ -273,6 +282,38 @@ func (p *Provider) runSession(ctx context.Context, cfg agent.Config, rep agent.R
 	return err
 }
 
+// separateToken says the client generates its own one-time codes from a seed,
+// rather than the agent joining them to the password.
+func separateToken(cfg agent.Config) bool {
+	return cfg.Str("totp_secret", "") != "" && !cfg.Bool("totp_append", false)
+}
+
+// tokenSecretFile is where the seed is put for openconnect to read as
+// --token-secret=@FILE.
+func tokenSecretFile() string { return filepath.Join(os.TempDir(), "vg-token-secret") }
+
+// writeTokenSecret puts the seed where openconnect will read it, readable by
+// this user alone, and returns what removes it again. openconnect reads it
+// once at start and keeps it in memory, so it is gone as soon as the run is.
+func writeTokenSecret(secret string) (remove func(), err error) {
+	path := tokenSecretFile()
+	_ = os.Remove(path) // a leftover of a run that never got to clean up
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := f.WriteString(secret); err != nil {
+		f.Close()
+		os.Remove(path)
+		return nil, err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(path)
+		return nil, err
+	}
+	return func() { os.Remove(path) }, nil
+}
+
 // sessionRenewEvery is how often a stored session carrying a tunnel is marked
 // as still working. It only has to be well inside sso_hours, so a container
 // that dies without a clean exit leaves a session that still counts as young.
@@ -341,12 +382,13 @@ func buildArgs(protocol string, cfg agent.Config, signedOn bool) []string {
 		}
 		// The appended form is answered in the password itself, so the client
 		// must not also be told to expect a separate token prompt.
-		if secret := cfg.Str("totp_secret", ""); secret != "" && !cfg.Bool("totp_append", false) {
+		if separateToken(cfg) {
 			// Answering the token from a seed avoids prompting a person every
-			// time the tunnel reconnects.
+			// time the tunnel reconnects. The seed itself goes in a file:
+			// on the command line it would be in ps for anybody to read.
 			args = append(args,
 				"--token-mode="+cfg.Str("token_mode", "totp"),
-				"--token-secret="+secret)
+				"--token-secret=@"+tokenSecretFile())
 		}
 		for _, entry := range splitList(cfg.Str("form_entry", "")) {
 			args = append(args, "--form-entry="+entry)
