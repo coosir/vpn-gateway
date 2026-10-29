@@ -118,6 +118,11 @@ type Tunnel struct {
 	initiator   string
 	snap        Snapshot
 	unreachable int
+
+	// cancel and done belong to the running supervisor, so a tunnel being
+	// replaced or removed can be stopped and waited for.
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 // Event reports that a tunnel's state changed.
@@ -129,6 +134,8 @@ type Event struct {
 	// cannot tell the two apart once the reason is empty, and only one of
 	// them is something a person needs to hear about.
 	StoodDown bool `json:"stood_down,omitempty"`
+	// Removed marks the last event of a tunnel deleted from the server.
+	Removed bool `json:"removed,omitempty"`
 }
 
 // Prober checks a tunnel that has no agent to report on it.
@@ -139,13 +146,31 @@ type Prober interface {
 	LastTraffic(tunnel string) time.Time
 }
 
+// RouteSink is the listener a tunnel's route lives in, told when one is added,
+// changed or removed while the server runs.
+type RouteSink interface {
+	SetRoute(proxy.Route) error
+	RemoveRoute(name string)
+}
+
 // Manager owns every tunnel.
 type Manager struct {
-	cfg     *server.Config
-	engine  runtime.Engine
-	log     *slog.Logger
+	cfg    *server.Config
+	engine runtime.Engine
+	log    *slog.Logger
+	prober Prober
+	routes RouteSink
+
+	// mu guards tunnels and runCtx. Tunnels are added, replaced and removed
+	// while everything else reads them.
+	mu      sync.RWMutex
 	tunnels []*Tunnel
-	prober  Prober
+	// runCtx is Run's context once it has started; a tunnel added after that
+	// is supervised at once.
+	runCtx context.Context
+	wg     sync.WaitGroup
+	// changeMu puts one change at a time through Put and Remove.
+	changeMu sync.Mutex
 
 	subsMu sync.Mutex
 	subs   map[int]chan Event
@@ -194,7 +219,7 @@ func (m *Manager) publish(ev Event) {
 // are wanted. It must be called before Run.
 func (m *Manager) SetProber(p Prober) {
 	m.prober = p
-	for _, t := range m.tunnels {
+	for _, t := range m.list() {
 		if t.probed() {
 			t.mu.Lock()
 			if t.snap.Status.State == contract.StateUp {
@@ -215,97 +240,249 @@ func NewManager(cfg *server.Config, engine runtime.Engine, log *slog.Logger) (*M
 	}
 	m := &Manager{cfg: cfg, engine: engine, log: log}
 	for _, tc := range cfg.Tunnels {
-		trojanPassword, err := loadOrCreateSecret(cfg.StateDir, tc.Name+".trojan")
+		t, err := m.newTunnel(tc)
 		if err != nil {
 			return nil, err
 		}
-		var secret string
-		var client *contract.Client
-		if tc.NeedsContainer() {
-			secret, err = loadOrCreateSecret(cfg.StateDir, tc.Name+".secret")
-			if err != nil {
-				return nil, err
-			}
-			client = contract.NewClient(fmt.Sprintf("127.0.0.1:%d", tc.ControlPort), secret)
-		}
-
-		var routes, dnsServers, searchDomains []string
-		if tc.Extra != nil {
-			if r := tc.Extra["routes"]; r != "" {
-				for _, p := range strings.Split(r, ",") {
-					if s := strings.TrimSpace(p); s != "" {
-						routes = append(routes, s)
-					}
-				}
-			}
-			if d := tc.Extra["dns"]; d != "" {
-				for _, p := range strings.Split(d, ",") {
-					if s := strings.TrimSpace(p); s != "" {
-						dnsServers = append(dnsServers, s)
-					}
-				}
-			}
-			if s := tc.Extra["search_domains"]; s != "" {
-				for _, p := range strings.Split(s, ",") {
-					if s := strings.TrimSpace(p); s != "" {
-						searchDomains = append(searchDomains, s)
-					}
-				}
-			}
-			if s := tc.Extra["domains"]; s != "" {
-				for _, p := range strings.Split(s, ",") {
-					if s := strings.TrimSpace(p); s != "" {
-						searchDomains = append(searchDomains, s)
-					}
-				}
-			}
-		}
-
-		initialState := contract.StateDown
-		isNoContainer := !tc.NeedsContainer()
-		if isNoContainer {
-			initialState = contract.StateUp
-		}
-
-		m.tunnels = append(m.tunnels, &Tunnel{
-			cfg:            tc,
-			engine:         engine,
-			mgr:            m,
-			secret:         secret,
-			trojanPassword: trojanPassword,
-			client:         client,
-			log:            log.With("tunnel", tc.Name),
-			stateDir:       cfg.StateDir,
-			pullPolicy:     cfg.PullPolicy,
-			wake:           make(chan struct{}, 1),
-			snap: Snapshot{
-				Name:            tc.Name,
-				Provider:        tc.Provider,
-				Disabled:        tc.Disabled,
-				Reachable:       isNoContainer,
-				ContainerExists: false,
-				ContainerUp:     isNoContainer,
-				Status: contract.Status{
-					Contract: contract.Version,
-					Provider: tc.Provider,
-					State:    initialState,
-				},
-				Network: contract.Network{
-					Routes:        routes,
-					DNS:           dnsServers,
-					SearchDomains: searchDomains,
-					UDP:           true,
-				},
-			},
-		})
-	}
-	for _, t := range m.tunnels {
-		t.wanted.Store(t.restoreWish())
-		t.mu.Lock()
-		t.snap.Wanted = t.wanted.Load()
-		t.mu.Unlock()
+		m.tunnels = append(m.tunnels, t)
 	}
 	return m, nil
+}
+
+// newTunnel builds the supervisor for one tunnel, without starting it.
+func (m *Manager) newTunnel(tc server.TunnelConfig) (*Tunnel, error) {
+	cfg := m.cfg
+	log := m.log
+	engine := m.engine
+	trojanPassword, err := loadOrCreateSecret(cfg.StateDir, tc.Name+".trojan")
+	if err != nil {
+		return nil, err
+	}
+	var secret string
+	var client *contract.Client
+	if tc.NeedsContainer() {
+		secret, err = loadOrCreateSecret(cfg.StateDir, tc.Name+".secret")
+		if err != nil {
+			return nil, err
+		}
+		client = contract.NewClient(fmt.Sprintf("127.0.0.1:%d", tc.ControlPort), secret)
+	}
+
+	var routes, dnsServers, searchDomains []string
+	if tc.Extra != nil {
+		routes = splitList(tc.Extra["routes"])
+		dnsServers = splitList(tc.Extra["dns"])
+		searchDomains = append(splitList(tc.Extra["search_domains"]), splitList(tc.Extra["domains"])...)
+	}
+
+	initialState := contract.StateDown
+	isNoContainer := !tc.NeedsContainer()
+	if isNoContainer {
+		initialState = contract.StateUp
+	}
+
+	t := &Tunnel{
+		cfg:            tc,
+		engine:         engine,
+		mgr:            m,
+		secret:         secret,
+		trojanPassword: trojanPassword,
+		client:         client,
+		log:            log.With("tunnel", tc.Name),
+		stateDir:       cfg.StateDir,
+		pullPolicy:     cfg.PullPolicy,
+		wake:           make(chan struct{}, 1),
+		snap: Snapshot{
+			Name:            tc.Name,
+			Provider:        tc.Provider,
+			Disabled:        tc.Disabled,
+			Reachable:       isNoContainer,
+			ContainerExists: false,
+			ContainerUp:     isNoContainer,
+			Status: contract.Status{
+				Contract: contract.Version,
+				Provider: tc.Provider,
+				State:    initialState,
+			},
+			Network: contract.Network{
+				Routes:        routes,
+				DNS:           dnsServers,
+				SearchDomains: searchDomains,
+				UDP:           true,
+			},
+		},
+	}
+	t.wanted.Store(t.restoreWish())
+	t.snap.Wanted = t.wanted.Load()
+	return t, nil
+}
+
+func splitList(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// SetRouteSink gives the manager the listener to keep in step with tunnels
+// that change while the server runs.
+func (m *Manager) SetRouteSink(r RouteSink) { m.routes = r }
+
+// list is the current set of tunnels, safe to range over while it changes.
+func (m *Manager) list() []*Tunnel {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return slices.Clone(m.tunnels)
+}
+
+// launchLocked starts a tunnel's supervisor. m.mu must be held and Run must
+// have started.
+func (m *Manager) launchLocked(t *Tunnel) {
+	ctx, cancel := context.WithCancel(m.runCtx)
+	t.cancel = cancel
+	t.done = make(chan struct{})
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		defer close(t.done)
+		t.supervise(ctx)
+	}()
+}
+
+// retire stops a tunnel's supervisor and waits for it. The container is left
+// as it is: whatever replaces the tunnel decides what becomes of it.
+func (t *Tunnel) retire() {
+	if t.cancel == nil {
+		return
+	}
+	t.cancel()
+	<-t.done
+}
+
+// Put adds a tunnel, or replaces the one with the same name, while the server
+// runs. It takes effect at once: the listener routes to it, and its
+// supervisor brings its container in line -- recreating it only when what
+// the container runs with has changed, so an edit that does not touch it
+// does not cost a fresh login.
+func (m *Manager) Put(tc server.TunnelConfig) error {
+	m.changeMu.Lock()
+	defer m.changeMu.Unlock()
+
+	nt, err := m.newTunnel(tc)
+	if err != nil {
+		return err
+	}
+	old, existed := m.Lookup(tc.Name)
+	if existed {
+		old.retire()
+		if old.cfg.NeedsContainer() && !tc.NeedsContainer() {
+			// No longer a container tunnel: nothing will look after the
+			// old one, and it is still dialled into somebody's network.
+			old.removeContainer()
+		}
+		nt.initiator = old.Initiator()
+	}
+
+	if m.routes != nil {
+		if tc.Disabled {
+			m.routes.RemoveRoute(tc.Name)
+		} else if err := m.routes.SetRoute(nt.Route()); err != nil {
+			m.log.Warn("the listener did not take the tunnel's route", "tunnel", tc.Name, "error", err)
+		}
+	}
+
+	m.mu.Lock()
+	if i := slices.IndexFunc(m.tunnels, func(t *Tunnel) bool { return t.cfg.Name == tc.Name }); i >= 0 {
+		m.tunnels[i] = nt
+	} else {
+		m.tunnels = append(m.tunnels, nt)
+	}
+	if m.runCtx != nil {
+		m.launchLocked(nt)
+	}
+	m.mu.Unlock()
+
+	nt.publish(nt.Snapshot())
+	if existed {
+		nt.log.Info("tunnel updated")
+	} else {
+		nt.log.Info("tunnel added")
+	}
+	return nil
+}
+
+// Remove deletes a tunnel while the server runs: its supervisor stops, its
+// container goes, and the listener refuses it from then on.
+func (m *Manager) Remove(name string) error {
+	m.changeMu.Lock()
+	defer m.changeMu.Unlock()
+
+	t, ok := m.Lookup(name)
+	if !ok {
+		return fmt.Errorf("no tunnel named %q", name)
+	}
+	t.retire()
+	if m.routes != nil {
+		m.routes.RemoveRoute(name)
+	}
+	m.mu.Lock()
+	m.tunnels = slices.DeleteFunc(m.tunnels, func(x *Tunnel) bool { return x == t })
+	m.mu.Unlock()
+
+	if t.cfg.NeedsContainer() {
+		t.removeContainer()
+	}
+	// The env file holds the tunnel's password; the wish would bring it back
+	// dialling if one of the same name were added later.
+	os.Remove(t.cfg.EnvFilePath(t.stateDir))
+	os.Remove(t.wishPath())
+
+	snap := t.Snapshot()
+	snap.Wanted = false
+	snap.Status.State = contract.StateDown
+	snap.Challenge = nil
+	t.publishEvent(Event{Tunnel: snap, Removed: true})
+	t.log.Info("tunnel removed")
+	return nil
+}
+
+func (t *Tunnel) removeContainer() {
+	if t.engine == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := t.engine.Remove(ctx, t.cfg.ContainerName()); err != nil {
+		t.log.Warn("removing the container failed", "error", err)
+	}
+}
+
+// IsManual reports whether the named tunnel only dials when a person asks.
+func (m *Manager) IsManual(name string) bool {
+	t, ok := m.Lookup(name)
+	return ok && t.cfg.Manual
+}
+
+// Config returns the named tunnel's configuration.
+func (m *Manager) Config(name string) (server.TunnelConfig, bool) {
+	t, ok := m.Lookup(name)
+	if !ok {
+		return server.TunnelConfig{}, false
+	}
+	return t.cfg, true
+}
+
+// Configs returns every tunnel's configuration, in name order.
+func (m *Manager) Configs() []server.TunnelConfig {
+	var out []server.TunnelConfig
+	for _, t := range m.list() {
+		out = append(out, t.cfg)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // wishPath records whether a tunnel was asked to dial, so a server restart
@@ -452,20 +629,25 @@ func (t *Tunnel) setWish(want, keepReason bool) {
 	}
 }
 
-// Run reconciles and supervises every tunnel until ctx is cancelled.
+// Run reconciles and supervises every tunnel until ctx is cancelled,
+// including those added while it runs.
 func (m *Manager) Run(ctx context.Context) {
-	var wg sync.WaitGroup
+	m.mu.Lock()
+	m.runCtx = ctx
 	for _, t := range m.tunnels {
-		wg.Add(1)
-		go func() { defer wg.Done(); t.supervise(ctx) }()
+		m.launchLocked(t)
 	}
-	wg.Wait()
+	m.mu.Unlock()
+
+	<-ctx.Done()
+	m.wg.Wait()
 }
 
 // Snapshots returns the current view of every tunnel, in name order.
 func (m *Manager) Snapshots() []Snapshot {
-	out := make([]Snapshot, 0, len(m.tunnels))
-	for _, t := range m.tunnels {
+	tunnels := m.list()
+	out := make([]Snapshot, 0, len(tunnels))
+	for _, t := range tunnels {
 		out = append(out, t.Snapshot())
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -474,6 +656,8 @@ func (m *Manager) Snapshots() []Snapshot {
 
 // Lookup returns the tunnel with the given name.
 func (m *Manager) Lookup(name string) (*Tunnel, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	for _, t := range m.tunnels {
 		if t.cfg.Name == name {
 			return t, true
@@ -497,7 +681,7 @@ func (m *Manager) Shutdown(ctx context.Context) {
 	if !m.cfg.StopContainersOnExit {
 		return
 	}
-	for _, t := range m.tunnels {
+	for _, t := range m.list() {
 		if !t.cfg.NeedsContainer() {
 			continue
 		}
@@ -1276,7 +1460,7 @@ func (t *Tunnel) TrojanPassword() string { return t.trojanPassword }
 // left out so a client cannot select a tunnel that will never answer.
 func (m *Manager) Routes() []proxy.Route {
 	var out []proxy.Route
-	for _, t := range m.tunnels {
+	for _, t := range m.list() {
 		if t.cfg.Disabled {
 			continue
 		}
@@ -1286,7 +1470,7 @@ func (m *Manager) Routes() []proxy.Route {
 }
 
 // Tunnels returns every managed tunnel, in configuration order.
-func (m *Manager) Tunnels() []*Tunnel { return m.tunnels }
+func (m *Manager) Tunnels() []*Tunnel { return m.list() }
 
 // loadOrCreateSecret returns a persisted random secret, generating one on
 // first use. Persisting matters: a fresh secret each run would change every

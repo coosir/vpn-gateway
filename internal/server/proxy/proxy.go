@@ -10,8 +10,10 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
@@ -114,78 +116,20 @@ func BuildConfig(opts Options) ([]byte, error) {
 
 	users := make([]map[string]any, 0, len(opts.Routes))
 	outbounds := []map[string]any{
-		// Every tunnel resolves to a socks outbound (or a direct outbound for
-		// host tunnels). direct exists only so the configuration remains valid
-		// when no tunnel is configured.
+		// Every tunnel resolves to an outbound of its own, found by tag when a
+		// connection arrives. block is where anything else ends up; direct
+		// exists only so the configuration remains valid when no tunnel is
+		// configured.
 		{"type": "block", "tag": blockTag},
 		{"type": "direct", "tag": directTag},
 	}
-	rules := make([]map[string]any, 0, len(opts.Routes))
-
 	for _, r := range opts.Routes {
-		if r.Name == "" || r.TrojanPassword == "" {
-			return nil, fmt.Errorf("proxy: tunnel %q needs a name and a trojan password", r.Name)
+		ob, err := outboundFor(r)
+		if err != nil {
+			return nil, err
 		}
 		users = append(users, map[string]any{"name": r.Name, "password": r.TrojanPassword})
-
-		tag := tunnelPrefix + r.Name
-		if r.Direct {
-			outbounds = append(outbounds, map[string]any{
-				"type": "direct",
-				"tag":  tag,
-			})
-			rules = append(rules, map[string]any{
-				"inbound":   []string{inboundTag},
-				"auth_user": []string{r.Name},
-				"outbound":  tag,
-			})
-			continue
-		}
-
-		if r.TrojanOutbound != nil {
-			tls := map[string]any{
-				"enabled": true,
-			}
-			if r.TrojanOutbound.ServerName != "" {
-				tls["server_name"] = r.TrojanOutbound.ServerName
-			}
-			if r.TrojanOutbound.Insecure {
-				tls["insecure"] = true
-			}
-			outbounds = append(outbounds, map[string]any{
-				"type":        "trojan",
-				"tag":         tag,
-				"server":      r.TrojanOutbound.Server,
-				"server_port": r.TrojanOutbound.ServerPort,
-				"password":    r.TrojanOutbound.Password,
-				"tls":         tls,
-			})
-			rules = append(rules, map[string]any{
-				"inbound":   []string{inboundTag},
-				"auth_user": []string{r.Name},
-				"outbound":  tag,
-			})
-			continue
-		}
-
-		ob := map[string]any{
-			"type":        "socks",
-			"tag":         tag,
-			"server":      r.DataHost,
-			"server_port": r.DataPort,
-			"version":     "5",
-		}
-		if r.SOCKSUser != "" {
-			ob["username"] = r.SOCKSUser
-			ob["password"] = r.SOCKSPassword
-		}
 		outbounds = append(outbounds, ob)
-
-		rules = append(rules, map[string]any{
-			"inbound":   []string{inboundTag},
-			"auth_user": []string{r.Name},
-			"outbound":  tag,
-		})
 	}
 
 	cfg := map[string]any{
@@ -205,8 +149,9 @@ func BuildConfig(opts Options) ([]byte, error) {
 		}},
 		"outbounds": outbounds,
 		"route": map[string]any{
-			"rules": rules,
-			// Anything that does not match a tunnel rule is blocked, never
+			// Tunnels are not chosen by route rules: the inbound picks each
+			// connection's outbound itself, so the set can change while the
+			// listener runs. Anything that does not match a tunnel rule is blocked, never
 			// sent out the server's own connection. A silent fall through to
 			// direct would look like a working tunnel while leaking traffic
 			// meant for an intranet, which is far harder to notice than a
@@ -217,10 +162,52 @@ func BuildConfig(opts Options) ([]byte, error) {
 	return json.MarshalIndent(cfg, "", "  ")
 }
 
+// outboundFor renders the outbound one tunnel's traffic leaves by.
+func outboundFor(r Route) (map[string]any, error) {
+	if r.Name == "" || r.TrojanPassword == "" {
+		return nil, fmt.Errorf("proxy: tunnel %q needs a name and a trojan password", r.Name)
+	}
+	tag := tunnelPrefix + r.Name
+	switch {
+	case r.Direct:
+		return map[string]any{"type": "direct", "tag": tag}, nil
+	case r.TrojanOutbound != nil:
+		tls := map[string]any{"enabled": true}
+		if r.TrojanOutbound.ServerName != "" {
+			tls["server_name"] = r.TrojanOutbound.ServerName
+		}
+		if r.TrojanOutbound.Insecure {
+			tls["insecure"] = true
+		}
+		return map[string]any{
+			"type":        "trojan",
+			"tag":         tag,
+			"server":      r.TrojanOutbound.Server,
+			"server_port": r.TrojanOutbound.ServerPort,
+			"password":    r.TrojanOutbound.Password,
+			"tls":         tls,
+		}, nil
+	}
+	ob := map[string]any{
+		"type":        "socks",
+		"tag":         tag,
+		"server":      r.DataHost,
+		"server_port": r.DataPort,
+		"version":     "5",
+	}
+	if r.SOCKSUser != "" {
+		ob["username"] = r.SOCKSUser
+		ob["password"] = r.SOCKSPassword
+	}
+	return ob, nil
+}
+
 // Proxy owns a running sing-box instance.
 type Proxy struct {
 	instance *box.Box
+	ctx      context.Context
 	traffic  *trafficTracker
+	auth     Authenticator
 	log      *slog.Logger
 }
 
@@ -234,7 +221,8 @@ func New(ctx context.Context, opts Options, log *slog.Logger) (*Proxy, error) {
 	if auth == nil {
 		auth = NewStaticAuthenticator(opts.Routes)
 	}
-	boxCtx := registryContext(ctx, auth)
+	traffic := newTrafficTracker(opts.Routes)
+	boxCtx := registryContext(ctx, auth, traffic)
 
 	var parsed option.Options
 	if err := singjson.UnmarshalContext(boxCtx, raw, &parsed); err != nil {
@@ -244,8 +232,6 @@ func New(ctx context.Context, opts Options, log *slog.Logger) (*Proxy, error) {
 	if err != nil {
 		return nil, fmt.Errorf("proxy: build listener: %w", err)
 	}
-	traffic := newTrafficTracker(opts.Routes)
-	instance.Router().AppendTracker(traffic)
 	if err := instance.Start(); err != nil {
 		instance.Close()
 		return nil, fmt.Errorf("proxy: start listener on %s: %w", opts.Listen, err)
@@ -253,7 +239,47 @@ func New(ctx context.Context, opts Options, log *slog.Logger) (*Proxy, error) {
 
 	log.Info("trojan listener started",
 		"listen", opts.Listen, "server_name", opts.ServerName, "tunnels", len(opts.Routes))
-	return &Proxy{instance: instance, traffic: traffic, log: log}, nil
+	return &Proxy{instance: instance, ctx: boxCtx, traffic: traffic, auth: auth, log: log}, nil
+}
+
+// SetRoute adds a tunnel to the running listener, or replaces what it had for
+// one, without disturbing any other tunnel's connections.
+func (p *Proxy) SetRoute(r Route) error {
+	ob, err := outboundFor(r)
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(ob)
+	if err != nil {
+		return err
+	}
+	var parsed option.Outbound
+	if err := singjson.UnmarshalContext(p.ctx, raw, &parsed); err != nil {
+		return fmt.Errorf("proxy: tunnel %q: generated outbound was rejected: %w", r.Name, err)
+	}
+	tag := tunnelPrefix + r.Name
+	logger := p.instance.LogFactory().NewLogger("outbound/" + parsed.Type + "[" + tag + "]")
+	if err := p.instance.Outbound().Create(p.ctx, p.instance.Router(), logger, tag, parsed.Type, parsed.Options); err != nil {
+		return fmt.Errorf("proxy: tunnel %q: %w", r.Name, err)
+	}
+	p.traffic.add(r.Name)
+	if s, ok := p.auth.(*StaticAuthenticator); ok {
+		s.set(r)
+	}
+	p.log.Info("listener route updated", "tunnel", r.Name)
+	return nil
+}
+
+// RemoveRoute takes a tunnel out of the running listener. A client still
+// holding its password is refused from then on.
+func (p *Proxy) RemoveRoute(name string) {
+	if err := p.instance.Outbound().Remove(tunnelPrefix + name); err != nil && !errors.Is(err, os.ErrInvalid) {
+		p.log.Warn("removing a tunnel from the listener failed", "tunnel", name, "error", err)
+	}
+	p.traffic.remove(name)
+	if s, ok := p.auth.(*StaticAuthenticator); ok {
+		s.remove(name)
+	}
 }
 
 // Close stops the listener.
@@ -272,10 +298,10 @@ func (p *Proxy) Close() error {
 // that is not is refused when it is parsed, which is a server that will not
 // start rather than a tunnel that does not work -- see the test that walks
 // one of each kind through this.
-func registryContext(ctx context.Context, auth Authenticator) context.Context {
+func registryContext(ctx context.Context, auth Authenticator, traffic *trafficTracker) context.Context {
 	inR := inbound.NewRegistry()
 	inbound.Register[option.TrojanInboundOptions](inR, C.TypeTrojan, func(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.TrojanInboundOptions) (adapter.Inbound, error) {
-		return NewDynamicTrojanInbound(ctx, router, logger, tag, options, auth)
+		return NewDynamicTrojanInbound(ctx, router, logger, tag, options, auth, traffic)
 	})
 
 	outR := outbound.NewRegistry()

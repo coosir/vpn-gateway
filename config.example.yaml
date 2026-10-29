@@ -1,6 +1,11 @@
 # vpn-gateway server configuration.
 #
 # Validate with:  vpn-gateway-server -config config.yaml -check
+#
+# The tunnels and users below are read once: on its first start the server
+# copies them into state_dir/vpn-gateway.db, and from then on they are managed
+# in the admin page (http://<api_listen>/admin/), where changes take effect at
+# once. Everything else in this file stays here.
 
 # Where the client-facing control API listens. Keep this on loopback and let
 # the trojan listener carry client traffic; exposing it directly would put an

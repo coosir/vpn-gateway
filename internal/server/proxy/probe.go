@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -92,6 +93,7 @@ func (p *Proxy) LastTraffic(tunnel string) time.Time {
 // Only data coming back counts. A client sending into a tunnel whose far end
 // is gone still writes happily; it is the answer that shows the path is whole.
 type trafficTracker struct {
+	mu   sync.RWMutex
 	seen map[string]*atomic.Int64
 }
 
@@ -105,8 +107,30 @@ func newTrafficTracker(routes []Route) *trafficTracker {
 	return t
 }
 
-func (t *trafficTracker) last(tunnel string) time.Time {
+// add starts tracking a tunnel, keeping what was seen of one already tracked.
+func (t *trafficTracker) add(tunnel string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, ok := t.seen[tunnel]; !ok {
+		t.seen[tunnel] = new(atomic.Int64)
+	}
+}
+
+func (t *trafficTracker) remove(tunnel string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.seen, tunnel)
+}
+
+func (t *trafficTracker) lookup(tunnel string) (*atomic.Int64, bool) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	v, ok := t.seen[tunnel]
+	return v, ok
+}
+
+func (t *trafficTracker) last(tunnel string) time.Time {
+	v, ok := t.lookup(tunnel)
 	if !ok || v.Load() == 0 {
 		return time.Time{}
 	}
@@ -121,7 +145,7 @@ func (t *trafficTracker) counter(ob adapter.Outbound) N.CountFunc {
 	if !ok {
 		return nil
 	}
-	v, ok := t.seen[name]
+	v, ok := t.lookup(name)
 	if !ok {
 		return nil
 	}

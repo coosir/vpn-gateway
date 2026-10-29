@@ -99,7 +99,10 @@ type Options struct {
 	Label string
 	// Manual lists the tunnels that only a person dials.
 	Manual map[string]bool
-	Log    *slog.Logger
+	// IsManual, when set, is asked instead of Manual. Tunnels change while
+	// the server runs, so a list taken when it started goes stale.
+	IsManual func(name string) bool
+	Log      *slog.Logger
 }
 
 // Watcher turns tunnel events into alerts.
@@ -163,9 +166,21 @@ func (w *Watcher) Run(ctx context.Context, src Source) {
 	}
 }
 
+func (w *Watcher) manual(name string) bool {
+	if w.opts.IsManual != nil {
+		return w.opts.IsManual(name)
+	}
+	return w.opts.Manual[name]
+}
+
 // observe folds one event into what is known about its tunnel.
 func (w *Watcher) observe(ev tunnel.Event) {
 	s := ev.Tunnel
+	if ev.Removed {
+		// Gone from the server: nothing left to come back up, or to report.
+		delete(w.state, s.Name)
+		return
+	}
 	if s.Disabled {
 		return
 	}
@@ -230,7 +245,7 @@ func (w *Watcher) check() {
 		// A manual tunnel coming up has a person dialling it, answering the
 		// gateway's questions; the moment it fails it stands down, and that
 		// is reported on its own.
-		if w.opts.Manual[name] {
+		if w.manual(name) {
 			continue
 		}
 		down := now.Sub(st.downSince)

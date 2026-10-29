@@ -24,6 +24,7 @@ import (
 	"github.com/vpn-gateway/vpn-gateway/internal/server"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/certs"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/clientcfg"
+	"github.com/vpn-gateway/vpn-gateway/internal/server/store"
 )
 
 const usage = `vgctl inspects a vpn-gateway server and emits client configuration.
@@ -77,6 +78,19 @@ func run(configPath, host, probe, command string, args []string) error {
 	cfg, err := server.LoadConfig(configPath)
 	if err != nil {
 		return err
+	}
+	// Once the server has imported them, tunnels and users live in its
+	// database and are edited in the admin page; the file's are history.
+	st, seeded, err := store.OpenSeeded(cfg.StateDir)
+	if err != nil {
+		return err
+	}
+	if seeded {
+		defer st.Close()
+		stateDB = st
+		if cfg.Tunnels, err = st.Tunnels(); err != nil {
+			return err
+		}
 	}
 
 	switch command {

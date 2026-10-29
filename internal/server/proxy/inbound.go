@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 
@@ -16,9 +17,11 @@ import (
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing-box/transport/trojan"
 	"github.com/sagernet/sing/common"
+	"github.com/sagernet/sing/common/bufio/deadline"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/common/rw"
+	"github.com/sagernet/sing/service"
 )
 
 var _ adapter.TCPInjectableInbound = (*DynamicTrojanInbound)(nil)
@@ -32,16 +35,26 @@ type DynamicTrojanInbound struct {
 	listener  *listener.Listener
 	tlsConfig tls.ServerConfig
 	auth      Authenticator
+	traffic   *trafficTracker
+
+	outbounds   adapter.OutboundManager
+	connections adapter.ConnectionManager
 }
 
 // NewDynamicTrojanInbound creates an inbound adapter with dynamic authentication.
-func NewDynamicTrojanInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.TrojanInboundOptions, auth Authenticator) (adapter.Inbound, error) {
+func NewDynamicTrojanInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.TrojanInboundOptions, auth Authenticator, traffic *trafficTracker) (adapter.Inbound, error) {
 	inboundAdapter := inbound.NewAdapter(C.TypeTrojan, tag)
 	inb := &DynamicTrojanInbound{
-		Adapter: inboundAdapter,
-		router:  router,
-		logger:  logger,
-		auth:    auth,
+		Adapter:     inboundAdapter,
+		router:      router,
+		logger:      logger,
+		auth:        auth,
+		traffic:     traffic,
+		outbounds:   service.FromContext[adapter.OutboundManager](ctx),
+		connections: service.FromContext[adapter.ConnectionManager](ctx),
+	}
+	if inb.outbounds == nil || inb.connections == nil {
+		return nil, errors.New("trojan inbound: the outbound and connection managers are not registered")
 	}
 	if options.TLS != nil {
 		tlsConfig, err := tls.NewServerWithOptions(tls.ServerOptions{
@@ -145,12 +158,12 @@ func (h *DynamicTrojanInbound) handleConnection(ctx context.Context, conn net.Co
 
 	switch command {
 	case trojan.CommandTCP:
-		h.router.RouteConnectionEx(ctx, conn, metadata, wrappedClose)
+		h.routeConnection(ctx, conn, metadata, wrappedClose)
 	case trojan.CommandUDP:
-		h.router.RoutePacketConnectionEx(ctx, &trojan.PacketConn{Conn: conn}, metadata, wrappedClose)
+		h.routePacketConnection(ctx, &trojan.PacketConn{Conn: conn}, metadata, wrappedClose)
 	default:
 		return trojan.HandleMuxConnection(ctx, conn, metadata.Source, &dynamicMuxHandler{
-			router:   h.router,
+			inbound:  h,
 			metadata: metadata,
 			onClose:  wrappedClose,
 		}, h.logger, wrappedClose)
@@ -158,8 +171,63 @@ func (h *DynamicTrojanInbound) handleConnection(ctx context.Context, conn net.Co
 	return nil
 }
 
+// tunnelOutbound finds the outbound a tunnel's traffic leaves by.
+//
+// It is looked up as each connection arrives rather than fixed in route rules
+// when the listener starts. Rules cannot change while sing-box runs, and the
+// set of tunnels can: one added in the admin page is reachable at once, and
+// changing one swaps its outbound without restarting the listener under every
+// other tunnel's connections.
+func (h *DynamicTrojanInbound) tunnelOutbound(name string, network string) (adapter.Outbound, error) {
+	ob, ok := h.outbounds.Outbound(tunnelPrefix + name)
+	if !ok {
+		return nil, fmt.Errorf("no tunnel named %q", name)
+	}
+	if !common.Contains(ob.Network(), network) {
+		return nil, fmt.Errorf("tunnel %q does not carry %s", name, network)
+	}
+	return ob, nil
+}
+
+// routeConnection is what sing-box's router does for a connection, minus the
+// rule matching.
+func (h *DynamicTrojanInbound) routeConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
+	metadata.Network = N.NetworkTCP
+	ob, err := h.tunnelOutbound(metadata.User, N.NetworkTCP)
+	if err != nil {
+		h.logger.ErrorContext(ctx, err)
+		N.CloseOnHandshakeFailure(conn, onClose, err)
+		return
+	}
+	if deadline.NeedAdditionalReadDeadline(conn) {
+		conn = deadline.NewConn(conn)
+	}
+	conn = h.traffic.RoutedConnection(ctx, conn, metadata, nil, ob)
+	if handler, ok := ob.(adapter.ConnectionHandlerEx); ok {
+		handler.NewConnectionEx(ctx, conn, metadata, onClose)
+		return
+	}
+	h.connections.NewConnection(ctx, ob, conn, metadata, onClose)
+}
+
+func (h *DynamicTrojanInbound) routePacketConnection(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
+	metadata.Network = N.NetworkUDP
+	ob, err := h.tunnelOutbound(metadata.User, N.NetworkUDP)
+	if err != nil {
+		h.logger.ErrorContext(ctx, err)
+		N.CloseOnHandshakeFailure(conn, onClose, err)
+		return
+	}
+	conn = h.traffic.RoutedPacketConnection(ctx, conn, metadata, nil, ob)
+	if handler, ok := ob.(adapter.PacketConnectionHandlerEx); ok {
+		handler.NewPacketConnectionEx(ctx, conn, metadata, onClose)
+		return
+	}
+	h.connections.NewPacketConnection(ctx, ob, conn, metadata, onClose)
+}
+
 type dynamicMuxHandler struct {
-	router   adapter.ConnectionRouterEx
+	inbound  *DynamicTrojanInbound
 	metadata adapter.InboundContext
 	onClose  N.CloseHandlerFunc
 }
@@ -168,12 +236,12 @@ func (h *dynamicMuxHandler) NewConnectionEx(ctx context.Context, conn net.Conn, 
 	meta := h.metadata
 	meta.Source = source
 	meta.Destination = destination
-	h.router.RouteConnectionEx(ctx, conn, meta, onClose)
+	h.inbound.routeConnection(ctx, conn, meta, onClose)
 }
 
 func (h *dynamicMuxHandler) NewPacketConnectionEx(ctx context.Context, conn N.PacketConn, source M.Socksaddr, destination M.Socksaddr, onClose N.CloseHandlerFunc) {
 	meta := h.metadata
 	meta.Source = source
 	meta.Destination = destination
-	h.router.RoutePacketConnectionEx(ctx, conn, meta, onClose)
+	h.inbound.routePacketConnection(ctx, conn, meta, onClose)
 }

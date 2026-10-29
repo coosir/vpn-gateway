@@ -43,6 +43,9 @@ type Server struct {
 	token      string
 	usersMgr   *users.Manager
 	trojanAuth TrojanPasswordGenerator
+
+	store    TunnelStore
+	portBase int
 }
 
 // New builds the API server.
@@ -112,6 +115,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/tunnels/{name}/start", s.adminAuth(s.postStart))
 	mux.HandleFunc("POST /api/v1/tunnels/{name}/stop", s.adminAuth(s.postStop))
 	mux.HandleFunc("POST /api/v1/tunnels/{name}/reconnect", s.adminAuth(s.postReconnect))
+
+	// Tunnel configuration (Admin only). Changes take effect at once.
+	mux.HandleFunc("GET /api/v1/admin/info", s.adminAuth(s.getAdminInfo))
+	mux.HandleFunc("GET /api/v1/admin/tunnels", s.adminAuth(s.listTunnelConfigs))
+	mux.HandleFunc("POST /api/v1/admin/tunnels", s.adminAuth(s.postTunnelConfig))
+	mux.HandleFunc("PUT /api/v1/admin/tunnels/{name}", s.adminAuth(s.putTunnelConfig))
+	mux.HandleFunc("DELETE /api/v1/admin/tunnels/{name}", s.adminAuth(s.deleteTunnelConfig))
+
+	// The admin page itself. It is public in the way a login page is: it
+	// holds no data, and everything it shows comes from the API above.
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/admin/", http.StatusFound)
+	})
+	mux.HandleFunc("GET /admin/", serveAdminPage)
 
 	return mux
 }

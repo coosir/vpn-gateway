@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/server"
+	"github.com/vpn-gateway/vpn-gateway/internal/server/store"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/users"
 )
 
@@ -123,7 +124,7 @@ func runUserList(cfg *server.Config) error {
 
 	// Offline fallback: load directly from state directory
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	mgr, err := users.NewManager(cfg.StateDir, cfg.Users, log)
+	mgr, err := offlineUsers(cfg, log)
 	if err != nil {
 		return err
 	}
@@ -176,7 +177,7 @@ func runUserAdd(cfg *server.Config, username, password string, isAdmin bool) err
 
 	// Offline fallback
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	mgr, err := users.NewManager(cfg.StateDir, cfg.Users, log)
+	mgr, err := offlineUsers(cfg, log)
 	if err != nil {
 		return err
 	}
@@ -219,7 +220,7 @@ func runUserSetAdmin(cfg *server.Config, username string, isAdmin bool) error {
 
 	// Offline fallback
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	mgr, err := users.NewManager(cfg.StateDir, cfg.Users, log)
+	mgr, err := offlineUsers(cfg, log)
 	if err != nil {
 		return err
 	}
@@ -258,7 +259,7 @@ func runUserPasswd(cfg *server.Config, username, password string) error {
 
 	// Offline fallback
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	mgr, err := users.NewManager(cfg.StateDir, cfg.Users, log)
+	mgr, err := offlineUsers(cfg, log)
 	if err != nil {
 		return err
 	}
@@ -291,7 +292,7 @@ func runUserDelete(cfg *server.Config, username string) error {
 
 	// Offline fallback
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	mgr, err := users.NewManager(cfg.StateDir, cfg.Users, log)
+	mgr, err := offlineUsers(cfg, log)
 	if err != nil {
 		return err
 	}
@@ -300,4 +301,16 @@ func runUserDelete(cfg *server.Config, username string) error {
 	}
 	fmt.Printf("user %q deleted successfully (offline database updated)\n", username)
 	return nil
+}
+
+// stateDB is the server's database, when it has one.
+var stateDB *store.Store
+
+// offlineUsers manages users directly, for when the server is not running:
+// in its database once it has one, in users.json before that.
+func offlineUsers(cfg *server.Config, log *slog.Logger) (*users.Manager, error) {
+	if stateDB != nil {
+		return users.NewManagerWith(stateDB, log)
+	}
+	return users.NewManager(cfg.StateDir, cfg.Users, log)
 }

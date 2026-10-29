@@ -221,6 +221,52 @@ start on an unusual distribution. If it fails immediately, comment out the
 block at the bottom of the unit and add the lines back one at a time. None of
 it is needed for the server to work.
 
+### The admin page
+
+Tunnels and users are managed in a web page the server serves on its API
+port: `http://127.0.0.1:8642/admin/` with the default `api_listen`. It shows
+every tunnel's state as it changes, starts and stops them, shows their logs,
+answers whatever a gateway asks for -- an SMS code, a captcha, a web sign-in
+-- and adds, edits and deletes tunnels and users.
+
+A change takes effect when it is saved. The listener routes to a new tunnel at
+once, and an edited one is replaced in place without touching any other
+tunnel's connections. Its container is recreated only when something it runs
+with changed (server, credentials, `extra`, image), which for most gateways
+means one more login; the name, ports and secrets stay the same.
+
+Sign in with an administrator account, or with the API token in
+`state_dir/api-token`. The page lives on the API port, which stays on
+loopback, so reach it from your own machine through SSH:
+
+```sh
+ssh -L 8642:127.0.0.1:8642 server     # then open http://127.0.0.1:8642/admin/
+```
+
+**Where things are kept.** The first time it starts, the server copies the
+tunnels from `config.yaml`, and the users from `users.json` (or from
+`config.yaml`), into a SQLite database at `state_dir/vpn-gateway.db`. From
+then on the database is what it runs. Tunnels left in `config.yaml` are no
+longer read; the server says so in its log, and they can be deleted from the
+file. Everything else in `config.yaml` -- listener, certificate, alerts,
+probe -- stays in the file and still needs a restart to change. Passwords
+typed into the page are stored in the database, which is created 0600;
+`password_env` and `password_file` keep working for anyone who would rather
+not. `vgctl` reads the same database.
+
+**Web sign-in (SAML) from the page.** A gateway that signs in through an
+identity provider ends with a cookie on the gateway's own website. The desktop
+client reads it out of a window it opens itself; a web page cannot read another
+site's cookies, so the admin page uses a bookmarklet instead. Drag the
+"VPN 网关回传" button on the page's 网页登录 tab to your bookmarks bar once.
+Then, when a tunnel asks for a web sign-in: open the sign-in page from the
+tunnel's card, sign in, and when it stops on the gateway's own site ("please
+close this window"), click the bookmark. It reads that page's cookies and
+brings them back to the admin page in the URL fragment, which no server ever
+sees, and the page answers the tunnel. If the bookmark finds nothing, copy the
+cookie's value from the browser's developer tools and paste it into the card.
+A graphical (VNC) login still needs the desktop client.
+
 ## 4. Prove the plumbing
 
 ```sh

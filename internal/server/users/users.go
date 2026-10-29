@@ -48,10 +48,18 @@ type Session struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Persister is where the user list is kept between runs.
+type Persister interface {
+	// LoadUsers returns the saved users.
+	LoadUsers() ([]User, error)
+	// SaveUsers replaces the saved users with these.
+	SaveUsers([]User) error
+}
+
 // Manager manages dynamic users, password verification, and active sessions.
 type Manager struct {
-	path     string
-	mu       sync.RWMutex
+	persist         Persister
+	mu              sync.RWMutex
 	users           map[string]User
 	sessions        map[string]Session
 	cancels         map[string][]contextCancel
@@ -70,56 +78,63 @@ func NewManager(stateDir string, initialUsers []server.UserConfig, log *slog.Log
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return nil, fmt.Errorf("users: prepare state dir: %w", err)
 	}
+	f := &jsonFile{path: filepath.Join(stateDir, "users.json")}
+	if _, err := os.Stat(f.path); errors.Is(err, os.ErrNotExist) {
+		// First boot: whoever the configuration names becomes the first
+		// set of users. After that the file is the truth.
+		if err := f.SaveUsers(FromConfig(initialUsers)); err != nil {
+			return nil, err
+		}
+	}
+	return NewManagerWith(f, log)
+}
 
-	path := filepath.Join(stateDir, "users.json")
+// NewManagerWith loads users from p, which keeps them from then on.
+func NewManagerWith(p Persister, log *slog.Logger) (*Manager, error) {
+	list, err := p.LoadUsers()
+	if err != nil {
+		return nil, fmt.Errorf("users: %w", err)
+	}
 	m := &Manager{
-		path:     path,
+		persist:  p,
 		users:    make(map[string]User),
 		sessions: make(map[string]Session),
 		cancels:  make(map[string][]contextCancel),
 		log:      log,
 	}
-
-	if err := m.load(initialUsers); err != nil {
-		return nil, err
+	for _, u := range list {
+		m.users[u.Username] = u
 	}
 	return m, nil
 }
 
-func (m *Manager) load(initialUsers []server.UserConfig) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	data, err := os.ReadFile(m.path)
-	if err == nil {
-		var list []User
-		if err := json.Unmarshal(data, &list); err != nil {
-			return fmt.Errorf("users: parse %s: %w", m.path, err)
-		}
-		for _, u := range list {
-			m.users[u.Username] = u
-		}
-		return nil
-	}
-
-	if !os.IsNotExist(err) {
-		return fmt.Errorf("users: read %s: %w", m.path, err)
-	}
-
-	// Initialize from initialUsers only if users.json does not exist (first boot / initial migration)
+// FromConfig turns the users named in a configuration file into users.
+func FromConfig(initial []server.UserConfig) []User {
 	now := time.Now().UTC()
-	for _, u := range initialUsers {
+	var out []User
+	for _, u := range initial {
 		if u.Username != "" {
-			m.users[u.Username] = User{
+			out = append(out, User{
 				Username:     u.Username,
 				PasswordHash: u.PasswordHash,
 				IsAdmin:      u.IsAdmin,
 				CreatedAt:    now,
 				UpdatedAt:    now,
-			}
+			})
 		}
 	}
-	return m.saveLocked()
+	return out
+}
+
+// LoadJSONFile reads a users.json written by an earlier server, reporting
+// false when there is none.
+func LoadJSONFile(stateDir string) ([]User, bool, error) {
+	f := &jsonFile{path: filepath.Join(stateDir, "users.json")}
+	if _, err := os.Stat(f.path); errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	list, err := f.LoadUsers()
+	return list, err == nil, err
 }
 
 func (m *Manager) saveLocked() error {
@@ -128,18 +143,39 @@ func (m *Manager) saveLocked() error {
 		list = append(list, u)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Username < list[j].Username })
+	return m.persist.SaveUsers(list)
+}
 
+// jsonFile keeps users in stateDir/users.json, as servers before the
+// database did.
+type jsonFile struct{ path string }
+
+func (f *jsonFile) LoadUsers() ([]User, error) {
+	data, err := os.ReadFile(f.path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", f.path, err)
+	}
+	var list []User
+	if err := json.Unmarshal(data, &list); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", f.path, err)
+	}
+	return list, nil
+}
+
+func (f *jsonFile) SaveUsers(list []User) error {
+	if list == nil {
+		list = []User{}
+	}
 	data, err := json.MarshalIndent(list, "", "  ")
 	if err != nil {
 		return err
 	}
-
-	tmp := m.path + ".tmp"
+	tmp := f.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("users: write tmp file: %w", err)
 	}
-	if err := os.Rename(tmp, m.path); err != nil {
-		return fmt.Errorf("users: atomic replace %s: %w", m.path, err)
+	if err := os.Rename(tmp, f.path); err != nil {
+		return fmt.Errorf("users: atomic replace %s: %w", f.path, err)
 	}
 	return nil
 }

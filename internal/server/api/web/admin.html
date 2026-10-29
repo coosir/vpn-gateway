@@ -1,0 +1,957 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VPN 网关管理</title>
+<style>
+:root {
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --bg: #f5f7fa; --surface: #ffffff; --hover: #f8fafc;
+  --hair: #e5e9f0; --hair-firm: #cbd5e1;
+  --ink: #1e293b; --dim: #64748b; --faint: #94a3b8;
+  --primary: #2080f0; --primary-hover: #4098fc; --primary-bg: #eff6ff; --primary-border: #bfdbfe;
+  --live: #10b981; --live-bg: #ecfdf5; --live-border: #a7f3d0;
+  --down: #ef4444; --down-bg: #fef2f2; --down-border: #fecaca;
+  --amber: #f59e0b; --amber-bg: #fffbeb; --amber-border: #fde68a;
+  --focus-ring: 0 0 0 3px rgba(32, 128, 240, 0.18);
+  --shadow: 0 1px 3px 0 rgba(0,0,0,.06), 0 1px 2px -1px rgba(0,0,0,.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.08), 0 4px 6px -4px rgba(0,0,0,.04);
+  --radius: 8px; --radius-lg: 12px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f172a; --surface: #1e293b; --hover: #263449;
+    --hair: #334155; --hair-firm: #475569;
+    --ink: #e2e8f0; --dim: #94a3b8; --faint: #64748b;
+    --primary-bg: #172554; --primary-border: #1e3a8a;
+    --live-bg: #052e22; --live-border: #065f46;
+    --down-bg: #3b0d0d; --down-border: #7f1d1d;
+    --amber-bg: #3a2a05; --amber-border: #78530b;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); }
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--primary); }
+.hidden { display: none !important; }
+
+header { background: var(--surface); border-bottom: 1px solid var(--hair); }
+.bar { max-width: 1080px; margin: 0 auto; padding: 0 16px; height: 56px; display: flex; align-items: center; gap: 16px; }
+.brand { font-weight: 600; font-size: 15px; }
+.ver { color: var(--faint); font-size: 12px; }
+nav { display: flex; gap: 4px; margin-left: 8px; }
+nav button { border: 0; background: none; padding: 6px 12px; border-radius: var(--radius); cursor: pointer; color: var(--dim); }
+nav button.on { background: var(--primary-bg); color: var(--primary); font-weight: 500; }
+.who { margin-left: auto; color: var(--dim); font-size: 13px; display: flex; gap: 10px; align-items: center; }
+main { max-width: 1080px; margin: 0 auto; padding: 20px 16px 48px; }
+
+.btn { border: 1px solid var(--hair-firm); background: var(--surface); border-radius: var(--radius); padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--hover); }
+.btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; box-shadow: var(--focus-ring); border-color: var(--primary); }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.btn.primary:hover { background: var(--primary-hover); }
+.btn.danger { color: var(--down); border-color: var(--down-border); }
+.btn.small { padding: 3px 9px; font-size: 13px; }
+.btn:disabled { opacity: .5; cursor: default; }
+.link { border: 0; background: none; color: var(--primary); cursor: pointer; padding: 0; }
+
+.toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.toolbar h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.toolbar .spacer { flex: 1; }
+.note { color: var(--dim); font-size: 13px; }
+
+.list { display: grid; gap: 10px; }
+.card { background: var(--surface); border: 1px solid var(--hair); border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 14px 16px; }
+.card.ask { border-color: var(--amber-border); }
+.row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.name { font-weight: 600; font-size: 15px; }
+.meta { color: var(--dim); font-size: 13px; }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.actions { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.err { color: var(--down); font-size: 13px; margin-top: 6px; word-break: break-word; }
+
+.badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--hair); color: var(--dim); }
+.badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.badge.up { color: var(--live); background: var(--live-bg); border-color: var(--live-border); }
+.badge.busy, .badge.ask { color: var(--amber); background: var(--amber-bg); border-color: var(--amber-border); }
+.badge.error { color: var(--down); background: var(--down-bg); border-color: var(--down-border); }
+.badge.off::before { background: var(--faint); }
+
+.challenge { margin-top: 12px; padding: 12px 14px; border-radius: var(--radius); background: var(--amber-bg); border: 1px solid var(--amber-border); }
+.challenge p { margin: 0 0 8px; }
+.challenge ol { margin: 4px 0 10px; padding-left: 20px; }
+.challenge li { margin: 4px 0; }
+.challenge img { display: block; max-width: 240px; margin: 6px 0; background: #fff; border-radius: 4px; }
+.answer { display: flex; gap: 8px; flex-wrap: wrap; }
+.answer input { flex: 1; min-width: 200px; }
+
+input[type=text], input[type=password], input[type=number], select, textarea {
+  border: 1px solid var(--hair-firm); border-radius: var(--radius); padding: 6px 10px; background: var(--surface); width: 100%;
+}
+textarea { font-family: var(--mono); font-size: 12.5px; }
+label.f { display: block; margin-bottom: 12px; }
+label.f > span { display: block; font-size: 13px; color: var(--dim); margin-bottom: 4px; }
+label.f small { display: block; color: var(--faint); font-size: 12px; margin-top: 3px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.checks { display: flex; gap: 18px; flex-wrap: wrap; margin: 4px 0 14px; }
+.checks label { display: flex; align-items: center; gap: 6px; }
+details { border-top: 1px solid var(--hair); padding-top: 10px; margin-top: 4px; }
+summary { cursor: pointer; color: var(--dim); margin-bottom: 10px; }
+.kv { display: grid; grid-template-columns: 180px 1fr auto; gap: 6px; margin-bottom: 6px; }
+
+dialog { border: 0; border-radius: var(--radius-lg); padding: 0; width: min(680px, calc(100vw - 32px)); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-lg); }
+dialog::backdrop { background: rgba(15, 23, 42, .45); }
+.dlg-head { padding: 14px 18px; border-bottom: 1px solid var(--hair); font-weight: 600; display: flex; align-items: center; }
+.dlg-head .x { margin-left: auto; }
+.dlg-body { padding: 16px 18px; max-height: calc(100vh - 180px); overflow: auto; }
+.dlg-foot { padding: 12px 18px; border-top: 1px solid var(--hair); display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.dlg-foot .err { margin: 0 auto 0 0; }
+pre.logs { margin: 0; white-space: pre-wrap; word-break: break-all; font: 12px/1.45 var(--mono); max-height: 60vh; overflow: auto; }
+
+.login { max-width: 360px; margin: 12vh auto 0; }
+.login h1 { font-size: 20px; margin: 0 0 4px; }
+.tabs { display: flex; gap: 14px; margin: 16px 0 12px; font-size: 13px; }
+.tabs button { border: 0; background: none; padding: 0 0 4px; cursor: pointer; color: var(--dim); border-bottom: 2px solid transparent; }
+.tabs button.on { color: var(--primary); border-color: var(--primary); }
+
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: var(--radius); box-shadow: var(--shadow-lg); max-width: calc(100vw - 32px); z-index: 10; }
+.bookmarklet { display: inline-block; padding: 4px 10px; border: 1px dashed var(--primary); border-radius: var(--radius); text-decoration: none; background: var(--primary-bg); cursor: grab; }
+.empty { text-align: center; color: var(--dim); padding: 48px 0; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--hair); }
+th { font-weight: 500; color: var(--dim); font-size: 13px; }
+
+@media (max-width: 640px) {
+  .grid2 { grid-template-columns: 1fr; }
+  .kv { grid-template-columns: 1fr; }
+  .bar { gap: 8px; }
+  .ver { display: none; }
+  .actions { margin-left: 0; width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<div id="login" class="login hidden">
+  <div class="card">
+    <h1>VPN 网关管理</h1>
+    <div class="note">管理员登录</div>
+    <div class="tabs">
+      <button type="button" data-mode="user" class="on">账号密码</button>
+      <button type="button" data-mode="token">API Token</button>
+    </div>
+    <form id="login-form">
+      <div data-for="user">
+        <label class="f"><span>用户名</span><input type="text" name="username" autocomplete="username"></label>
+        <label class="f"><span>密码</span><input type="password" name="password" autocomplete="current-password"></label>
+      </div>
+      <div data-for="token" class="hidden">
+        <label class="f"><span>API Token</span><input type="password" name="token" autocomplete="off">
+          <small>服务器 state_dir 下的 api-token 文件内容</small></label>
+      </div>
+      <div class="err" id="login-err"></div>
+      <button class="btn primary" style="width:100%;margin-top:8px">登录</button>
+    </form>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <div class="bar">
+      <span class="brand">VPN 网关</span>
+      <span class="ver" id="ver"></span>
+      <nav>
+        <button type="button" data-view="tunnels" class="on">隧道</button>
+        <button type="button" data-view="users">用户</button>
+        <button type="button" data-view="sso">网页登录</button>
+      </nav>
+      <div class="who"><span id="who"></span><button class="link" id="logout">退出</button></div>
+    </div>
+  </header>
+  <main>
+    <section id="view-tunnels">
+      <div class="toolbar">
+        <h2>隧道</h2>
+        <span class="note" id="live"></span>
+        <span class="spacer"></span>
+        <button class="btn primary" id="add-tunnel">新建隧道</button>
+      </div>
+      <div class="list" id="tunnels"></div>
+    </section>
+
+    <section id="view-users" class="hidden">
+      <div class="toolbar">
+        <h2>用户</h2>
+        <span class="spacer"></span>
+        <button class="btn primary" id="add-user">新建用户</button>
+      </div>
+      <div class="card" style="padding:0"><table><thead><tr><th>用户名</th><th>角色</th><th>创建时间</th><th></th></tr></thead><tbody id="users"></tbody></table></div>
+    </section>
+
+    <section id="view-sso" class="hidden">
+      <div class="toolbar"><h2>网页登录（SSO）</h2></div>
+      <div class="card">
+        <p>有些网关（如使用 SAML 单点登录的 AnyConnect）要求在网页上登录，登录结果是一个只存在于网关网站上的 cookie。浏览器出于安全原因不允许管理后台直接读取别的网站的 cookie，所以需要借助下面这个书签把它带回来。</p>
+        <p><b>一次性准备：</b>把这个按钮拖到浏览器的书签栏。</p>
+        <p><a class="bookmarklet" id="bookmarklet" href="#">VPN 网关回传</a></p>
+        <p><b>每次登录：</b></p>
+        <ol>
+          <li>在「隧道」页点「连接」，等出现「需要网页登录」。</li>
+          <li>点「打开登录页」，在新标签页里完成登录（包括手机验证）。</li>
+          <li>登录完成、页面停在网关自己的网站上（常见提示是“请关闭此窗口”）时，点书签栏上的「VPN 网关回传」。</li>
+          <li>页面会跳回这里并自动提交，隧道随即开始连接。</li>
+        </ol>
+        <p class="note">书签只在你点它的那一刻读取当前网关页面的 cookie，并通过网址的 # 部分交给本页；它不会发往任何其他地方，也不会经过服务器日志。如果书签提示找不到 cookie，可以在登录页按 F12 → 应用/存储 → Cookie 里复制对应的值，粘贴到隧道卡片上。</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<dialog id="tunnel-dlg">
+  <form id="tunnel-form" method="dialog">
+    <div class="dlg-head"><span id="tunnel-title">隧道</span><button type="button" class="link x" data-close>关闭</button></div>
+    <div class="dlg-body">
+      <div class="grid2">
+        <label class="f"><span>名称</span><input type="text" name="name" required pattern="[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?">
+          <small>小写字母、数字和 -，创建后不能改</small></label>
+        <label class="f"><span>类型</span><select name="provider"></select></label>
+      </div>
+      <div data-show="container"><label class="f"><span>镜像</span><input type="text" name="image"></label></div>
+      <div data-show="remote" class="grid2">
+        <label class="f"><span>服务器地址</span><input type="text" name="server" placeholder="vpn.example.com 或 host:port"></label>
+        <label class="f" data-show="container"><span>用户名</span><input type="text" name="username" autocomplete="off"></label>
+      </div>
+      <div data-show="remote" class="grid2">
+        <label class="f"><span>密码来源</span>
+          <select name="password_source">
+            <option value="inline">直接填写（存在数据库）</option>
+            <option value="env">服务器环境变量</option>
+            <option value="file">服务器上的文件</option>
+          </select></label>
+        <label class="f"><span id="password-label">密码</span><input type="password" name="password_value" autocomplete="new-password">
+          <small id="password-hint"></small></label>
+      </div>
+      <div data-show="trojan" class="grid2">
+        <label class="f"><span>SNI（可选）</span><input type="text" name="sni"></label>
+        <label class="f" style="align-self:end"><span></span><label><input type="checkbox" name="insecure"> 跳过证书校验</label></label>
+      </div>
+      <label class="f"><span>路由网段</span><input type="text" name="x_routes" placeholder="10.0.0.0/8, 192.168.0.0/16">
+        <small>客户端经此隧道访问的网段，逗号分隔</small></label>
+      <div class="grid2">
+        <label class="f"><span>DNS</span><input type="text" name="x_dns" placeholder="10.0.0.53"></label>
+        <label class="f"><span>域名后缀</span><input type="text" name="x_search_domains" placeholder="corp.example"></label>
+      </div>
+      <div class="checks">
+        <label data-show="container"><input type="checkbox" name="autostart"> 服务器启动时自动连接</label>
+        <label data-show="container"><input type="checkbox" name="manual"> 仅手动连接（需要短信/验证码时选）</label>
+        <label><input type="checkbox" name="disabled"> 停用</label>
+      </div>
+      <details>
+        <summary>更多设置</summary>
+        <div class="kv-head note" style="margin-bottom:6px">其他参数（extra），各类型支持的参数见 config.example.yaml</div>
+        <div id="extra"></div>
+        <button type="button" class="btn small" id="add-extra">添加参数</button>
+        <div style="height:14px"></div>
+        <div class="grid2" data-show="container">
+          <label class="f"><span>最多尝试次数</span><input type="number" name="max_attempts" min="0"><small>0 = 使用默认值</small></label>
+          <label class="f"><span>VNC 端口</span><input type="number" name="vnc_port" min="0"><small>仅需要图形登录的客户端</small></label>
+          <label class="f"><span>cap_add</span><input type="text" name="cap_add" placeholder="NET_ADMIN"></label>
+          <label class="f"><span>devices</span><input type="text" name="devices" placeholder="/dev/net/tun"></label>
+        </div>
+        <label class="f" data-show="probe"><span>探测地址</span><input type="text" name="probe_url" placeholder="默认使用全局 probe.url；off 关闭"></label>
+        <div class="note" id="ports"></div>
+      </details>
+    </div>
+    <div class="dlg-foot"><div class="err" id="tunnel-err"></div><button type="button" class="btn" data-close>取消</button><button class="btn primary" id="tunnel-save">保存并生效</button></div>
+  </form>
+</dialog>
+
+<dialog id="logs-dlg">
+  <div class="dlg-head"><span id="logs-title">日志</span><button type="button" class="link x" data-close>关闭</button></div>
+  <div class="dlg-body"><pre class="logs" id="logs"></pre></div>
+  <div class="dlg-foot"><button class="btn" id="logs-refresh">刷新</button></div>
+</dialog>
+
+<dialog id="user-dlg">
+  <form id="user-form" method="dialog">
+    <div class="dlg-head"><span id="user-title">用户</span><button type="button" class="link x" data-close>关闭</button></div>
+    <div class="dlg-body">
+      <label class="f"><span>用户名</span><input type="text" name="username" autocomplete="off"></label>
+      <label class="f"><span>密码</span><input type="password" name="password" autocomplete="new-password"><small id="user-pass-hint"></small></label>
+      <div class="checks"><label><input type="checkbox" name="is_admin"> 管理员</label></div>
+    </div>
+    <div class="dlg-foot"><div class="err" id="user-err"></div><button type="button" class="btn" data-close>取消</button><button class="btn primary">保存</button></div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+"use strict";
+
+const TOKEN_KEY = "vg_admin_token";
+const USER_KEY = "vg_admin_user";
+const SSO_KEY = "vg_admin_sso";
+const PROMOTED = ["routes", "dns", "search_domains"];
+
+let token = load(TOKEN_KEY);
+let info = { providers: [], unchanged: "(unchanged)", editable: false };
+let configs = new Map();   // name -> tunnel configuration
+let snaps = new Map();     // name -> live snapshot
+let users = [];
+let stream = null;
+let editing = null;        // configuration being edited, or null for a new one
+let editingUser = null;
+
+// ---- small helpers -------------------------------------------------------
+
+function load(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
+function save(k, v) { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} }
+function $(id) { return document.getElementById(id); }
+
+// h builds an element; children are nodes or strings, never markup.
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "class") el.className = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) el.append(c instanceof Node ? c : String(c));
+  return el;
+}
+
+let toastTimer = 0;
+function toast(msg) {
+  let t = document.querySelector(".toast");
+  if (!t) { t = h("div", { class: "toast" }); document.body.append(t); }
+  t.textContent = msg;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.remove(), 4000);
+}
+
+class HTTPError extends Error {}
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: Object.assign({ Authorization: "Bearer " + token }, body !== undefined ? { "Content-Type": "application/json" } : {}),
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 401) { signOut(); throw new HTTPError("登录已失效，请重新登录"); }
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
+  if (!res.ok) throw new HTTPError((data && data.error) || (typeof data === "string" && data) || res.statusText);
+  return data;
+}
+
+function splitList(v) { return (v || "").split(",").map(s => s.trim()).filter(Boolean); }
+
+// ---- sign in -------------------------------------------------------------
+
+let loginMode = "user";
+document.querySelectorAll("#login .tabs button").forEach(b => b.addEventListener("click", () => {
+  loginMode = b.dataset.mode;
+  document.querySelectorAll("#login .tabs button").forEach(x => x.classList.toggle("on", x === b));
+  document.querySelectorAll("#login [data-for]").forEach(x => x.classList.toggle("hidden", x.dataset.for !== loginMode));
+}));
+
+$("login-form").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const f = ev.target;
+  $("login-err").textContent = "";
+  try {
+    if (loginMode === "token") {
+      token = f.token.value.trim();
+      save(USER_KEY, "API Token");
+    } else {
+      const res = await fetch("/api/v1/auth/login", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: f.username.value.trim(), password: f.password.value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.error || "登录失败");
+      if (!data.is_admin) throw new Error("该账号不是管理员");
+      token = data.token;
+      save(USER_KEY, data.username);
+    }
+    await start();
+    save(TOKEN_KEY, token);
+    f.reset();
+  } catch (e) {
+    token = "";
+    $("login-err").textContent = e.message;
+  }
+});
+
+function signOut() {
+  if (token) fetch("/api/v1/auth/logout", { method: "POST", headers: { Authorization: "Bearer " + token } }).catch(() => {});
+  token = "";
+  save(TOKEN_KEY, "");
+  if (stream) stream.abort();
+  $("app").classList.add("hidden");
+  $("login").classList.remove("hidden");
+}
+$("logout").addEventListener("click", signOut);
+
+// ---- views ---------------------------------------------------------------
+
+document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => show(b.dataset.view)));
+function show(view) {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x.dataset.view === view));
+  document.querySelectorAll("main > section").forEach(s => s.classList.toggle("hidden", s.id !== "view-" + view));
+  if (view === "users") loadUsers();
+}
+
+async function start() {
+  info = await api("GET", "/api/v1/admin/info");
+  $("ver").textContent = info.version || "";
+  $("who").textContent = load(USER_KEY);
+  $("add-tunnel").classList.toggle("hidden", !info.editable);
+  $("bookmarklet").href = bookmarklet();
+  fillProviders();
+  await loadConfigs();
+  $("login").classList.add("hidden");
+  $("app").classList.remove("hidden");
+  follow();
+}
+
+// ---- tunnels -------------------------------------------------------------
+
+async function loadConfigs() {
+  const list = await api("GET", "/api/v1/admin/tunnels");
+  configs = new Map(list.map(c => [c.name, c]));
+  render();
+}
+
+// follow keeps the live state current from the server's event stream. The
+// stream starts with every tunnel's state, so nothing else needs polling.
+async function follow() {
+  if (stream) stream.abort();
+  const ctl = new AbortController();
+  stream = ctl;
+  let wait = 1000;
+  while (!ctl.signal.aborted && token) {
+    try {
+      const res = await fetch("/api/v1/events", { headers: { Authorization: "Bearer " + token }, signal: ctl.signal });
+      if (res.status === 401) { signOut(); return; }
+      if (!res.ok || !res.body) throw new Error(res.statusText);
+      $("live").textContent = "实时";
+      wait = 1000;
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n\n")) >= 0) {
+          const chunk = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          for (const line of chunk.split("\n")) {
+            if (line.startsWith("data: ")) onEvent(JSON.parse(line.slice(6)));
+          }
+        }
+      }
+    } catch (e) {
+      if (ctl.signal.aborted) return;
+    }
+    $("live").textContent = "重新连接中…";
+    await new Promise(r => setTimeout(r, wait));
+    wait = Math.min(wait * 2, 15000);
+  }
+}
+
+let reloadTimer = 0;
+function reloadConfigsSoon() {
+  clearTimeout(reloadTimer);
+  reloadTimer = setTimeout(() => loadConfigs().catch(() => {}), 500);
+}
+
+let renderQueued = false;
+function onEvent(ev) {
+  const s = ev.tunnel;
+  if (!s || !s.name) return;
+  if (ev.removed) { snaps.delete(s.name); configs.delete(s.name); }
+  else {
+    snaps.set(s.name, s);
+    // Added somewhere else -- another administrator, another tab.
+    if (!configs.has(s.name)) reloadConfigsSoon();
+  }
+  if (!renderQueued) { renderQueued = true; requestAnimationFrame(() => { renderQueued = false; render(); trySSO(); }); }
+}
+
+const STATE = {
+  up: ["up", "已连接"], connecting: ["busy", "连接中"], auth_required: ["ask", "等待验证"],
+  down: ["off", "未连接"], error: ["error", "出错"],
+};
+
+function stateOf(s) {
+  if (!s) return ["off", "—"];
+  if (s.disabled) return ["off", "已停用"];
+  if (s.fetching_image) return ["busy", "下载镜像中"];
+  return STATE[s.status && s.status.state] || ["off", (s.status && s.status.state) || "未知"];
+}
+
+function render() {
+  const box = $("tunnels");
+  // Keep whatever someone is typing into an answer box across a re-render.
+  const typing = {};
+  box.querySelectorAll("input[data-answer]").forEach(i => { if (i.value) typing[i.dataset.answer] = i.value; });
+  const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.answer : null;
+
+  const names = [...new Set([...configs.keys(), ...snaps.keys()])].sort();
+  box.replaceChildren();
+  if (!names.length) {
+    box.append(h("div", { class: "empty" }, "还没有隧道。", info.editable ? "点「新建隧道」添加一个。" : ""));
+    return;
+  }
+  for (const name of names) box.append(card(name, configs.get(name), snaps.get(name)));
+
+  box.querySelectorAll("input[data-answer]").forEach(i => {
+    if (typing[i.dataset.answer]) i.value = typing[i.dataset.answer];
+    if (i.dataset.answer === focused) i.focus();
+  });
+}
+
+function card(name, cfg, s) {
+  const [cls, label] = stateOf(s);
+  const wanted = s && s.wanted;
+  const ch = s && s.challenge && s.challenge.id ? s.challenge : null;
+  const provider = (cfg && cfg.provider) || (s && s.provider) || "";
+  const detail = [providerLabel(provider)];
+  if (cfg && cfg.server) detail.push(cfg.server);
+  if (cfg && cfg.manual) detail.push("仅手动");
+  if (cfg && cfg.autostart) detail.push("自动连接");
+  if (s && s.status && s.status.state === "up" && s.status.uptime_seconds) detail.push("已连接 " + duration(s.status.uptime_seconds));
+
+  const actions = h("div", { class: "actions" });
+  if (s && !s.disabled) {
+    if (wanted) {
+      actions.append(h("button", { class: "btn small", onclick: () => act(name, "stop") }, "断开"));
+      if (provider !== "direct" && provider !== "trojan") actions.append(h("button", { class: "btn small", onclick: () => act(name, "reconnect") }, "重连"));
+    } else {
+      actions.append(h("button", { class: "btn small primary", onclick: () => act(name, "start") }, "连接"));
+    }
+  }
+  actions.append(h("button", { class: "btn small", onclick: () => showLogs(name) }, "日志"));
+  if (info.editable && cfg) {
+    actions.append(h("button", { class: "btn small", onclick: () => openTunnel(cfg) }, "编辑"));
+    actions.append(h("button", { class: "btn small danger", onclick: () => removeTunnel(name) }, "删除"));
+  }
+
+  const err = s && (s.last_error || (s.status && s.status.error));
+  return h("div", { class: "card" + (ch ? " ask" : "") },
+    h("div", { class: "row" },
+      h("span", { class: "name" }, name),
+      h("span", { class: "badge " + cls }, label),
+      h("span", { class: "meta" }, detail.filter(Boolean).join(" · ")),
+      actions),
+    err && s.status && s.status.state !== "up" ? h("div", { class: "err" }, err) : null,
+    ch ? challenge(name, ch) : null);
+}
+
+function providerLabel(p) {
+  const found = info.providers.find(x => x.name === p);
+  return found ? found.label : p;
+}
+
+function duration(sec) {
+  if (sec < 60) return sec + " 秒";
+  if (sec < 3600) return Math.floor(sec / 60) + " 分钟";
+  if (sec < 86400) return Math.floor(sec / 3600) + " 小时 " + Math.floor(sec % 3600 / 60) + " 分";
+  return Math.floor(sec / 86400) + " 天 " + Math.floor(sec % 86400 / 3600) + " 小时";
+}
+
+async function act(name, what) {
+  try {
+    await api("POST", "/api/v1/tunnels/" + encodeURIComponent(name) + "/" + what);
+    toast({ start: "已要求连接 ", stop: "已断开 ", reconnect: "正在重连 " }[what] + name);
+  } catch (e) { toast(e.message); }
+}
+
+// ---- answering the gateway ----------------------------------------------
+
+function challenge(name, ch) {
+  const send = async (value, btn) => {
+    if (!value) return;
+    if (btn) btn.disabled = true;
+    try {
+      await api("POST", "/api/v1/tunnels/" + encodeURIComponent(name) + "/auth", { id: ch.id, value });
+      toast("已提交，隧道继续连接中");
+    } catch (e) { toast("提交失败：" + e.message); if (btn) btn.disabled = false; }
+  };
+  const answerBox = (placeholder, type) => {
+    const input = h("input", { type: type || "text", placeholder, "data-answer": name + ":" + ch.id, autocomplete: "one-time-code" });
+    const btn = h("button", { class: "btn primary", type: "submit" }, "提交");
+    return h("form", { class: "answer", onsubmit: ev => { ev.preventDefault(); send(input.value.trim(), btn); } }, input, btn);
+  };
+
+  const prompt = ch.prompt ? h("p", {}, ch.prompt) : null;
+  switch (ch.type) {
+    case "url":
+      if (ch.cookie_name) {
+        return h("div", { class: "challenge" },
+          h("p", {}, h("b", {}, "需要网页登录"), "（单点登录）"),
+          prompt,
+          h("ol", {},
+            h("li", {}, h("a", { href: ch.url, target: "_blank", rel: "noopener" }, "打开登录页"), "，在新标签页里完成登录。"),
+            h("li", {}, "登录完成后，在那个标签页点书签栏上的「VPN 网关回传」。",
+              h("button", { class: "link", type: "button", onclick: () => show("sso") }, "还没有这个书签？")),
+            h("li", {}, "或者手动粘贴 cookie ", h("span", { class: "mono" }, ch.cookie_name), " 的值：")),
+          answerBox(ch.cookie_name + " 的值", "password"));
+      }
+      return h("div", { class: "challenge" },
+        h("p", {}, h("b", {}, "需要网页登录")), prompt,
+        h("ol", {},
+          h("li", {}, h("a", { href: ch.url, target: "_blank", rel: "noopener" }, "打开登录页"), "并完成登录。"),
+          h("li", {}, "把登录完成后浏览器地址栏里的完整网址粘贴到这里：")),
+        answerBox("登录后跳转到的网址"));
+    case "captcha":
+      return h("div", { class: "challenge" },
+        h("p", {}, h("b", {}, "需要图形验证码")), prompt,
+        ch.image_b64 ? h("img", { src: "data:image/png;base64," + ch.image_b64, alt: "验证码" }) : null,
+        answerBox("验证码"));
+    case "vnc":
+      return h("div", { class: "challenge" },
+        h("p", {}, h("b", {}, "需要图形界面登录")), prompt,
+        h("p", { class: "note" }, "这一步要在 VNC 画面里操作，请在桌面客户端中完成。"));
+    case "password":
+      return h("div", { class: "challenge" }, h("p", {}, h("b", {}, "需要密码")), prompt, answerBox("密码", "password"));
+    case "sms":
+      return h("div", { class: "challenge" }, h("p", {}, h("b", {}, "需要短信验证码")), prompt, answerBox("短信验证码"));
+    case "totp":
+      return h("div", { class: "challenge" }, h("p", {}, h("b", {}, "需要动态口令")), prompt, answerBox("6 位动态口令"));
+    default:
+      return h("div", { class: "challenge" }, h("p", {}, h("b", {}, "网关需要输入")), prompt, answerBox(""));
+  }
+}
+
+// ---- single sign-on through a bookmarklet ---------------------------------
+//
+// The cookie a gateway leaves at the end of a sign-on belongs to the gateway's
+// website, and nothing on this page is allowed to read it. A bookmarklet
+// clicked on that website is: it reads document.cookie there and comes back
+// here with it in the fragment, which browsers never send to any server.
+
+function bookmarklet() {
+  const target = location.origin + "/admin/#sso=";
+  return "javascript:(function(){location.href=" + JSON.stringify(target) +
+    "+encodeURIComponent(JSON.stringify({u:location.href,c:document.cookie}));})();";
+}
+
+function takeSSOFromURL() {
+  const m = location.hash.match(/^#sso=(.*)$/);
+  if (!m) return;
+  try { sessionStorage.setItem(SSO_KEY, decodeURIComponent(m[1])); } catch (e) {}
+  history.replaceState(null, "", location.pathname);
+}
+
+let ssoTimer = 0;
+function trySSO() {
+  let raw = "";
+  try { raw = sessionStorage.getItem(SSO_KEY) || ""; } catch (e) {}
+  if (!raw || !token) return;
+  let got;
+  try { got = JSON.parse(raw); } catch (e) { clearSSO(); return; }
+
+  const pending = [];
+  for (const s of snaps.values()) {
+    const ch = s.challenge;
+    if (ch && ch.id && ch.type === "url" && ch.cookie_name) pending.push([s.name, ch]);
+  }
+  if (!pending.length) {
+    // The stream may not have delivered the state yet; give it a moment
+    // before saying there is nothing waiting.
+    if (!ssoTimer) ssoTimer = setTimeout(() => { if (sessionStorage.getItem(SSO_KEY)) { clearSSO(); toast("没有正在等待网页登录的隧道"); } }, 4000);
+    return;
+  }
+  clearSSO();
+
+  let host = "";
+  try { host = new URL(got.u).host; } catch (e) {}
+  const found = pending
+    .map(([name, ch]) => [name, ch, cookie(got.c || "", ch.cookie_name), sameHost(ch.final_url || ch.url, host)])
+    .filter(x => x[2])
+    .sort((a, b) => b[3] - a[3]);
+  if (!found.length) {
+    toast("在 " + (host || "当前页面") + " 上没有找到登录 cookie（" + pending.map(p => p[1].cookie_name).join("、") + "）。请确认已登录完成，或手动粘贴。");
+    return;
+  }
+  const [name, ch, value] = found[0];
+  api("POST", "/api/v1/tunnels/" + encodeURIComponent(name) + "/auth", { id: ch.id, value })
+    .then(() => toast("已把登录结果交给隧道 " + name + "，正在连接。登录页可以关掉了。"))
+    .catch(e => toast("提交失败：" + e.message));
+}
+
+function clearSSO() {
+  try { sessionStorage.removeItem(SSO_KEY); } catch (e) {}
+  clearTimeout(ssoTimer);
+  ssoTimer = 0;
+}
+
+function cookie(all, name) {
+  for (const part of all.split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
+  }
+  return "";
+}
+
+function sameHost(url, host) {
+  try { return host && new URL(url).host === host ? 1 : 0; } catch (e) { return 0; }
+}
+
+// ---- editing a tunnel ----------------------------------------------------
+
+function fillProviders() {
+  const sel = $("tunnel-form").provider;
+  sel.replaceChildren(...info.providers.map(p => h("option", { value: p.name }, p.label)));
+}
+
+function providerOf(name) { return info.providers.find(p => p.name === name); }
+function needsContainer(name) { const p = providerOf(name); return !(p && p.no_container) && name !== "direct" && name !== "trojan"; }
+
+function syncForm() {
+  const f = $("tunnel-form");
+  const p = f.provider.value;
+  const container = needsContainer(p);
+  const trojan = p === "trojan";
+  const direct = p === "direct";
+  f.querySelectorAll("[data-show]").forEach(el => {
+    const on = { container, trojan, remote: !direct, probe: !container }[el.dataset.show];
+    el.classList.toggle("hidden", !on);
+  });
+  const src = f.password_source.value;
+  $("password-label").textContent = { inline: trojan ? "Trojan 密码" : "密码", env: "环境变量名", file: "文件路径" }[src];
+  f.password_value.type = src === "inline" ? "password" : "text";
+  const kept = editing && editing.password === info.unchanged && src === "inline";
+  f.password_value.placeholder = kept ? "已保存，不修改请留空" : "";
+  $("password-hint").textContent = src === "env" ? "服务器进程能读到的环境变量" : src === "file" ? "文件内容即密码" : "";
+}
+
+$("tunnel-form").provider.addEventListener("change", () => {
+  const f = $("tunnel-form");
+  const p = providerOf(f.provider.value);
+  // A new tunnel takes what its kind usually needs; an existing one keeps
+  // what it was given unless the field is empty.
+  if (p && (!editing || !f.image.value)) f.image.value = p.image || "";
+  if (p && (!editing || !f.cap_add.value)) f.cap_add.value = (p.cap_add || []).join(", ");
+  if (p && (!editing || !f.devices.value)) f.devices.value = (p.devices || []).join(", ");
+  syncForm();
+});
+$("tunnel-form").password_source.addEventListener("change", syncForm);
+$("tunnel-form").manual.addEventListener("change", e => { if (e.target.checked) $("tunnel-form").autostart.checked = false; });
+$("tunnel-form").autostart.addEventListener("change", e => { if (e.target.checked) $("tunnel-form").manual.checked = false; });
+
+function extraRow(k, v) {
+  const secret = v === info.unchanged;
+  const row = h("div", { class: "kv" },
+    h("input", { type: "text", placeholder: "参数名", value: k || "", "data-k": "" }),
+    h("input", { type: secret ? "password" : "text", placeholder: secret ? "已保存，不修改请留空" : "值", value: secret ? "" : (v || ""), "data-v": "", "data-secret": secret ? "1" : null }),
+    h("button", { type: "button", class: "btn small", onclick: () => row.remove() }, "删除"));
+  return row;
+}
+$("add-extra").addEventListener("click", () => $("extra").append(extraRow("", "")));
+
+$("add-tunnel").addEventListener("click", () => openTunnel(null));
+
+function openTunnel(cfg) {
+  editing = cfg;
+  const f = $("tunnel-form");
+  f.reset();
+  $("tunnel-err").textContent = "";
+  $("tunnel-title").textContent = cfg ? "编辑隧道 " + cfg.name : "新建隧道";
+  f.name.readOnly = !!cfg;
+  const c = cfg || { provider: (info.providers.find(p => !p.no_container) || {}).name || "mock" };
+  f.name.value = c.name || "";
+  f.provider.value = c.provider;
+  if (!cfg) f.provider.dispatchEvent(new Event("change"));
+  else {
+    f.image.value = c.image || "";
+    f.cap_add.value = (c.cap_add || []).join(", ");
+    f.devices.value = (c.devices || []).join(", ");
+  }
+  f.server.value = c.server || "";
+  f.username.value = c.username || "";
+  f.password_source.value = c.password_env ? "env" : c.password_file ? "file" : "inline";
+  f.password_value.value = c.password_env || c.password_file || "";
+  f.sni.value = c.sni || "";
+  f.insecure.checked = !!c.insecure;
+  f.autostart.checked = !!c.autostart;
+  f.manual.checked = !!c.manual;
+  f.disabled.checked = !!c.disabled;
+  f.max_attempts.value = c.max_attempts || "";
+  f.vnc_port.value = c.vnc_port || "";
+  f.probe_url.value = c.probe_url || "";
+  const extra = Object.assign({}, c.extra || {});
+  for (const k of PROMOTED) { f["x_" + k].value = extra[k] || ""; delete extra[k]; }
+  $("extra").replaceChildren(...Object.keys(extra).sort().map(k => extraRow(k, extra[k])));
+  $("ports").textContent = cfg && cfg.data_port ? "本机端口：数据 " + cfg.data_port + "，控制 " + cfg.control_port : "";
+  syncForm();
+  $("tunnel-dlg").showModal();
+  (cfg ? f.server : f.name).focus();
+}
+
+$("tunnel-form").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const f = ev.target;
+  const p = f.provider.value;
+  const container = needsContainer(p);
+  const t = {
+    name: f.name.value.trim(),
+    provider: p,
+    disabled: f.disabled.checked,
+  };
+  if (p !== "direct") {
+    t.server = f.server.value.trim();
+    const src = f.password_source.value;
+    const v = f.password_value.value;
+    if (src === "env") t.password_env = v.trim();
+    else if (src === "file") t.password_file = v.trim();
+    else if (v) t.password = v;
+    else if (editing && editing.password === info.unchanged) t.password = info.unchanged;
+  }
+  if (container) {
+    t.image = f.image.value.trim();
+    t.username = f.username.value.trim();
+    t.autostart = f.autostart.checked;
+    t.manual = f.manual.checked;
+    t.max_attempts = parseInt(f.max_attempts.value, 10) || 0;
+    t.vnc_port = parseInt(f.vnc_port.value, 10) || 0;
+    t.cap_add = splitList(f.cap_add.value);
+    t.devices = splitList(f.devices.value);
+    if (editing) { t.data_port = editing.data_port; t.control_port = editing.control_port; }
+  } else {
+    t.probe_url = f.probe_url.value.trim();
+  }
+  if (p === "trojan") { t.sni = f.sni.value.trim(); t.insecure = f.insecure.checked; }
+  const extra = {};
+  for (const k of PROMOTED) { const v = f["x_" + k].value.trim(); if (v) extra[k] = v; }
+  $("extra").querySelectorAll(".kv").forEach(row => {
+    const k = row.querySelector("[data-k]").value.trim();
+    const vi = row.querySelector("[data-v]");
+    let v = vi.value;
+    if (!v && vi.dataset.secret) v = info.unchanged;
+    if (k && v) extra[k] = v;
+  });
+  if (Object.keys(extra).length) t.extra = extra;
+
+  $("tunnel-save").disabled = true;
+  $("tunnel-err").textContent = "";
+  try {
+    const saved = editing
+      ? await api("PUT", "/api/v1/admin/tunnels/" + encodeURIComponent(editing.name), t)
+      : await api("POST", "/api/v1/admin/tunnels", t);
+    configs.set(saved.name, saved);
+    render();
+    $("tunnel-dlg").close();
+    toast("已保存，" + saved.name + " 已按新配置生效");
+  } catch (e) {
+    $("tunnel-err").textContent = e.message;
+  } finally {
+    $("tunnel-save").disabled = false;
+  }
+});
+
+async function removeTunnel(name) {
+  if (!confirm("删除隧道 " + name + "？\n它的容器会被删除，正在使用它的客户端会断开。")) return;
+  try {
+    await api("DELETE", "/api/v1/admin/tunnels/" + encodeURIComponent(name));
+    configs.delete(name);
+    snaps.delete(name);
+    render();
+    toast("已删除 " + name);
+  } catch (e) { toast(e.message); }
+}
+
+// ---- logs ----------------------------------------------------------------
+
+let logsFor = "";
+async function showLogs(name) {
+  logsFor = name;
+  $("logs-title").textContent = name + " 的日志";
+  $("logs").textContent = "加载中…";
+  if (!$("logs-dlg").open) $("logs-dlg").showModal();
+  try {
+    const res = await fetch("/api/v1/tunnels/" + encodeURIComponent(name) + "/logs?tail=400", { headers: { Authorization: "Bearer " + token } });
+    $("logs").textContent = (await res.text()) || "（没有输出）";
+    const pre = $("logs");
+    pre.scrollTop = pre.scrollHeight;
+  } catch (e) { $("logs").textContent = e.message; }
+}
+$("logs-refresh").addEventListener("click", () => showLogs(logsFor));
+
+// ---- users ---------------------------------------------------------------
+
+async function loadUsers() {
+  try { users = await api("GET", "/api/v1/users"); } catch (e) { toast(e.message); return; }
+  const body = $("users");
+  body.replaceChildren();
+  if (!users.length) body.append(h("tr", {}, h("td", { colspan: 4, class: "empty" }, "还没有用户")));
+  for (const u of users) {
+    body.append(h("tr", {},
+      h("td", {}, u.username),
+      h("td", {}, u.is_admin ? "管理员" : "普通用户"),
+      h("td", { class: "meta" }, u.created_at ? new Date(u.created_at).toLocaleString() : ""),
+      h("td", { style: "text-align:right" },
+        h("button", { class: "btn small", onclick: () => openUser(u) }, "编辑"), " ",
+        h("button", { class: "btn small danger", onclick: () => removeUser(u.username) }, "删除"))));
+  }
+}
+
+$("add-user").addEventListener("click", () => openUser(null));
+function openUser(u) {
+  editingUser = u;
+  const f = $("user-form");
+  f.reset();
+  $("user-err").textContent = "";
+  $("user-title").textContent = u ? "编辑用户 " + u.username : "新建用户";
+  f.username.value = u ? u.username : "";
+  f.username.readOnly = !!u;
+  f.is_admin.checked = !!(u && u.is_admin);
+  $("user-pass-hint").textContent = u ? "不修改请留空" : "至少 4 位";
+  $("user-dlg").showModal();
+}
+$("user-form").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const f = ev.target;
+  try {
+    if (editingUser) {
+      const body = { is_admin: f.is_admin.checked };
+      if (f.password.value) body.password = f.password.value;
+      await api("PUT", "/api/v1/users/" + encodeURIComponent(editingUser.username), body);
+    } else {
+      await api("POST", "/api/v1/users", { username: f.username.value.trim(), password: f.password.value, is_admin: f.is_admin.checked });
+    }
+    $("user-dlg").close();
+    loadUsers();
+  } catch (e) { $("user-err").textContent = e.message; }
+});
+async function removeUser(name) {
+  if (!confirm("删除用户 " + name + "？该用户的所有连接会立即断开。")) return;
+  try { await api("DELETE", "/api/v1/users/" + encodeURIComponent(name)); loadUsers(); } catch (e) { toast(e.message); }
+}
+
+// ---- dialogs -------------------------------------------------------------
+
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => b.closest("dialog").close()));
+
+// ---- boot ----------------------------------------------------------------
+
+takeSSOFromURL();
+if (token) {
+  start().catch(() => { token = ""; save(TOKEN_KEY, ""); $("login").classList.remove("hidden"); });
+} else {
+  $("login").classList.remove("hidden");
+}
+})();
+</script>
+</body>
+</html>

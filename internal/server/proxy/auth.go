@@ -193,6 +193,7 @@ func (d *DynamicAuthenticator) RevokeUser(username string) {
 
 // StaticAuthenticator provides backward-compatible authentication against static passwords.
 type StaticAuthenticator struct {
+	mu   sync.RWMutex
 	keys map[[56]byte]AuthResult
 }
 
@@ -212,8 +213,29 @@ func NewStaticAuthenticator(routes []Route) *StaticAuthenticator {
 
 // ValidateTrojanKey looks up the static key.
 func (s *StaticAuthenticator) ValidateTrojanKey(key [56]byte) (AuthResult, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	res, ok := s.keys[key]
 	return res, ok
+}
+
+func (s *StaticAuthenticator) set(r Route) {
+	s.remove(r.Name)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r.Name != "" && r.TrojanPassword != "" {
+		s.keys[trojan.Key(r.TrojanPassword)] = AuthResult{TunnelName: r.Name, Username: r.Name}
+	}
+}
+
+func (s *StaticAuthenticator) remove(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, v := range s.keys {
+		if v.TunnelName == name {
+			delete(s.keys, k)
+		}
+	}
 }
 
 // TrackConnection is a no-op for static authenticator.

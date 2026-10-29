@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -27,6 +28,7 @@ import (
 	"github.com/vpn-gateway/vpn-gateway/internal/server/certs"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/proxy"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/runtime"
+	"github.com/vpn-gateway/vpn-gateway/internal/server/store"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/tunnel"
 	"github.com/vpn-gateway/vpn-gateway/internal/server/users"
 )
@@ -56,6 +58,20 @@ func run(configPath string, check bool, logLevel string) error {
 	cfg, err := server.LoadConfig(configPath)
 	if err != nil {
 		return err
+	}
+	// Checking reads what the server would run without creating or filling a
+	// database: it is often run as somebody other than the server, before the
+	// server has ever started.
+	_, statErr := os.Stat(filepath.Join(cfg.StateDir, store.FileName))
+	var st *store.Store
+	if !check || statErr == nil {
+		if st, err = store.Open(cfg.StateDir); err != nil {
+			return err
+		}
+		defer st.Close()
+		if err := loadTunnels(cfg, st, check, log); err != nil {
+			return err
+		}
 	}
 	if check {
 		// Resolving the credentials is part of checking: a password_env that
@@ -120,7 +136,7 @@ func run(configPath string, check bool, logLevel string) error {
 		return err
 	}
 
-	usersMgr, err := users.NewManager(cfg.StateDir, cfg.Users, log)
+	usersMgr, err := users.NewManagerWith(st, log)
 	if err != nil {
 		return err
 	}
@@ -164,6 +180,9 @@ func run(configPath string, check bool, logLevel string) error {
 		// The listener holds each tunnel's outbound, so it is what can send
 		// a probe the way a client's traffic goes.
 		mgr.SetProber(listener)
+		// And it is what a tunnel added or changed in the admin page has to
+		// reach before a client can use it.
+		mgr.SetRouteSink(listener)
 		log.Info("probing tunnels without an agent", "interval", cfg.Probe.Interval, "url", cfg.Probe.URL)
 	} else {
 		log.Warn("the trojan listener is disabled; no client can connect")
@@ -175,7 +194,7 @@ func run(configPath string, check bool, logLevel string) error {
 			Notifier: alert.Bark{URL: cfg.Alerts.BarkURL},
 			Grace:    cfg.Alerts.Grace,
 			Label:    alertLabel(cfg),
-			Manual:   manualTunnels(cfg),
+			IsManual: mgr.IsManual,
 			Log:      log.With("component", "alert"),
 		})
 		wg.Add(1)
@@ -186,9 +205,12 @@ func run(configPath string, check bool, logLevel string) error {
 	go func() { defer wg.Done(); mgr.Run(ctx) }()
 
 	apiErr := make(chan error, 1)
+	apiSrv := api.New(mgr, token, usersMgr, log, trojanAuth)
+	apiSrv.SetTunnelStore(st, cfg.PortBase)
 	go func() {
-		apiErr <- api.Serve(ctx, cfg.APIListen, api.New(mgr, token, usersMgr, log, trojanAuth).Handler(), log)
+		apiErr <- api.Serve(ctx, cfg.APIListen, apiSrv.Handler(), log)
 	}()
+	log.Info("admin page", "url", "http://"+adminHost(cfg.APIListen)+"/admin/")
 
 	select {
 	case <-ctx.Done():
@@ -225,14 +247,69 @@ func alertLabel(cfg *server.Config) string {
 	return host
 }
 
-func manualTunnels(cfg *server.Config) map[string]bool {
-	out := map[string]bool{}
-	for _, t := range cfg.Tunnels {
-		if t.Manual {
-			out[t.Name] = true
+// loadTunnels replaces the configuration file's tunnels with the database's.
+//
+// The first time the server meets an empty database it fills it from the
+// file -- tunnels, and the users from users.json or the file -- so upgrading
+// changes nothing that was running. From then on the admin page edits the
+// database, and tunnels left in the file are only a record of where things
+// started.
+func loadTunnels(cfg *server.Config, st *store.Store, readOnly bool, log *slog.Logger) error {
+	seeded, err := st.Seeded()
+	if err != nil {
+		return err
+	}
+	if !seeded && readOnly {
+		return nil
+	}
+	if !seeded {
+		us, found, err := users.LoadJSONFile(cfg.StateDir)
+		if err != nil {
+			return err
+		}
+		if !found {
+			us = users.FromConfig(cfg.Users)
+		}
+		if err := st.Seed(cfg.Tunnels, us); err != nil {
+			return fmt.Errorf("import the configuration into the database: %w", err)
+		}
+		log.Info("imported the configuration into the database",
+			"tunnels", len(cfg.Tunnels), "users", len(us), "path", filepath.Join(cfg.StateDir, store.FileName))
+	} else if len(cfg.Tunnels) > 0 {
+		log.Warn("the tunnels in the configuration file are not read any more; they are managed in the admin page",
+			"in_file", len(cfg.Tunnels))
+	}
+
+	tunnels, err := st.Tunnels()
+	if err != nil {
+		return err
+	}
+	for i := range tunnels {
+		t := &tunnels[i]
+		if !readOnly && t.NeedsContainer() && (t.DataPort == 0 || t.ControlPort == 0) {
+			server.AllocatePorts(t, tunnels, cfg.PortBase)
+			if err := st.PutTunnel(*t); err != nil {
+				return err
+			}
+		}
+		if err := t.Validate(); err != nil {
+			log.Warn("a stored tunnel does not validate; fix it in the admin page", "tunnel", t.Name, "error", err)
 		}
 	}
-	return out
+	cfg.Tunnels = tunnels
+	return nil
+}
+
+// adminHost is where the admin page can be opened from this machine.
+func adminHost(listen string) string {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return listen
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
 }
 
 // resolveTLS produces the certificate the listener serves.

@@ -207,6 +207,14 @@ func freePort(t *testing.T) int {
 // tunnel, and returns the listener port and the stand-ins by name.
 func testbed(t *testing.T, names ...string) (int, map[string]*labelledSOCKS, string) {
 	t.Helper()
+	port, backends, certPEM, _ := liveTestbed(t, names...)
+	return port, backends, certPEM
+}
+
+// liveTestbed is testbed, also handing back the listener so a test can change
+// its tunnels while it runs.
+func liveTestbed(t *testing.T, names ...string) (int, map[string]*labelledSOCKS, string, *Proxy) {
+	t.Helper()
 
 	dir := t.TempDir()
 	mat, err := certs.EnsureSelfSigned(filepath.Join(dir, "tls"), "vpn.test")
@@ -246,7 +254,7 @@ func testbed(t *testing.T, names ...string) (int, map[string]*labelledSOCKS, str
 	_, portStr, _ := net.SplitHostPort(opts.Listen)
 	port, _ := strconv.Atoi(portStr)
 	waitForPort(t, opts.Listen)
-	return port, backends, mat.CertPEM
+	return port, backends, mat.CertPEM, p
 }
 
 func waitForPort(t *testing.T, addr string) {
@@ -591,14 +599,10 @@ func TestBuildConfigDirectRoute(t *testing.T) {
 		t.Errorf("outbound tunnel-office type = %q, want socks", obTypes["tunnel-office"])
 	}
 
-	ruleTargets := map[string]string{}
-	for _, r := range parsed.Route.Rules {
-		if len(r.AuthUser) > 0 {
-			ruleTargets[r.AuthUser[0]] = r.Outbound
-		}
-	}
-	if ruleTargets["lan"] != "tunnel-lan" {
-		t.Errorf("rule for lan = %q, want tunnel-lan", ruleTargets["lan"])
+	// The inbound picks a tunnel's outbound by tag; a rule naming one would
+	// be fixed at startup, which is what the listener must not be.
+	if len(parsed.Route.Rules) != 0 {
+		t.Errorf("route rules = %+v, want none", parsed.Route.Rules)
 	}
 }
 
@@ -638,12 +642,6 @@ func TestBuildConfigTrojanRoute(t *testing.T) {
 				Insecure   bool   `json:"insecure"`
 			} `json:"tls"`
 		} `json:"outbounds"`
-		Route struct {
-			Rules []struct {
-				AuthUser []string `json:"auth_user"`
-				Outbound string   `json:"outbound"`
-			} `json:"rules"`
-		} `json:"route"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		t.Fatal(err)
@@ -842,5 +840,57 @@ func TestDynamicAuthenticatorEndToEnd(t *testing.T) {
 
 	if got, err := fetchLabel(aliceClient); err == nil {
 		t.Fatalf("revoked session should have been rejected, but got %q", got)
+	}
+}
+
+// TestRoutesChangeWhileTheListenerRuns is what makes an edit in the admin page
+// take effect at once: a tunnel added to a running listener is reachable, one
+// re-pointed carries traffic to its new place, and one removed is refused --
+// all without restarting the listener under anybody else.
+func TestRoutesChangeWhileTheListenerRuns(t *testing.T) {
+	port, backends, certPEM, p := liveTestbed(t, "office")
+	office := trojanClient(t, port, "office", certPEM)
+	if got, err := fetchLabel(office); err != nil || got != "office" {
+		t.Fatalf("before any change: got %q, %v", got, err)
+	}
+
+	route := func(name string, b *labelledSOCKS) Route {
+		host, portStr, _ := net.SplitHostPort(b.addr)
+		bp, _ := strconv.Atoi(portStr)
+		return Route{Name: name, TrojanPassword: "trojan-" + name, DataHost: host, DataPort: bp,
+			SOCKSUser: "vpngw", SOCKSPassword: "socks-" + name}
+	}
+
+	// Added.
+	lab := startLabelledSOCKS(t, "lab", "vpngw", "socks-lab")
+	if err := p.SetRoute(route("lab", lab)); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	labClient := trojanClient(t, port, "lab", certPEM)
+	if got, err := fetchLabel(labClient); err != nil || got != "lab" {
+		t.Fatalf("added tunnel: got %q, %v", got, err)
+	}
+
+	// Re-pointed: the same tunnel, somewhere else.
+	moved := startLabelledSOCKS(t, "lab-moved", "vpngw", "socks-lab")
+	if err := p.SetRoute(route("lab", moved)); err != nil {
+		t.Fatalf("change: %v", err)
+	}
+	if got, err := fetchLabel(labClient); err != nil || got != "lab-moved" {
+		t.Fatalf("changed tunnel: got %q, %v", got, err)
+	}
+
+	// Removed.
+	p.RemoveRoute("lab")
+	if got, err := fetchLabel(labClient); err == nil {
+		t.Fatalf("removed tunnel still answered as %q", got)
+	}
+
+	// And the tunnel nobody touched carried on throughout.
+	if got, err := fetchLabel(office); err != nil || got != "office" {
+		t.Fatalf("untouched tunnel: got %q, %v", got, err)
+	}
+	if backends["office"].count() != 2 {
+		t.Errorf("office carried %d connections, want 2", backends["office"].count())
 	}
 }

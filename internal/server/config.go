@@ -196,42 +196,42 @@ const DefaultAlertGrace = 3 * time.Minute
 type TunnelConfig struct {
 	// Name identifies the tunnel everywhere: container name, trojan user,
 	// routing rule target. It must be a valid DNS label.
-	Name string `yaml:"name"`
+	Name string `yaml:"name" json:"name,omitempty"`
 	// Provider is the VG_PROVIDER passed to the agent, e.g. "easyconnect".
-	Provider string `yaml:"provider"`
+	Provider string `yaml:"provider" json:"provider,omitempty"`
 	// Image is the container image implementing the contract.
-	Image string `yaml:"image"`
+	Image string `yaml:"image" json:"image,omitempty"`
 
-	Server   string `yaml:"server"`
-	Username string `yaml:"username"`
+	Server   string `yaml:"server" json:"server,omitempty"`
+	Username string `yaml:"username" json:"username,omitempty"`
 	// Password is the credential in plain text. Prefer PasswordEnv or
 	// PasswordFile so it never lands in the config file.
-	Password string `yaml:"password"`
+	Password string `yaml:"password" json:"password,omitempty"`
 	// PasswordEnv names an environment variable on the server holding the
 	// password.
-	PasswordEnv string `yaml:"password_env"`
+	PasswordEnv string `yaml:"password_env" json:"password_env,omitempty"`
 	// PasswordFile names a file whose entire contents are the password.
-	PasswordFile string `yaml:"password_file"`
+	PasswordFile string `yaml:"password_file" json:"password_file,omitempty"`
 
 	// SNI or ServerName overrides the TLS SNI when connecting to an upstream trojan node.
-	SNI        string `yaml:"sni"`
-	ServerName string `yaml:"server_name"`
+	SNI        string `yaml:"sni" json:"sni,omitempty"`
+	ServerName string `yaml:"server_name" json:"server_name,omitempty"`
 	// Insecure skips certificate validation when connecting to an upstream trojan node.
-	Insecure bool `yaml:"insecure"`
+	Insecure bool `yaml:"insecure" json:"insecure,omitempty"`
 
 	// Extra is passed through as VG_EXTRA_JSON. Provider-specific; see each
 	// provider's package documentation.
-	Extra map[string]string `yaml:"extra"`
+	Extra map[string]string `yaml:"extra" json:"extra,omitempty"`
 
 	// Capabilities the image needs from the container runtime. Providers that
 	// wrap a vendor client usually need NET_ADMIN and /dev/net/tun; native
 	// reimplementations need neither, so this defaults to empty.
-	CapAdd  []string `yaml:"cap_add"`
-	Devices []string `yaml:"devices"`
+	CapAdd  []string `yaml:"cap_add" json:"cap_add,omitempty"`
+	Devices []string `yaml:"devices" json:"devices,omitempty"`
 
 	// Disabled keeps a tunnel's configuration without starting it, and
 	// without offering it to a client either.
-	Disabled bool `yaml:"disabled"`
+	Disabled bool `yaml:"disabled" json:"disabled,omitempty"`
 
 	// Autostart dials this tunnel as soon as the server comes up, rather
 	// than waiting to be told.
@@ -241,7 +241,7 @@ type TunnelConfig struct {
 	// a server that can lock an account while nobody is watching. Turn it on
 	// for a tunnel that should be up without anyone logging in, and accept
 	// that trade.
-	Autostart bool `yaml:"autostart"`
+	Autostart bool `yaml:"autostart" json:"autostart,omitempty"`
 
 	// Manual keeps this tunnel from ever dialling on its own. It comes up
 	// only when a person asks, and once it is no longer up it waits to be
@@ -256,11 +256,11 @@ type TunnelConfig struct {
 	// back by itself.
 	//
 	// It is the opposite of Autostart, so setting both is a contradiction.
-	Manual bool `yaml:"manual"`
+	Manual bool `yaml:"manual" json:"manual,omitempty"`
 
 	// MaxAttempts bounds how many times this tunnel dials before it waits to
 	// be told to try again. Zero uses the agent's own default.
-	MaxAttempts int `yaml:"max_attempts"`
+	MaxAttempts int `yaml:"max_attempts" json:"max_attempts,omitempty"`
 
 	// ProbeURL is what is fetched through this tunnel to check it works,
 	// overriding probe.url. An address inside the network the node leads to
@@ -269,17 +269,17 @@ type TunnelConfig struct {
 	//
 	// Trojan tunnels are probed unless this is "off"; direct tunnels only
 	// when this is set. Container tunnels have an agent to ask instead.
-	ProbeURL string `yaml:"probe_url"`
+	ProbeURL string `yaml:"probe_url" json:"probe_url,omitempty"`
 
 	// DataPort and ControlPort pin the loopback ports. Zero means the server
 	// allocates them from PortBase in name order.
-	DataPort    int `yaml:"data_port"`
-	ControlPort int `yaml:"control_port"`
+	DataPort    int `yaml:"data_port" json:"data_port,omitempty"`
+	ControlPort int `yaml:"control_port" json:"control_port,omitempty"`
 
 	// VNCPort publishes the container's graphical login screen on this
 	// loopback port. Only needed by vendor clients that cannot log in
 	// headlessly; zero leaves the screen unpublished.
-	VNCPort int `yaml:"vnc_port"`
+	VNCPort int `yaml:"vnc_port" json:"vnc_port,omitempty"`
 }
 
 // IsDirect reports whether this tunnel routes directly through the server host's
@@ -432,9 +432,6 @@ func (c *Config) Validate() error {
 	default:
 		errs = append(errs, fmt.Errorf("pull_policy: want missing, always or never, got %q", c.PullPolicy))
 	}
-	if len(c.Tunnels) == 0 {
-		errs = append(errs, errors.New("tunnels: at least one tunnel is required"))
-	}
 	errs = append(errs, c.Trojan.validate()...)
 	errs = append(errs, c.Alerts.validate()...)
 	if c.Probe.Interval < 10*time.Second {
@@ -465,58 +462,75 @@ func (c *Config) Validate() error {
 		if t.Name != "" {
 			where = fmt.Sprintf("tunnels[%q]", t.Name)
 		}
-		if !nameRE.MatchString(t.Name) {
-			errs = append(errs, fmt.Errorf("%s: name must be 1-32 chars of a-z, 0-9 and -, not starting or ending with -", where))
-		}
 		if seen[t.Name] {
 			errs = append(errs, fmt.Errorf("%s: duplicate name", where))
 		}
 		seen[t.Name] = true
-
-		if t.Provider == "" {
-			errs = append(errs, fmt.Errorf("%s: provider is required", where))
-		}
-		if t.Manual && t.Autostart {
-			errs = append(errs, fmt.Errorf("%s: manual and autostart contradict each other; manual means this tunnel only dials when a person asks", where))
-		}
-		if t.IsTrojan() {
-			if t.Server == "" {
-				errs = append(errs, fmt.Errorf("%s: server is required for trojan provider", where))
-			} else if _, _, err := t.UpstreamHostPort(); err != nil {
-				errs = append(errs, fmt.Errorf("%s: invalid server address %q: %w", where, t.Server, err))
-			}
-			if t.Password == "" && t.PasswordEnv == "" && t.PasswordFile == "" {
-				errs = append(errs, fmt.Errorf("%s: password, password_env, or password_file is required for trojan provider", where))
-			}
-		} else if t.NeedsContainer() && t.Image == "" {
-			errs = append(errs, fmt.Errorf("%s: image is required", where))
-		}
-		if t.ProbeURL != "" && t.ProbeURL != ProbeOff {
-			if t.NeedsContainer() {
-				errs = append(errs, fmt.Errorf("%s: probe_url is for trojan and direct tunnels; a container tunnel's agent reports its own state", where))
-			} else if err := validateProbeURL(t.ProbeURL); err != nil {
-				errs = append(errs, fmt.Errorf("%s: probe_url: %w", where, err))
-			}
-		}
-		if v := t.Extra["map"]; v != "" {
-			if !t.NeedsContainer() {
-				// The rewriting is done by a tunnel's agent, and these have none.
-				errs = append(errs, fmt.Errorf("%s: extra.map is for container tunnels; a %s tunnel has no agent to rewrite addresses", where, t.Provider))
-			} else if _, err := addrmap.Parse(v); err != nil {
-				errs = append(errs, fmt.Errorf("%s: extra.map: %w", where, err))
-			}
-		}
-		n := 0
-		for _, set := range []bool{t.Password != "", t.PasswordEnv != "", t.PasswordFile != ""} {
-			if set {
-				n++
-			}
-		}
-		if n > 1 {
-			errs = append(errs, fmt.Errorf("%s: set at most one of password, password_env, password_file", where))
+		for _, err := range t.problems() {
+			errs = append(errs, fmt.Errorf("%s: %w", where, err))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// Validate checks one tunnel on its own, as the admin page does before
+// saving it. What it cannot see -- another tunnel with the same name or the
+// same ports -- is for whoever holds the whole set.
+func (t TunnelConfig) Validate() error { return errors.Join(t.problems()...) }
+
+func (t TunnelConfig) problems() []error {
+	var errs []error
+	if !nameRE.MatchString(t.Name) {
+		errs = append(errs, errors.New("name must be 1-32 chars of a-z, 0-9 and -, not starting or ending with -"))
+	}
+	if t.Provider == "" {
+		errs = append(errs, errors.New("provider is required"))
+	}
+	if t.Manual && t.Autostart {
+		errs = append(errs, errors.New("manual and autostart contradict each other; manual means this tunnel only dials when a person asks"))
+	}
+	if t.IsTrojan() {
+		if t.Server == "" {
+			errs = append(errs, errors.New("server is required for trojan provider"))
+		} else if _, _, err := t.UpstreamHostPort(); err != nil {
+			errs = append(errs, fmt.Errorf("invalid server address %q: %w", t.Server, err))
+		}
+		if t.Password == "" && t.PasswordEnv == "" && t.PasswordFile == "" {
+			errs = append(errs, errors.New("password, password_env, or password_file is required for trojan provider"))
+		}
+	} else if t.NeedsContainer() && t.Image == "" {
+		errs = append(errs, errors.New("image is required"))
+	}
+	if t.ProbeURL != "" && t.ProbeURL != ProbeOff {
+		if t.NeedsContainer() {
+			errs = append(errs, errors.New("probe_url is for trojan and direct tunnels; a container tunnel's agent reports its own state"))
+		} else if err := validateProbeURL(t.ProbeURL); err != nil {
+			errs = append(errs, fmt.Errorf("probe_url: %w", err))
+		}
+	}
+	if v := t.Extra["map"]; v != "" {
+		if !t.NeedsContainer() {
+			// The rewriting is done by a tunnel's agent, and these have none.
+			errs = append(errs, fmt.Errorf("extra.map is for container tunnels; a %s tunnel has no agent to rewrite addresses", t.Provider))
+		} else if _, err := addrmap.Parse(v); err != nil {
+			errs = append(errs, fmt.Errorf("extra.map: %w", err))
+		}
+	}
+	n := 0
+	for _, set := range []bool{t.Password != "", t.PasswordEnv != "", t.PasswordFile != ""} {
+		if set {
+			n++
+		}
+	}
+	if n > 1 {
+		errs = append(errs, errors.New("set at most one of password, password_env, password_file"))
+	}
+	for _, p := range []int{t.DataPort, t.ControlPort, t.VNCPort} {
+		if p < 0 || p > 65535 {
+			errs = append(errs, fmt.Errorf("port %d is out of range", p))
+		}
+	}
+	return errs
 }
 
 func validateProbeURL(raw string) error {
@@ -590,6 +604,71 @@ func (c *Config) assignPorts() {
 		}
 		next += 2
 	}
+}
+
+// AllocatePorts gives t the lowest free pair of loopback ports at or above
+// base, leaving alone any it already has.
+//
+// A tunnel keeps its ports for as long as it exists: they are part of its
+// container's configuration, so handing them out again by name order whenever
+// the set changed would recreate -- and redial -- tunnels nobody touched.
+func AllocatePorts(t *TunnelConfig, others []TunnelConfig, base int) {
+	if !t.NeedsContainer() {
+		return
+	}
+	used := map[int]bool{}
+	for _, o := range others {
+		if o.Name == t.Name {
+			continue
+		}
+		for _, p := range []int{o.DataPort, o.ControlPort, o.VNCPort} {
+			if p > 0 {
+				used[p] = true
+			}
+		}
+	}
+	if t.VNCPort > 0 {
+		used[t.VNCPort] = true
+	}
+	if t.DataPort != 0 && t.ControlPort != 0 {
+		return
+	}
+	for p := base; p < 65535; p += 2 {
+		if used[p] || used[p+1] {
+			continue
+		}
+		if t.DataPort == 0 {
+			t.DataPort = p
+		}
+		if t.ControlPort == 0 {
+			t.ControlPort = p + 1
+		}
+		return
+	}
+}
+
+// PortConflict names a port t would share with another tunnel, or 0.
+func PortConflict(t TunnelConfig, others []TunnelConfig) int {
+	if !t.NeedsContainer() {
+		return 0
+	}
+	mine := map[int]bool{}
+	for _, p := range []int{t.DataPort, t.ControlPort, t.VNCPort} {
+		if p > 0 {
+			mine[p] = true
+		}
+	}
+	for _, o := range others {
+		if o.Name == t.Name || !o.NeedsContainer() {
+			continue
+		}
+		for _, p := range []int{o.DataPort, o.ControlPort, o.VNCPort} {
+			if mine[p] {
+				return p
+			}
+		}
+	}
+	return 0
 }
 
 // ResolvePassword returns the tunnel's password from whichever source is
