@@ -121,6 +121,14 @@ func BuildConfig(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState) (
 			"auto_detect_interface": true,
 		},
 	}
+	if name := cfg.TUN.OutboundInterface; name != "" {
+		// A named adapter instead of whichever holds the default route,
+		// which another program's virtual adapter may have taken. sing-box
+		// ignores default_interface while auto-detection is on.
+		route := out["route"].(map[string]any)
+		route["auto_detect_interface"] = false
+		route["default_interface"] = name
+	}
 	return json.MarshalIndent(out, "", "  ")
 }
 

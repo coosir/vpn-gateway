@@ -95,6 +95,18 @@ func Uninstall() error {
 		"vpn-gateway needs administrator privileges to remove its background service.")
 }
 
+// Start brings an installed service back up: loaded again if it was booted
+// out, and kicked if it was loaded but not running.
+func Start() error {
+	return runPrivileged(startScript(),
+		"vpn-gateway needs administrator privileges to start its background service.")
+}
+
+func startScript() string {
+	return "/bin/launchctl bootstrap system " + shellQuote(PlistPath) + " 2>/dev/null\n" +
+		"/bin/launchctl kickstart system/" + Label + "\n"
+}
+
 // runPrivileged runs a script as root, asking for a password unless this
 // process already is root. A client that serves its own interface as root
 // removes itself without a prompt: whoever can reach that interface is

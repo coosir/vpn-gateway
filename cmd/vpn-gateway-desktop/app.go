@@ -51,7 +51,51 @@ func run(configPath, lang string) error {
 	t := translator(lang)
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	session := client.NewSession(configPath, log)
+	// The application, and with it the single-instance check, comes before
+	// anything else. A second launch -- somebody double-clicking again
+	// because the first had not shown a window yet -- used to get as far as
+	// opening a port and writing this application's link file over the first
+	// one's before it found out it was not wanted, leaving the link pointing
+	// at a process that had already exited.
+	var (
+		sv           *supervisor
+		session      *client.Session
+		stopWatching = func() {}
+		appLink      string
+	)
+	app := application.New(application.Options{
+		Name:        t("title"),
+		Description: t("description"),
+		Icon:        appIcon(256),
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: "com.vpn-gateway.desktop",
+			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
+				if sv != nil && sv.window != nil {
+					showWindow(sv.window)
+				}
+			},
+		},
+		Mac: application.MacOptions{
+			// A menu bar tool: no Dock icon, and closing the window leaves it
+			// running rather than quitting.
+			ActivationPolicy: application.ActivationPolicyAccessory,
+			ApplicationShouldTerminateAfterLastWindowClosed: false,
+		},
+		LogLevel: slog.LevelWarn,
+		OnShutdown: func() {
+			stopWatching()
+			if appLink != "" {
+				os.Remove(appLink)
+			}
+			// Disconnecting tears down the interface and the routes pointing
+			// at it; leaving them behind would take the machine offline.
+			if session != nil {
+				session.Close()
+			}
+		},
+	})
+
+	session = client.NewSession(configPath, log)
 
 	// The interface listens on a port of its own choosing, so two copies of
 	// this and a headless client can coexist rather than one refusing to
@@ -81,8 +125,9 @@ func run(configPath, lang string) error {
 	// It follows the session across connects and disconnects rather than
 	// binding to the first one, because each connection carries a session
 	// token of its own and the previous one is revoked as it goes.
-	watchCtx, stopWatching := context.WithCancel(context.Background())
-	defer stopWatching()
+	watchCtx, cancelWatch := context.WithCancel(context.Background())
+	stopWatching = cancelWatch
+	defer cancelWatch()
 	go client.FollowChallenges(watchCtx, session.CurrentAPI, server.Prompter())
 
 	link := fmt.Sprintf("http://%s/?token=%s", listener.Addr().String(), token)
@@ -98,42 +143,13 @@ func run(configPath, lang string) error {
 	// service cannot install over its own executable or stop itself while
 	// serving the page that asked it to, and this is the process that
 	// outlives both, so its interface is where that work is sent.
-	appLink := ui.AppLinkPath(configPath)
+	appLink = ui.AppLinkPath(configPath)
 	if err := ui.WriteLink(appLink, listener.Addr().String(), token, ""); err != nil {
 		log.Warn("could not record this application's interface link", "path", appLink, "error", err)
 	}
 	// A link left behind by an application that has quit points at nothing,
 	// which is the error page this exists to prevent.
 	defer os.Remove(appLink)
-
-	var sv *supervisor
-	app := application.New(application.Options{
-		Name:        t("title"),
-		Description: t("description"),
-		Icon:        appIcon(256),
-		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: "com.vpn-gateway.desktop",
-			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
-				if sv != nil && sv.window != nil {
-					showWindow(sv.window)
-				}
-			},
-		},
-		Mac: application.MacOptions{
-			// A menu bar tool: no Dock icon, and closing the window leaves it
-			// running rather than quitting.
-			ActivationPolicy: application.ActivationPolicyAccessory,
-			ApplicationShouldTerminateAfterLastWindowClosed: false,
-		},
-		LogLevel: slog.LevelWarn,
-		OnShutdown: func() {
-			stopWatching()
-			os.Remove(appLink)
-			// Disconnecting tears down the interface and the routes pointing
-			// at it; leaving them behind would take the machine offline.
-			session.Close()
-		},
-	})
 
 	app.SetIcon(appIcon(256))
 
@@ -150,18 +166,13 @@ func run(configPath, lang string) error {
 	}
 	sv.current = sv.local
 
-	// If the background service is already running, point window at it directly from the start
+	// The window opens on this application's own interface, which is ready
+	// now. Whether a background service is running is found out after it is
+	// on screen: asking the service manager, and the service, took long
+	// enough on a first run -- with the executables still being scanned --
+	// that nothing appeared, and people launched it again thinking it had
+	// failed. If a service is in charge the window moves to it a moment later.
 	initialURL := link
-	if svcLink := sv.serviceLink(); svcLink != "" {
-		if svcEngine, err := newServiceEngine(svcLink); err == nil {
-			pingCtx, pingCancel := context.WithTimeout(context.Background(), 1*time.Second)
-			if err := svcEngine.Ping(pingCtx); err == nil {
-				initialURL = svcLink
-				sv.current = svcEngine
-			}
-			pingCancel()
-		}
-	}
 
 	sv.pointed, sv.want = initialURL, initialURL
 
@@ -210,11 +221,13 @@ func run(configPath, lang string) error {
 	// that dispatch does not exist until the application is running. Starting
 	// the refresh from here keeps the first update from racing it.
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
-		// A service installed on an earlier run is already in charge, so the
-		// window opens on its interface rather than on this one.
-		_ = sv.engine()
-		sv.settle()
 		showWindow(window)
+		// A service installed on an earlier run is already in charge, so the
+		// window moves to its interface as soon as that is confirmed.
+		go func() {
+			_ = sv.engine()
+			sv.settle()
+		}()
 		go refresh(sv, t, tray, status, connect, menu)
 		// A gateway that signs people in through an identity provider asks
 		// for something no page served from loopback can produce, so this

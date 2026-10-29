@@ -312,6 +312,37 @@ func (s *Server) postServiceUninstall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.serviceState())
 }
 
+// postServiceStart starts a service that is installed but not running -- one
+// that did not come back after a reboot, or was stopped. Before this the only
+// way back was to remove it and install it again.
+func (s *Server) postServiceStart(w http.ResponseWriter, r *http.Request) {
+	s.busy.Add(1)
+	defer s.busy.Add(-1)
+
+	st := s.serviceState()
+	if !st.Supported {
+		writeErr(w, http.StatusBadRequest, helper.ErrUnsupported.Error())
+		return
+	}
+	if !st.Installed {
+		writeErr(w, http.StatusBadRequest, "the background service is not installed")
+		return
+	}
+	if !st.Running {
+		if err := helper.Start(); err != nil {
+			if errors.Is(err, helper.ErrCancelled) {
+				writeJSON(w, http.StatusOK, s.serviceState())
+				return
+			}
+			s.log.Error("could not start the background service", "error", err)
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.log.Info("started the background service")
+	}
+	writeJSON(w, http.StatusOK, s.awaitService(r.Context()))
+}
+
 // How long an install waits for the service it started to answer, and how
 // often it asks. Long enough for a cold start on a slow machine, short enough
 // that a service which is never coming up is reported rather than waited for.

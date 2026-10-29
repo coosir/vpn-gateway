@@ -532,3 +532,19 @@ func TestProxySelectorNodeSelectionAndDeselection(t *testing.T) {
 		t.Errorf("proxy selector default when deselected = %v, want %v", proxySelectorDeselected["default"], tagDirect)
 	}
 }
+
+func TestAPinnedOutboundInterfaceReplacesAutoDetection(t *testing.T) {
+	// Another program's virtual adapter can hold the default route; naming
+	// the real one keeps the client's own connections off it.
+	cfg := baseConfig()
+	cfg.TUN.OutboundInterface = "Ethernet"
+	out := build(t, cfg, testTunnels())
+	route := out["route"].(map[string]any)
+	if route["default_interface"] != "Ethernet" {
+		t.Errorf("default_interface = %v, want Ethernet", route["default_interface"])
+	}
+	// sing-box ignores default_interface while auto-detection is on.
+	if route["auto_detect_interface"] != false {
+		t.Error("auto_detect_interface is still on, so the pinned adapter would be ignored")
+	}
+}

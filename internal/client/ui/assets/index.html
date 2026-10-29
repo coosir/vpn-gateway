@@ -1256,6 +1256,32 @@ input:checked + .slider:before { transform: translateX(18px); }
           </div>
         </div>
 
+        <div class="field" id="tun-advanced">
+          <label data-i18n="settings.tunAdvanced"></label>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div>
+              <span class="hint" data-i18n="settings.tunStack" style="margin:0 0 4px; display:block;"></span>
+              <select id="set-tun-stack">
+                <option value="system">system</option>
+                <option value="gvisor">gvisor</option>
+                <option value="mixed">mixed</option>
+              </select>
+            </div>
+            <div>
+              <span class="hint" data-i18n="settings.tunMTU" style="margin:0 0 4px; display:block;"></span>
+              <input type="number" id="set-tun-mtu" min="576" max="9000" placeholder="1400">
+            </div>
+            <div>
+              <span class="hint" data-i18n="settings.tunIface" style="margin:0 0 4px; display:block;"></span>
+              <select id="set-tun-iface"></select>
+            </div>
+            <label style="display:flex; align-items:center; gap:8px; align-self:end; padding-bottom:8px;">
+              <input type="checkbox" id="set-tun-strict"> <span data-i18n="settings.tunStrict"></span>
+            </label>
+          </div>
+          <p class="hint" data-i18n="settings.tunAdvanced.b"></p>
+        </div>
+
         <div class="field">
           <label data-i18n="settings.proxyListen"></label>
           <input type="text" id="set-proxy-listen" placeholder="127.0.0.1:1080">
@@ -1580,6 +1606,11 @@ const STRINGS = {
     "service.absent": "未安装",
     "service.running": "运行中 (PID %s)",
     "service.stopped": "已安装但未运行",
+    "service.start": "启动服务",
+    "service.starting": "正在启动后台服务…",
+    "service.startingShort": "启动中…",
+    "service.started": "后台服务已启动！",
+    "service.stoppedDesc": "后台服务已安装但没有运行（例如开机后没有自动启动）。点「启动服务」即可，不需要卸载重装。",
     "service.outdatedBadge": "有新版本",
     "service.outdatedDesc": "检测到应用程序已升级，后台服务仍在运行旧版本 (%s)，请点击更新服务以同步最新功能。",
     "service.outdatedUnknownDesc": "读不到后台服务的版本，无法确认它与当前应用程序是否一致，请点击更新服务重新安装。",
@@ -1670,6 +1701,13 @@ const STRINGS = {
     "settings.auth": "用户认证凭据", "settings.auth.b": "连接网关服务端所需的用户名与密码。",
     "settings.ingress": "流量接管方式", "settings.tun": "TUN 虚拟网卡", "settings.tun.b": "全自动接管整机网络流量，需管理员权限",
     "settings.proxy": "本地代理端口", "settings.proxy.b": "提供本地 HTTP/SOCKS5 代理端口，无需系统权限",
+    "settings.tunAdvanced": "TUN 高级设置",
+    "settings.tunStack": "网络栈",
+    "settings.tunMTU": "MTU",
+    "settings.tunIface": "出口网卡",
+    "settings.tunIfaceAuto": "自动（跟随系统默认路由）",
+    "settings.tunStrict": "严格路由",
+    "settings.tunAdvanced.b": "和其他代理、加速器（如游戏加速器）同时使用出问题时再改：先把网络栈换成 gvisor；还不行，把出口网卡固定为实际上网的网卡（有线/Wi-Fi），避免本客户端的连接被别的软件的虚拟网卡截走。严格路由会阻止流量绕开本客户端，更彻底，但也更容易和其他软件冲突。",
     "settings.proxyListen": "代理监听地址", "settings.onfail": "内网隧道离线时",
     "settings.onfail.b": "直连：离线流量正常外网直连。阻断：阻断内网请求，避免涉密请求泄漏。",
     "settings.dns": "默认 DNS 解析器", "settings.dns.b": "local 代表使用系统默认 DNS，也可配置 https://1.1.1.1/dns-query 等公共 DoH",
@@ -1744,6 +1782,11 @@ const STRINGS = {
     "service.absent": "Not Installed",
     "service.running": "Running (PID %s)",
     "service.stopped": "Installed but stopped",
+    "service.start": "Start Service",
+    "service.starting": "Starting the background service…",
+    "service.startingShort": "Starting…",
+    "service.started": "Background service started!",
+    "service.stoppedDesc": "The background service is installed but not running (for example it did not start after a reboot). Press Start Service; there is no need to reinstall.",
     "service.outdatedBadge": "Update Available",
     "service.outdatedDesc": "A newer application version was detected. The background helper service is running (%s), please click to update.",
     "service.outdatedUnknownDesc": "The background service will not say what version it is, so there is no telling whether it matches this application. Update it to reinstall.",
@@ -1834,6 +1877,13 @@ const STRINGS = {
     "settings.auth": "User Authentication", "settings.auth.b": "Credentials to connect to vpn-gateway-server.",
     "settings.ingress": "Traffic Ingress", "settings.tun": "TUN Interface", "settings.tun.b": "Captures all system traffic, requires privileges",
     "settings.proxy": "Local Proxy Port", "settings.proxy.b": "Exposes local HTTP/SOCKS5 proxy port",
+    "settings.tunAdvanced": "TUN advanced",
+    "settings.tunStack": "Network stack",
+    "settings.tunMTU": "MTU",
+    "settings.tunIface": "Outbound adapter",
+    "settings.tunIfaceAuto": "Automatic (follow the default route)",
+    "settings.tunStrict": "Strict route",
+    "settings.tunAdvanced.b": "Change these only if TUN mode misbehaves next to another proxy or accelerator (a game booster, say): try the gvisor stack first; if that is not enough, pin the outbound adapter to the one that really reaches the internet (Ethernet/Wi-Fi), so this client's own connections are not taken by another program's virtual adapter. Strict route stops traffic bypassing this client; more thorough, more likely to clash with other software.",
     "settings.proxyListen": "Proxy Listen Address", "settings.onfail": "When Tunnel is Down",
     "settings.onfail.b": "Direct sends intranet traffic directly. Block drops packets to prevent leaks.",
     "settings.dns": "Default DNS Resolver", "settings.dns.b": "local uses system DNS, or provide DoH like https://1.1.1.1/dns-query",
@@ -2294,6 +2344,7 @@ function renderService(sv) {
       : t("service.outdatedUnknownDesc"));
   }
   if (!service.installed && service.blocker) detail.push(service.blocker);
+  if (service.installed && !service.running && !service.outdated) detail.push(t("service.stoppedDesc"));
   if (service.installed && service.config_path && service.config_path !== configPathOf()) {
     detail.push(t("service.elsewhere", service.config_path));
   }
@@ -2302,12 +2353,15 @@ function renderService(sv) {
   $("service-detail").textContent = fullDetail;
   $("home-service-desc").textContent = fullDetail;
 
-  const canInstall = !service.installed || service.outdated;
-  const isBlocked = !!service.blocker;
+  // Installed and stopped is the one state that wants starting, not
+  // installing: the same button, asking the service manager instead.
+  const canStart = service.installed && !service.running && !service.outdated;
+  const canInstall = !service.installed || service.outdated || canStart;
+  const isBlocked = !canStart && !!service.blocker;
 
   $("home-service-banner").classList.toggle("outdated", !!service.outdated);
 
-  const btnText = service.outdated ? t("service.update") : t("service.install");
+  const btnText = service.outdated ? t("service.update") : canStart ? t("service.start") : t("service.install");
   $("service-install").textContent = btnText;
   $("home-service-install").textContent = btnText;
 
@@ -2390,8 +2444,10 @@ function go(link) {
 
 async function serviceAction(path, busyKey, doneKey) {
   const isUninstall = path.includes("uninstall");
+  const isStart = path.endsWith("/start");
   const isOutdated = !!service.outdated;
   const busyLabel = isUninstall ? t("service.uninstallingShort")
+                  : isStart ? t("service.startingShort")
                   : isOutdated ? t("service.updatingShort")
                   : t("service.installingShort");
 
@@ -2420,9 +2476,11 @@ async function serviceAction(path, busyKey, doneKey) {
 
   showTransition(
     isUninstall ? t("service.transitionUninstallTitle")
+      : isStart ? t("service.starting")
       : isOutdated ? t("service.transitionUpdateTitle")
       : t("service.transitionInstallTitle"),
     isUninstall ? t("service.transitionUninstallSub")
+      : isStart ? ""
       : isOutdated ? t("service.transitionUpdateSub")
       : t("service.transitionInstallSub"));
 
@@ -2506,10 +2564,17 @@ async function serviceAction(path, busyKey, doneKey) {
   }
 }
 
-$("service-install").addEventListener("click", () =>
-  serviceAction("/api/service/install", "service.installing", "service.installed"));
-$("home-service-install").addEventListener("click", () =>
-  serviceAction("/api/service/install", "service.installing", "service.installed"));
+// installOrStart is what the primary service button does: start a service that
+// is installed and stopped, install (or update) otherwise.
+function installOrStart() {
+  if (service.installed && !service.running && !service.outdated) {
+    serviceAction("/api/service/start", "service.starting", "service.started");
+  } else {
+    serviceAction("/api/service/install", "service.installing", "service.installed");
+  }
+}
+$("service-install").addEventListener("click", installOrStart);
+$("home-service-install").addEventListener("click", installOrStart);
 $("service-uninstall").addEventListener("click", () =>
   serviceAction("/api/service/uninstall", "service.uninstalling", "service.removed"));
 $("home-service-uninstall").addEventListener("click", () =>
@@ -3324,6 +3389,11 @@ function fillSettings() {
   $("set-dns").value = c.dns_default || "";
   $("set-autoroutes").checked = !!c.auto_routes;
   $("set-autodomains").checked = !!c.auto_domains;
+  $("set-tun-stack").value = c.tun_stack || "system";
+  $("set-tun-mtu").value = c.tun_mtu || "";
+  $("set-tun-strict").checked = !!c.tun_strict_route;
+  fillInterfaces(c.tun_outbound_interface || "");
+  syncTunAdvanced();
 
   const opts = $("set-onfail").options;
   opts[0].textContent = t("t.direct");
@@ -3332,11 +3402,42 @@ function fillSettings() {
   loadService();
 }
 
+// fillInterfaces lists the adapters the outbound connection can be pinned to,
+// keeping one that is configured but not present right now.
+async function fillInterfaces(current) {
+  const sel = $("set-tun-iface");
+  const opts = [["", t("settings.tunIfaceAuto")]];
+  try {
+    const list = await (await api("/api/interfaces")).json();
+    for (const i of list) opts.push([i.name, i.name + " (" + (i.addresses || []).join(", ") + ")"]);
+  } catch (_) {}
+  if (current && !opts.some(o => o[0] === current)) opts.push([current, current]);
+  sel.replaceChildren(...opts.map(([v, label]) => {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = label;
+    return o;
+  }));
+  sel.value = current;
+}
+
+function syncTunAdvanced() {
+  const tun = (document.querySelector('input[name=ingress]:checked') || {}).value === "tun";
+  $("tun-advanced").hidden = !tun;
+}
+document.querySelectorAll('input[name=ingress]').forEach(r => r.addEventListener("change", syncTunAdvanced));
+
 $("settings-save").addEventListener("click", async () => {
   const note = $("settings-note");
   const tun = document.querySelector('input[name=ingress]:checked').value === "tun";
   const body = {
-    tun: { enabled: tun, auto_route: true },
+    tun: {
+      enabled: tun, auto_route: true,
+      stack: $("set-tun-stack").value,
+      strict_route: $("set-tun-strict").checked,
+      outbound_interface: $("set-tun-iface").value,
+      ...(parseInt($("set-tun-mtu").value, 10) ? { mtu: parseInt($("set-tun-mtu").value, 10) } : {}),
+    },
     proxy: { enabled: !tun, listen: $("set-proxy-listen").value.trim() || "127.0.0.1:1080" },
     dns_default: $("set-dns").value.trim() || "local",
     on_failure: $("set-onfail").value,

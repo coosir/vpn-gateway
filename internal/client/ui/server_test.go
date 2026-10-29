@@ -644,3 +644,26 @@ func TestSubscriptionsAPI(t *testing.T) {
 		t.Errorf("expected 0 subscriptions, got %d", len(delSt.Subscriptions))
 	}
 }
+
+func TestSavingSettingsKeepsTUNFieldsItDidNotName(t *testing.T) {
+	// The settings page used to send {enabled, auto_route} and have that
+	// replace the whole TUN block, so the stack and MTU went back to their
+	// defaults on every save and could never be changed from the page.
+	_, ctl, _, srv := testServer(t)
+
+	resp := do(t, srv, http.MethodPut, "/api/settings", "tok",
+		`{"tun":{"enabled":true,"auto_route":true,"stack":"gvisor","mtu":1300,"outbound_interface":"Wi-Fi"}}`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("first PUT returned %d", resp.StatusCode)
+	}
+	resp = do(t, srv, http.MethodPut, "/api/settings", "tok", `{"tun":{"strict_route":true}}`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("second PUT returned %d", resp.StatusCode)
+	}
+	got := ctl.Settings().TUN
+	if got.Stack != "gvisor" || got.MTU != 1300 || got.OutboundInterface != "Wi-Fi" || !got.Enabled || !got.StrictRoute {
+		t.Errorf("TUN after two partial saves = %+v", got)
+	}
+}

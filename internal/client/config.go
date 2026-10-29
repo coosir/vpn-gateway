@@ -114,6 +114,16 @@ type TUNConfig struct {
 	StrictRoute bool `yaml:"strict_route,omitempty" json:"strict_route,omitempty"`
 	// Stack is "system", "gvisor" or "mixed".
 	Stack string `yaml:"stack,omitempty" json:"stack,omitempty"`
+	// OutboundInterface pins the network adapter the client's own
+	// connections leave by -- to the server, and anything sent direct. Empty
+	// lets it follow the system's default route.
+	//
+	// Following the default route is right until another program installs a
+	// virtual adapter of its own and takes that route: a game accelerator, or
+	// another VPN. The client then sends its connection to the server through
+	// that program, which may not carry it. Naming the real adapter here
+	// keeps it off whatever else is installed.
+	OutboundInterface string `yaml:"outbound_interface,omitempty" json:"outbound_interface,omitempty"`
 }
 
 // ProxyConfig exposes a local SOCKS5 and HTTP port instead of, or as well as,
@@ -372,6 +382,9 @@ func (c *Config) Validate() error {
 		case "system", "gvisor", "mixed":
 		default:
 			errs = append(errs, fmt.Errorf("tun.stack: want system, gvisor or mixed, got %q", c.TUN.Stack))
+		}
+		if c.TUN.MTU < 576 || c.TUN.MTU > 9000 {
+			errs = append(errs, fmt.Errorf("tun.mtu: want 576-9000, got %d", c.TUN.MTU))
 		}
 	}
 

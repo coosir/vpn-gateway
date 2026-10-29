@@ -12,11 +12,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 	"unicode/utf16"
+
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/mgr"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/clientbin"
 )
@@ -93,47 +96,159 @@ func blocker(opt Options) string {
 }
 
 // isElevated checks if current process has administrative privileges.
+//
+// Read off this process's own token rather than by running "net session" and
+// seeing whether it fails: that spawned a process on every look, and on a
+// machine still scanning a freshly downloaded executable the window waited
+// for it.
 func isElevated() bool {
-	cmd := hideWindow(exec.Command("net", "session"))
-	return cmd.Run() == nil
+	return windows.GetCurrentProcessToken().IsElevated()
 }
 
-// queryWindowsService queries sc.exe for VPNGatewayClient state.
+// queryWindowsService asks the service manager about VPNGatewayClient.
+//
+// It talks to the service manager directly, with only the rights to look,
+// which every user has. Running sc.exe three times did the same and cost
+// three processes and up to eight seconds each.
 func queryWindowsService() (pid int, running bool, installed bool, configPath string) {
-	ctx, cancel := context.WithTimeout(context.Background(), inspectTimeout)
-	defer cancel()
-
-	// 1. Query service status
-	out, err := hideWindow(exec.CommandContext(ctx, "sc.exe", "query", ServiceName)).Output()
-	if err != nil || !strings.Contains(string(out), ServiceName) {
+	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err != nil {
 		return 0, false, false, ""
 	}
+	defer windows.CloseServiceHandle(scm)
+	h, err := windows.OpenService(scm, windows.StringToUTF16Ptr(ServiceName),
+		windows.SERVICE_QUERY_STATUS|windows.SERVICE_QUERY_CONFIG)
+	if err != nil {
+		return 0, false, false, ""
+	}
+	service := &mgr.Service{Name: ServiceName, Handle: h}
+	defer service.Close()
 	installed = true
-	if strings.Contains(string(out), "RUNNING") {
-		running = true
-	}
 
-	// 2. Query PID via queryex
-	if exOut, err := hideWindow(exec.CommandContext(ctx, "sc.exe", "queryex", ServiceName)).Output(); err == nil {
-		re := regexp.MustCompile(`PID\s*:\s*(\d+)`)
-		if matches := re.FindStringSubmatch(string(exOut)); len(matches) > 1 {
-			pid, _ = strconv.Atoi(matches[1])
-		}
+	if st, err := service.Query(); err == nil {
+		running = st.State == svc.Running
+		pid = int(st.ProcessId)
 	}
-
-	// 3. Query config path via qc
-	if qcOut, err := hideWindow(exec.CommandContext(ctx, "sc.exe", "qc", ServiceName)).Output(); err == nil {
-		re := regexp.MustCompile(`-config\s+("([^"]+)"|([^\s]+))`)
-		if matches := re.FindStringSubmatch(string(qcOut)); len(matches) > 1 {
-			if matches[2] != "" {
-				configPath = matches[2]
-			} else if matches[3] != "" {
-				configPath = matches[3]
-			}
-		}
+	if cfg, err := service.Config(); err == nil {
+		configPath = configFromCommandLine(cfg.BinaryPathName)
 	}
-
 	return pid, running, installed, configPath
+}
+
+var configArgRE = regexp.MustCompile(`-config\s+("([^"]+)"|([^\s]+))`)
+
+// configFromCommandLine reads -config back out of the service's command line.
+func configFromCommandLine(cmdline string) string {
+	m := configArgRE.FindStringSubmatch(cmdline)
+	if len(m) < 4 {
+		return ""
+	}
+	if m[2] != "" {
+		return m[2]
+	}
+	return m[3]
+}
+
+// serviceSDDL is who may do what to the service. It is Windows' default with
+// one change: a signed-in user (IU) may also start and stop it (RP, WP).
+//
+// The service only exists because that user installed it, it runs the
+// configuration in their own profile, and starting or stopping it changes
+// nothing they could not already change from the application. Without this a
+// service that did not come back after a reboot could only be started by
+// someone answering an administrator prompt -- which in practice meant
+// uninstalling and installing it again.
+const serviceSDDL = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)"
+
+// Start brings an installed service back up.
+//
+// A service installed by this version can be started by the user directly.
+// One installed by an earlier version cannot, so that takes one administrator
+// prompt, which also grants the right so it is the last.
+func Start() error {
+	err := startDirect()
+	if err == nil || !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		return err
+	}
+	logFile := filepath.Join(os.TempDir(), "vpngateway-start.log")
+	script := fmt.Sprintf(`$ErrorActionPreference = 'Stop';
+$logPath = '%s';
+$svcName = '%s';
+try {
+    & sc.exe sdset $svcName "%s" 2>&1 | Out-Null
+    & sc.exe failureflag $svcName 1 2>&1 | Out-Null
+    $startOut = & sc.exe start $svcName 2>&1
+    if ($LASTEXITCODE -ne 0 -and ($startOut -notmatch '1056')) {
+        throw "sc.exe start failed: $startOut"
+    }
+    Set-Content -Path $logPath -Value "SUCCESS" -Encoding UTF8 -Force
+} catch {
+    Set-Content -Path $logPath -Value "ERROR: $($_.Exception.Message)" -Encoding UTF8 -Force
+    exit 1
+}`, logFile, ServiceName, serviceSDDL)
+	if err := runElevatedPowerShell(script, logFile); err != nil {
+		return err
+	}
+	return waitRunning()
+}
+
+// startDirect starts the service with the user's own rights.
+func startDirect() error {
+	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseServiceHandle(scm)
+	h, err := windows.OpenService(scm, windows.StringToUTF16Ptr(ServiceName),
+		windows.SERVICE_START|windows.SERVICE_QUERY_STATUS)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseServiceHandle(h)
+	if err := windows.StartService(h, 0, nil); err != nil && !errors.Is(err, windows.ERROR_SERVICE_ALREADY_RUNNING) {
+		return err
+	}
+	return waitRunning()
+}
+
+// waitRunning waits for the service to report itself running, and says what
+// its log says when it does not.
+func waitRunning() error {
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, running, _, _ := queryWindowsService(); running {
+			return nil
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	if tail := LogTail(8); tail != "" {
+		return fmt.Errorf("the service did not start; the end of %s reads:\n%s", ServiceLogPath(), tail)
+	}
+	return errors.New("the service did not start")
+}
+
+// ServiceLogPath is where the service writes what it does. It runs as SYSTEM with
+// nowhere to print, so without this a service that failed at boot left no
+// trace of why.
+func ServiceLogPath() string {
+	base := os.Getenv("ProgramData")
+	if base == "" {
+		base = `C:\ProgramData`
+	}
+	return filepath.Join(base, "VPNGateway", "service.log")
+}
+
+// LogTail returns the last n lines of the service's log.
+func LogTail(n int) string {
+	b, err := os.ReadFile(ServiceLogPath())
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(b), "\r\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Install puts the Windows Service in place and starts it.
@@ -206,6 +321,11 @@ try {
 
     & sc.exe description $svcName "VPN Gateway background privileged TUN helper service" 2>&1 | Out-Null
     & sc.exe failure $svcName reset= 86400 actions= restart/5000/restart/10000/restart/20000 2>&1 | Out-Null
+    # Without this the actions above only follow a crash. A service that
+    # stops itself with an error -- the usual way one fails at boot -- would
+    # otherwise stay down until somebody reinstalled it.
+    & sc.exe failureflag $svcName 1 2>&1 | Out-Null
+    & sc.exe sdset $svcName "%s" 2>&1 | Out-Null
 
     $startOut = & sc.exe start $svcName 2>&1
     if ($LASTEXITCODE -ne 0 -and ($startOut -notmatch '1056')) {
@@ -223,7 +343,7 @@ try {
     Set-Content -Path $logPath -Value "ERROR: $($_.Exception.Message)" -Encoding UTF8 -Force
     exit 1
 }`,
-		logFile, binDir, targetExe, absSrc, sum, absConfig, ServiceName)
+		logFile, binDir, targetExe, absSrc, sum, absConfig, ServiceName, serviceSDDL)
 
 	InvalidateVersionCache()
 	err = runElevatedPowerShell(script, logFile)

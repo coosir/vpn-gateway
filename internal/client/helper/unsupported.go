@@ -16,3 +16,6 @@ func Install(Options) error { return ErrUnsupported }
 
 // Uninstall is not available.
 func Uninstall() error { return ErrUnsupported }
+
+// Start is not available.
+func Start() error { return ErrUnsupported }

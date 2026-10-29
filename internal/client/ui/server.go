@@ -141,6 +141,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/service", s.auth(s.getService))
 	mux.HandleFunc("POST /api/service/install", s.auth(s.postServiceInstall))
 	mux.HandleFunc("POST /api/service/uninstall", s.auth(s.postServiceUninstall))
+	mux.HandleFunc("POST /api/service/start", s.auth(s.postServiceStart))
+	mux.HandleFunc("GET /api/interfaces", s.auth(s.getInterfaces))
 	mux.HandleFunc("POST /api/bundle", s.auth(s.postBundle))
 	mux.HandleFunc("POST /api/connect", s.auth(s.postConnect))
 	mux.HandleFunc("POST /api/disconnect", s.auth(s.postDisconnect))
@@ -240,15 +242,21 @@ type PromptView struct {
 // ClientView describes how traffic enters and what happens when a tunnel is
 // down.
 type ClientView struct {
-	TUN         bool   `json:"tun"`
-	Proxy       bool   `json:"proxy"`
-	ProxyListen string `json:"proxy_listen,omitempty"`
-	OnFailure   string `json:"on_failure"`
-	AutoRoutes  bool   `json:"auto_routes"`
-	AutoDomains bool   `json:"auto_domains"`
-	DNSDefault  string `json:"dns_default"`
-	Username    string `json:"username,omitempty"`
-	Password    string `json:"password,omitempty"`
+	TUN bool `json:"tun"`
+	// How the TUN interface is built, for a machine where the defaults do
+	// not get along with something else installed on it.
+	TUNStack             string `json:"tun_stack"`
+	TUNStrictRoute       bool   `json:"tun_strict_route"`
+	TUNMTU               uint32 `json:"tun_mtu"`
+	TUNOutboundInterface string `json:"tun_outbound_interface"`
+	Proxy                bool   `json:"proxy"`
+	ProxyListen          string `json:"proxy_listen,omitempty"`
+	OnFailure            string `json:"on_failure"`
+	AutoRoutes           bool   `json:"auto_routes"`
+	AutoDomains          bool   `json:"auto_domains"`
+	DNSDefault           string `json:"dns_default"`
+	Username             string `json:"username,omitempty"`
+	Password             string `json:"password,omitempty"`
 }
 
 func (s *Server) state() State {
@@ -304,15 +312,19 @@ func (s *Server) state() State {
 		Version:       version.Full(),
 		IsAdmin:       isAdmin,
 		Client: ClientView{
-			TUN:         cfg.TUN.Enabled,
-			Proxy:       cfg.Proxy.Enabled,
-			ProxyListen: cfg.Proxy.Listen,
-			OnFailure:   cfg.OnFailure,
-			AutoRoutes:  cfg.AutoRoutes,
-			AutoDomains: cfg.AutoDomains,
-			DNSDefault:  cfg.DNS.Default,
-			Username:    cfg.Auth.Username,
-			Password:    cfg.Auth.Password,
+			TUN:                  cfg.TUN.Enabled,
+			TUNStack:             cfg.TUN.Stack,
+			TUNStrictRoute:       cfg.TUN.StrictRoute,
+			TUNMTU:               cfg.TUN.MTU,
+			TUNOutboundInterface: cfg.TUN.OutboundInterface,
+			Proxy:                cfg.Proxy.Enabled,
+			ProxyListen:          cfg.Proxy.Listen,
+			OnFailure:            cfg.OnFailure,
+			AutoRoutes:           cfg.AutoRoutes,
+			AutoDomains:          cfg.AutoDomains,
+			DNSDefault:           cfg.DNS.Default,
+			Username:             cfg.Auth.Username,
+			Password:             cfg.Auth.Password,
 		},
 		At: time.Now(),
 	}
@@ -503,7 +515,7 @@ func (s *Server) putRules(w http.ResponseWriter, r *http.Request) {
 // Settings are the parts of the configuration the interface can change.
 // Everything else stays as written in the file.
 type Settings struct {
-	TUN         *client.TUNConfig   `json:"tun,omitempty"`
+	TUN         *tunPatch           `json:"tun,omitempty"`
 	Proxy       *client.ProxyConfig `json:"proxy,omitempty"`
 	DNSDefault  *string             `json:"dns_default,omitempty"`
 	OnFailure   *string             `json:"on_failure,omitempty"`
@@ -511,6 +523,80 @@ type Settings struct {
 	AutoDomains *bool               `json:"auto_domains,omitempty"`
 	Username    *string             `json:"username,omitempty"`
 	Password    *string             `json:"password,omitempty"`
+}
+
+// tunPatch changes only the TUN settings it names. Replacing the whole block,
+// as saving the settings page used to, reset the stack, strict routing and
+// MTU to their defaults every time anything at all was saved, so none of them
+// could be changed from the interface.
+type tunPatch struct {
+	Enabled           *bool   `json:"enabled,omitempty"`
+	AutoRoute         *bool   `json:"auto_route,omitempty"`
+	StrictRoute       *bool   `json:"strict_route,omitempty"`
+	Stack             *string `json:"stack,omitempty"`
+	MTU               *uint32 `json:"mtu,omitempty"`
+	Name              *string `json:"name,omitempty"`
+	Address           *string `json:"address,omitempty"`
+	OutboundInterface *string `json:"outbound_interface,omitempty"`
+}
+
+func (p *tunPatch) apply(t *client.TUNConfig) {
+	if p.Enabled != nil {
+		t.Enabled = *p.Enabled
+	}
+	if p.AutoRoute != nil {
+		t.AutoRoute = *p.AutoRoute
+	}
+	if p.StrictRoute != nil {
+		t.StrictRoute = *p.StrictRoute
+	}
+	if p.Stack != nil {
+		t.Stack = *p.Stack
+	}
+	if p.MTU != nil {
+		t.MTU = *p.MTU
+	}
+	if p.Name != nil {
+		t.Name = *p.Name
+	}
+	if p.Address != nil {
+		t.Address = *p.Address
+	}
+	if p.OutboundInterface != nil {
+		t.OutboundInterface = strings.TrimSpace(*p.OutboundInterface)
+	}
+}
+
+// getInterfaces lists the network adapters an outbound interface can be
+// pinned to: up, not loopback, with an address.
+func (s *Server) getInterfaces(w http.ResponseWriter, r *http.Request) {
+	type iface struct {
+		Name      string   `json:"name"`
+		Addresses []string `json:"addresses"`
+	}
+	out := []iface{}
+	list, err := net.Interfaces()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for _, i := range list {
+		if i.Flags&net.FlagUp == 0 || i.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, _ := i.Addrs()
+		var shown []string
+		for _, a := range addrs {
+			if ipn, ok := a.(*net.IPNet); ok && ipn.IP.To4() != nil {
+				shown = append(shown, ipn.IP.String())
+			}
+		}
+		if len(shown) == 0 {
+			continue
+		}
+		out = append(out, iface{Name: i.Name, Addresses: shown})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
@@ -522,7 +608,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 
 	next := *s.ctl.Settings()
 	if in.TUN != nil {
-		next.TUN = *in.TUN
+		in.TUN.apply(&next.TUN)
 	}
 	if in.Proxy != nil {
 		next.Proxy = *in.Proxy
