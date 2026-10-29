@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	tun "github.com/sagernet/sing-tun"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -206,5 +207,48 @@ func TestAChosenStateDirectoryIsLeftAlone(t *testing.T) {
 	cfg.applyDefaults()
 	if cfg.UI.StateDir != "/opt/somewhere/else" {
 		t.Errorf("state dir = %q, want the one that was chosen", cfg.UI.StateDir)
+	}
+}
+
+func TestWindowsDefaultsToTheGvisorStack(t *testing.T) {
+	// The Windows build carries gvisor (make windows uses -tags with_gvisor);
+	// a build without it must not default to a stack it cannot start.
+	want := "system"
+	if tun.WithGVisor {
+		want = "gvisor"
+	}
+	if got := DefaultStack("windows"); got != want {
+		t.Errorf("Windows default stack = %q, want %q (gvisor built in: %t)", got, want, tun.WithGVisor)
+	}
+	if StackAvailable("gvisor") != tun.WithGVisor || !StackAvailable("system") {
+		t.Error("stack availability does not follow the build")
+	}
+	if got := DefaultStack("darwin"); got != "system" {
+		t.Errorf("macOS default stack = %q, want system", got)
+	}
+	if got := (TUNConfig{Stack: "mixed"}).EffectiveStack(); got != "mixed" {
+		t.Errorf("a chosen stack was replaced by %q", got)
+	}
+}
+
+func TestASavedOldDefaultFollowsTheNewOne(t *testing.T) {
+	// Up to build 0067 every saved file carried stack: system because that
+	// was the default, not because anybody picked it.
+	cases := []struct {
+		goos   string
+		in     TUNConfig
+		expect string
+	}{
+		{"windows", TUNConfig{Stack: "system"}, ""},                          // leftover default: follow the new one
+		{"windows", TUNConfig{Stack: "system", StackChosen: true}, "system"}, // a choice: kept
+		{"windows", TUNConfig{Stack: "mixed"}, "mixed"},                      // never a default: kept
+		{"darwin", TUNConfig{Stack: "system"}, "system"},                     // default unchanged here
+	}
+	for _, c := range cases {
+		cfg := &Config{TUN: c.in}
+		cfg.forgetSavedDefaults(c.goos)
+		if cfg.TUN.Stack != c.expect {
+			t.Errorf("%s %+v: stack = %q, want %q", c.goos, c.in, cfg.TUN.Stack, c.expect)
+		}
 	}
 }

@@ -1262,6 +1262,7 @@ input:checked + .slider:before { transform: translateX(18px); }
             <div>
               <span class="hint" data-i18n="settings.tunStack" style="margin:0 0 4px; display:block;"></span>
               <select id="set-tun-stack">
+                <option value="" id="set-tun-stack-default"></option>
                 <option value="system">system</option>
                 <option value="gvisor">gvisor</option>
                 <option value="mixed">mixed</option>
@@ -1703,11 +1704,12 @@ const STRINGS = {
     "settings.proxy": "本地代理端口", "settings.proxy.b": "提供本地 HTTP/SOCKS5 代理端口，无需系统权限",
     "settings.tunAdvanced": "TUN 高级设置",
     "settings.tunStack": "网络栈",
+    "settings.tunStackDefault": "默认（%s）",
     "settings.tunMTU": "MTU",
     "settings.tunIface": "出口网卡",
     "settings.tunIfaceAuto": "自动（跟随系统默认路由）",
     "settings.tunStrict": "严格路由",
-    "settings.tunAdvanced.b": "和其他代理、加速器（如游戏加速器）同时使用出问题时再改：先把网络栈换成 gvisor；还不行，把出口网卡固定为实际上网的网卡（有线/Wi-Fi），避免本客户端的连接被别的软件的虚拟网卡截走。严格路由会阻止流量绕开本客户端，更彻底，但也更容易和其他软件冲突。",
+    "settings.tunAdvanced.b": "和其他代理、加速器（如游戏加速器）同时使用出问题时再改：先确认网络栈是 gvisor（Windows 默认就是）；还不行，把出口网卡固定为实际上网的网卡（有线/Wi-Fi），避免本客户端的连接被别的软件的虚拟网卡截走。严格路由会阻止流量绕开本客户端，更彻底，但也更容易和其他软件冲突。",
     "settings.proxyListen": "代理监听地址", "settings.onfail": "内网隧道离线时",
     "settings.onfail.b": "直连：离线流量正常外网直连。阻断：阻断内网请求，避免涉密请求泄漏。",
     "settings.dns": "默认 DNS 解析器", "settings.dns.b": "local 代表使用系统默认 DNS，也可配置 https://1.1.1.1/dns-query 等公共 DoH",
@@ -1879,11 +1881,12 @@ const STRINGS = {
     "settings.proxy": "Local Proxy Port", "settings.proxy.b": "Exposes local HTTP/SOCKS5 proxy port",
     "settings.tunAdvanced": "TUN advanced",
     "settings.tunStack": "Network stack",
+    "settings.tunStackDefault": "Default (%s)",
     "settings.tunMTU": "MTU",
     "settings.tunIface": "Outbound adapter",
     "settings.tunIfaceAuto": "Automatic (follow the default route)",
     "settings.tunStrict": "Strict route",
-    "settings.tunAdvanced.b": "Change these only if TUN mode misbehaves next to another proxy or accelerator (a game booster, say): try the gvisor stack first; if that is not enough, pin the outbound adapter to the one that really reaches the internet (Ethernet/Wi-Fi), so this client's own connections are not taken by another program's virtual adapter. Strict route stops traffic bypassing this client; more thorough, more likely to clash with other software.",
+    "settings.tunAdvanced.b": "Change these only if TUN mode misbehaves next to another proxy or accelerator (a game booster, say): make sure the stack is gvisor (the Windows default); if that is not enough, pin the outbound adapter to the one that really reaches the internet (Ethernet/Wi-Fi), so this client's own connections are not taken by another program's virtual adapter. Strict route stops traffic bypassing this client; more thorough, more likely to clash with other software.",
     "settings.proxyListen": "Proxy Listen Address", "settings.onfail": "When Tunnel is Down",
     "settings.onfail.b": "Direct sends intranet traffic directly. Block drops packets to prevent leaks.",
     "settings.dns": "Default DNS Resolver", "settings.dns.b": "local uses system DNS, or provide DoH like https://1.1.1.1/dns-query",
@@ -3389,7 +3392,13 @@ function fillSettings() {
   $("set-dns").value = c.dns_default || "";
   $("set-autoroutes").checked = !!c.auto_routes;
   $("set-autodomains").checked = !!c.auto_domains;
-  $("set-tun-stack").value = c.tun_stack || "system";
+  $("set-tun-stack-default").textContent = t("settings.tunStackDefault", c.tun_stack_default || "system");
+  // A build without gvisor cannot run gvisor or mixed; offering them would
+  // only lead to a save that is refused.
+  for (const o of $("set-tun-stack").options) {
+    if (o.value === "gvisor" || o.value === "mixed") o.hidden = !c.tun_gvisor;
+  }
+  $("set-tun-stack").value = c.tun_stack || "";
   $("set-tun-mtu").value = c.tun_mtu || "";
   $("set-tun-strict").checked = !!c.tun_strict_route;
   fillInterfaces(c.tun_outbound_interface || "");

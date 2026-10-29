@@ -108,16 +108,19 @@ app: desktop
 # beside itself instead, which is what a build tree and the macOS bundle have.
 PACKED := internal/clientbin/client.bin
 
+# with_gvisor builds in the gvisor TUN stack, which is the Windows default:
+# the system stack hands traffic to Windows' own TCP/IP, where other programs
+# that hook it (game accelerators, other VPNs) got in the way.
 windows:
 	@mkdir -p dist/windows-amd64
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
-		$(GO) build -trimpath -ldflags="$(LDFLAGS)" \
+		$(GO) build -tags with_gvisor -trimpath -ldflags="$(LDFLAGS)" \
 		-o dist/windows-amd64/vpn-gateway.exe ./cmd/vpn-gateway
 	@set -e; \
 	trap 'rm -f $(PACKED)' EXIT; \
 	gzip -9 -c dist/windows-amd64/vpn-gateway.exe > $(PACKED); \
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
-		$(GO) build -tags "desktop packed" -trimpath -ldflags="$(LDFLAGS) -H=windowsgui" \
+		$(GO) build -tags "desktop packed with_gvisor" -trimpath -ldflags="$(LDFLAGS) -H=windowsgui" \
 		-o dist/windows-amd64/vpn-gateway-desktop.exe ./cmd/vpn-gateway-desktop
 	@echo "built dist/windows-amd64/vpn-gateway-desktop.exe (carries vpn-gateway.exe) and vpn-gateway.exe"
 

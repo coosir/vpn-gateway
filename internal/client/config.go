@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	tun "github.com/sagernet/sing-tun"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -112,8 +114,14 @@ type TUNConfig struct {
 	// interface. It is more thorough and more likely to interfere with other
 	// networking on the machine, so it is off by default.
 	StrictRoute bool `yaml:"strict_route,omitempty" json:"strict_route,omitempty"`
-	// Stack is "system", "gvisor" or "mixed".
+	// Stack is "system", "gvisor" or "mixed". Empty is this platform's
+	// default; see EffectiveStack.
 	Stack string `yaml:"stack,omitempty" json:"stack,omitempty"`
+	// StackChosen records that Stack was picked by somebody rather than
+	// written as a default. Clients up to build 0067 saved the default they
+	// had, "system", into every file, and Windows has since changed default:
+	// this is what tells that leftover apart from a choice to keep.
+	StackChosen bool `yaml:"stack_chosen,omitempty" json:"stack_chosen,omitempty"`
 	// OutboundInterface pins the network adapter the client's own
 	// connections leave by -- to the server, and anything sent direct. Empty
 	// lets it follow the system's default route.
@@ -266,6 +274,52 @@ func (r Rule) hasDomainMatcher() bool {
 	return len(r.Domain)+len(r.DomainSuffix)+len(r.DomainKeyword) > 0
 }
 
+// EffectiveStack is the stack the TUN interface is built with.
+func (t TUNConfig) EffectiveStack() string {
+	if t.Stack != "" {
+		return t.Stack
+	}
+	return DefaultStack(runtime.GOOS)
+}
+
+// DefaultStack is the TUN stack used where none was chosen.
+//
+// On Windows it is gvisor, which handles the interface's traffic in user
+// space. The system stack hands it to Windows' own TCP/IP, and on machines
+// running another program that hooks that -- a game accelerator, another VPN
+// -- that program got in the way of this one. gvisor is also what Clash Verge
+// shipped as its default for as long as it had one sing-box also offers.
+//
+// gvisor exists only in a build made with -tags with_gvisor, which the Windows
+// build is. One made without it keeps the system stack rather than a default
+// that cannot start.
+func DefaultStack(goos string) string {
+	if goos == "windows" && tun.WithGVisor {
+		return "gvisor"
+	}
+	return "system"
+}
+
+// StackAvailable reports whether this build can run a TUN stack. gvisor and
+// mixed (whose UDP half is gvisor) need -tags with_gvisor.
+func StackAvailable(stack string) bool {
+	switch stack {
+	case "", "system":
+		return true
+	case "gvisor", "mixed":
+		return tun.WithGVisor
+	}
+	return false
+}
+
+// forgetSavedDefaults drops values that earlier clients wrote as defaults
+// rather than because anybody chose them, where the default has changed since.
+func (c *Config) forgetSavedDefaults(goos string) {
+	if goos == "windows" && c.TUN.Stack == "system" && !c.TUN.StackChosen {
+		c.TUN.Stack = ""
+	}
+}
+
 // LoadConfig reads and validates a client configuration.
 func LoadConfig(path string) (*Config, error) {
 	raw, err := os.ReadFile(path)
@@ -278,6 +332,7 @@ func LoadConfig(path string) (*Config, error) {
 	if err := dec.Decode(&c); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	c.forgetSavedDefaults(runtime.GOOS)
 	c.applyDefaults()
 	if err := c.Validate(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -311,9 +366,6 @@ func (c *Config) applyDefaults() {
 		}
 		if c.TUN.MTU == 0 {
 			c.TUN.MTU = 1400
-		}
-		if c.TUN.Stack == "" {
-			c.TUN.Stack = "system"
 		}
 	}
 	if c.Proxy.Enabled && c.Proxy.Listen == "" {
@@ -379,7 +431,10 @@ func (c *Config) Validate() error {
 	}
 	if c.TUN.Enabled {
 		switch c.TUN.Stack {
-		case "system", "gvisor", "mixed":
+		case "", "system", "gvisor", "mixed":
+			if !StackAvailable(c.TUN.Stack) {
+				errs = append(errs, fmt.Errorf("tun.stack: %s is not included in this build of the client; use system", c.TUN.Stack))
+			}
 		default:
 			errs = append(errs, fmt.Errorf("tun.stack: want system, gvisor or mixed, got %q", c.TUN.Stack))
 		}

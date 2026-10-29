@@ -24,6 +24,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	goruntime "runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -245,7 +246,10 @@ type ClientView struct {
 	TUN bool `json:"tun"`
 	// How the TUN interface is built, for a machine where the defaults do
 	// not get along with something else installed on it.
-	TUNStack             string `json:"tun_stack"`
+	TUNStack        string `json:"tun_stack"`
+	TUNStackDefault string `json:"tun_stack_default"`
+	// TUNGVisor says whether this build can run the gvisor and mixed stacks.
+	TUNGVisor            bool   `json:"tun_gvisor"`
 	TUNStrictRoute       bool   `json:"tun_strict_route"`
 	TUNMTU               uint32 `json:"tun_mtu"`
 	TUNOutboundInterface string `json:"tun_outbound_interface"`
@@ -314,6 +318,8 @@ func (s *Server) state() State {
 		Client: ClientView{
 			TUN:                  cfg.TUN.Enabled,
 			TUNStack:             cfg.TUN.Stack,
+			TUNStackDefault:      client.DefaultStack(goruntime.GOOS),
+			TUNGVisor:            client.StackAvailable("gvisor"),
 			TUNStrictRoute:       cfg.TUN.StrictRoute,
 			TUNMTU:               cfg.TUN.MTU,
 			TUNOutboundInterface: cfg.TUN.OutboundInterface,
@@ -551,7 +557,10 @@ func (p *tunPatch) apply(t *client.TUNConfig) {
 		t.StrictRoute = *p.StrictRoute
 	}
 	if p.Stack != nil {
+		// Empty is "this platform's default", which is not a choice; any
+		// named stack is, and is kept even if the default changes again.
 		t.Stack = *p.Stack
+		t.StackChosen = *p.Stack != ""
 	}
 	if p.MTU != nil {
 		t.MTU = *p.MTU

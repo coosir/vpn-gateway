@@ -178,7 +178,7 @@ func buildInbounds(cfg *Config) ([]map[string]any, error) {
 			"mtu":          cfg.TUN.MTU,
 			"auto_route":   cfg.TUN.AutoRoute,
 			"strict_route": cfg.TUN.StrictRoute,
-			"stack":        cfg.TUN.Stack,
+			"stack":        cfg.TUN.EffectiveStack(),
 		}
 		if cfg.TUN.Name != "" {
 			tun["interface_name"] = cfg.TUN.Name

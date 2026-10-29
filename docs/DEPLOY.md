@@ -424,6 +424,12 @@ Two things about macOS are worth knowing before changing `tun` by hand:
 `tun.stack` has to stay `system` unless the client was built with
 `-tags with_gvisor`, and `tun.name`, if set at all, has to look like `utun3`.
 
+On Windows the default stack is `gvisor` (the Windows build includes it). If
+TUN mode misbehaves next to a game accelerator or another VPN, the client's
+settings page can also pin the outbound adapter to the real Ethernet or Wi-Fi
+one, so another program's virtual adapter cannot take the client's own
+connections.
+
 ## 6. Add a real VPN
 
 Now that the path is proven, add the gateway.

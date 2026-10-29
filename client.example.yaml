@@ -24,8 +24,10 @@ tun:
   # Additionally blocks traffic that tries to bypass the interface. More
   # thorough, and more likely to interfere with other networking.
   strict_route: false
-  # system, gvisor or mixed.
-  stack: system
+  # system, gvisor or mixed. Leave it out for this platform's default: gvisor
+  # on Windows, system elsewhere. gvisor and mixed need a client built with
+  # -tags with_gvisor, which the Windows build is.
+  # stack: gvisor
 
 # A local SOCKS5 and HTTP port instead of, or as well as, the interface.
 # It needs no privileges, which makes it the way to try things out.

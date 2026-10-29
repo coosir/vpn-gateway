@@ -191,8 +191,13 @@ func TestApplySwitchingToTUNFillsInTheDefaults(t *testing.T) {
 	if !reloaded.TUN.Enabled {
 		t.Error("the saved configuration does not have TUN on")
 	}
-	if reloaded.TUN.Stack == "" || reloaded.TUN.Address == "" || reloaded.TUN.MTU == 0 {
+	if reloaded.TUN.Address == "" || reloaded.TUN.MTU == 0 {
 		t.Errorf("the interface was saved incomplete: %+v", reloaded.TUN)
+	}
+	// The stack is left to the platform default rather than written down,
+	// so a later change of default reaches this file too.
+	if reloaded.TUN.Stack != "" || reloaded.TUN.EffectiveStack() == "" {
+		t.Errorf("stack saved as %q, effective %q", reloaded.TUN.Stack, reloaded.TUN.EffectiveStack())
 	}
 }
 

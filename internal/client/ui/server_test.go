@@ -667,3 +667,17 @@ func TestSavingSettingsKeepsTUNFieldsItDidNotName(t *testing.T) {
 		t.Errorf("TUN after two partial saves = %+v", got)
 	}
 }
+
+func TestPickingAStackIsRememberedAsAChoice(t *testing.T) {
+	_, ctl, _, srv := testServer(t)
+	resp := do(t, srv, http.MethodPut, "/api/settings", "tok", `{"tun":{"enabled":true,"stack":"system"}}`)
+	resp.Body.Close()
+	if got := ctl.Settings().TUN; got.Stack != "system" || !got.StackChosen {
+		t.Errorf("after picking system: %+v", got)
+	}
+	resp = do(t, srv, http.MethodPut, "/api/settings", "tok", `{"tun":{"stack":""}}`)
+	resp.Body.Close()
+	if got := ctl.Settings().TUN; got.Stack != "" || got.StackChosen {
+		t.Errorf("after going back to the default: %+v", got)
+	}
+}
