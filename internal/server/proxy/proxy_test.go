@@ -894,3 +894,107 @@ func TestRoutesChangeWhileTheListenerRuns(t *testing.T) {
 		t.Errorf("office carried %d connections, want 2", backends["office"].count())
 	}
 }
+
+// accessValidator is a session validator that also limits users to tunnels.
+type accessValidator struct {
+	mu      sync.Mutex
+	session map[string]string // token -> username
+	allowed map[string]map[string]bool
+}
+
+func (a *accessValidator) Validate(token string) (string, bool, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	u, ok := a.session[token]
+	return u, false, ok
+}
+
+func (a *accessValidator) CanUse(username, tunnel string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.allowed[username][tunnel]
+}
+
+func (a *accessValidator) set(username string, tunnels ...string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.allowed[username] = map[string]bool{}
+	for _, t := range tunnels {
+		a.allowed[username][t] = true
+	}
+}
+
+// TestAUserOnlyReachesTheTunnelsTheyMayUse is enforced in the listener, not
+// only in what the API lists: a password for a tunnel the user may not use
+// is refused even when the client holds one.
+func TestAUserOnlyReachesTheTunnelsTheyMayUse(t *testing.T) {
+	dir := t.TempDir()
+	mat, err := certs.EnsureSelfSigned(filepath.Join(dir, "tls"), "vpn.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := &accessValidator{session: map[string]string{"sess_bob": "bob"}, allowed: map[string]map[string]bool{}}
+	v.set("bob", "office")
+	auth := NewDynamicAuthenticator(v, slog.New(slog.DiscardHandler))
+
+	opts := Options{
+		Listen: "127.0.0.1:" + strconv.Itoa(freePort(t)), ServerName: "vpn.test",
+		CertPath: mat.CertPath, KeyPath: mat.KeyPath, LogLevel: "error", Authenticator: auth,
+	}
+	for _, name := range []string{"office", "lab"} {
+		b := startLabelledSOCKS(t, name, "vpngw", "socks-"+name)
+		host, portStr, _ := net.SplitHostPort(b.addr)
+		bp, _ := strconv.Atoi(portStr)
+		opts.Routes = append(opts.Routes, Route{Name: name, TrojanPassword: "static-" + name,
+			DataHost: host, DataPort: bp, SOCKSUser: "vpngw", SOCKSPassword: "socks-" + name})
+	}
+	p, err := New(context.Background(), opts, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { p.Close() })
+	waitForPort(t, opts.Listen)
+	_, portStr, _ := net.SplitHostPort(opts.Listen)
+	port, _ := strconv.Atoi(portStr)
+
+	office := trojanClientWithPass(t, port, auth.GetOrCreatePassword("sess_bob", "bob", "office"), mat.CertPEM)
+	lab := trojanClientWithPass(t, port, auth.GetOrCreatePassword("sess_bob", "bob", "lab"), mat.CertPEM)
+	if got, err := fetchLabel(office); err != nil || got != "office" {
+		t.Fatalf("allowed tunnel: %q, %v", got, err)
+	}
+	if got, err := fetchLabel(lab); err == nil {
+		t.Fatalf("a tunnel bob may not use answered as %q", got)
+	}
+
+	// Access withdrawn: the password bob already holds stops working.
+	v.set("bob")
+	auth.CloseDisallowed("bob")
+	if got, err := fetchLabel(office); err == nil {
+		t.Fatalf("withdrawn tunnel still answered as %q", got)
+	}
+}
+
+func TestCloseDisallowedClosesOnlyWhatWasWithdrawn(t *testing.T) {
+	v := &accessValidator{session: map[string]string{"sess_bob": "bob"}, allowed: map[string]map[string]bool{}}
+	v.set("bob", "office", "lab")
+	auth := NewDynamicAuthenticator(v, slog.New(slog.DiscardHandler))
+	auth.GetOrCreatePassword("sess_bob", "bob", "office")
+
+	officeConn, officePeer := net.Pipe()
+	labConn, labPeer := net.Pipe()
+	defer officePeer.Close()
+	defer labPeer.Close()
+	auth.TrackConnection("bob", "sess_bob", "office", officeConn)
+	auth.TrackConnection("bob", "sess_bob", "lab", labConn)
+
+	v.set("bob", "office")
+	auth.CloseDisallowed("bob")
+
+	if _, err := labConn.Write([]byte("x")); err == nil {
+		t.Error("the connection to the withdrawn tunnel is still open")
+	}
+	go officePeer.Read(make([]byte, 1))
+	if _, err := officeConn.Write([]byte("x")); err != nil {
+		t.Errorf("the connection to the tunnel bob keeps was closed: %v", err)
+	}
+}

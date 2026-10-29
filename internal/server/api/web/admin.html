@@ -189,7 +189,7 @@ th { font-weight: 500; color: var(--dim); font-size: 13px; }
         <span class="spacer"></span>
         <button class="btn primary" id="add-user">新建用户</button>
       </div>
-      <div class="card" style="padding:0"><table><thead><tr><th>用户名</th><th>角色</th><th>创建时间</th><th></th></tr></thead><tbody id="users"></tbody></table></div>
+      <div class="card" style="padding:0"><table><thead><tr><th>用户名</th><th>角色</th><th>可用隧道</th><th>创建时间</th><th></th></tr></thead><tbody id="users"></tbody></table></div>
     </section>
 
     <section id="view-sso" class="hidden">
@@ -283,6 +283,15 @@ th { font-weight: 500; color: var(--dim); font-size: 13px; }
       <label class="f"><span>用户名</span><input type="text" name="username" autocomplete="off"></label>
       <label class="f"><span>密码</span><input type="password" name="password" autocomplete="new-password"><small id="user-pass-hint"></small></label>
       <div class="checks"><label><input type="checkbox" name="is_admin"> 管理员</label></div>
+      <div id="access">
+        <div class="note" style="margin-bottom:6px">可以连接的隧道</div>
+        <div class="checks">
+          <label><input type="radio" name="access" value="all"> 全部隧道（含以后新建的）</label>
+          <label><input type="radio" name="access" value="some"> 仅以下隧道</label>
+        </div>
+        <div class="checks" id="access-list"></div>
+      </div>
+      <div class="note" id="access-admin">管理员可以使用全部隧道。</div>
     </div>
     <div class="dlg-foot"><div class="err" id="user-err"></div><button type="button" class="btn" data-close>取消</button><button class="btn primary">保存</button></div>
   </form>
@@ -894,16 +903,30 @@ async function loadUsers() {
   try { users = await api("GET", "/api/v1/users"); } catch (e) { toast(e.message); return; }
   const body = $("users");
   body.replaceChildren();
-  if (!users.length) body.append(h("tr", {}, h("td", { colspan: 4, class: "empty" }, "还没有用户")));
+  if (!users.length) body.append(h("tr", {}, h("td", { colspan: 5, class: "empty" }, "还没有用户")));
   for (const u of users) {
     body.append(h("tr", {},
       h("td", {}, u.username),
       h("td", {}, u.is_admin ? "管理员" : "普通用户"),
+      h("td", { class: "meta" }, accessLabel(u)),
       h("td", { class: "meta" }, u.created_at ? new Date(u.created_at).toLocaleString() : ""),
       h("td", { style: "text-align:right" },
         h("button", { class: "btn small", onclick: () => openUser(u) }, "编辑"), " ",
         h("button", { class: "btn small danger", onclick: () => removeUser(u.username) }, "删除"))));
   }
+}
+
+function accessLabel(u) {
+  if (u.is_admin || !u.restricted) return "全部";
+  return (u.tunnels && u.tunnels.length) ? u.tunnels.join("、") : "无";
+}
+
+function syncAccess() {
+  const f = $("user-form");
+  const admin = f.is_admin.checked;
+  $("access").classList.toggle("hidden", admin);
+  $("access-admin").classList.toggle("hidden", !admin);
+  $("access-list").classList.toggle("hidden", f.access.value !== "some");
 }
 
 $("add-user").addEventListener("click", () => openUser(null));
@@ -916,19 +939,34 @@ function openUser(u) {
   f.username.value = u ? u.username : "";
   f.username.readOnly = !!u;
   f.is_admin.checked = !!(u && u.is_admin);
+  // A new user is limited to what is ticked, so creating one never hands out
+  // every tunnel by accident; an existing one shows what it has.
+  f.access.value = u && !u.restricted ? "all" : "some";
+  const granted = new Set((u && u.tunnels) || []);
+  const names = [...configs.keys()].sort();
+  $("access-list").replaceChildren(...(names.length ? names.map(n =>
+    h("label", {}, h("input", { type: "checkbox", name: "tunnel", value: n, checked: granted.has(n) }), " ", n))
+    : [h("span", { class: "note" }, "还没有隧道")]));
+  syncAccess();
   $("user-pass-hint").textContent = u ? "不修改请留空" : "至少 4 位";
   $("user-dlg").showModal();
 }
+$("user-form").is_admin.addEventListener("change", syncAccess);
+$("user-form").querySelectorAll("input[name=access]").forEach(r => r.addEventListener("change", syncAccess));
+
 $("user-form").addEventListener("submit", async ev => {
   ev.preventDefault();
   const f = ev.target;
+  const access = f.access.value === "all"
+    ? { restricted: false }
+    : { restricted: true, tunnels: [...f.querySelectorAll("input[name=tunnel]:checked")].map(i => i.value) };
   try {
     if (editingUser) {
-      const body = { is_admin: f.is_admin.checked };
+      const body = Object.assign({ is_admin: f.is_admin.checked }, access);
       if (f.password.value) body.password = f.password.value;
       await api("PUT", "/api/v1/users/" + encodeURIComponent(editingUser.username), body);
     } else {
-      await api("POST", "/api/v1/users", { username: f.username.value.trim(), password: f.password.value, is_admin: f.is_admin.checked });
+      await api("POST", "/api/v1/users", Object.assign({ username: f.username.value.trim(), password: f.password.value, is_admin: f.is_admin.checked }, access));
     }
     $("user-dlg").close();
     loadUsers();

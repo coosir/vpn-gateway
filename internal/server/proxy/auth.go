@@ -20,12 +20,18 @@ type AuthResult struct {
 // Authenticator validates Trojan handshake keys and tracks active connections.
 type Authenticator interface {
 	ValidateTrojanKey(key [56]byte) (AuthResult, bool)
-	TrackConnection(username, token string, conn net.Conn) func()
+	TrackConnection(username, token, tunnel string, conn net.Conn) func()
 }
 
 // SessionValidator checks whether a session token is currently valid.
 type SessionValidator interface {
 	Validate(token string) (username string, isAdmin bool, valid bool)
+}
+
+// AccessChecker is what a SessionValidator also is when users can be limited
+// to some tunnels.
+type AccessChecker interface {
+	CanUse(username, tunnel string) bool
 }
 
 // TrojanSession holds metadata for a registered Trojan authentication key.
@@ -45,8 +51,15 @@ type DynamicAuthenticator struct {
 	userTokens map[string][]string
 
 	connsMu sync.Mutex
-	conns   map[string]map[uint64]net.Conn
+	conns   map[string]map[uint64]trackedConn
 	nextID  uint64
+}
+
+// trackedConn is a client's connection and the tunnel it uses, so access
+// taken away from one tunnel closes only what went through it.
+type trackedConn struct {
+	conn   net.Conn
+	tunnel string
 }
 
 // NewDynamicAuthenticator builds a dynamic Trojan authenticator.
@@ -57,7 +70,7 @@ func NewDynamicAuthenticator(validator SessionValidator, log *slog.Logger) *Dyna
 		keys:       make(map[[56]byte]TrojanSession),
 		tokenKeys:  make(map[string][][56]byte),
 		userTokens: make(map[string][]string),
-		conns:      make(map[string]map[uint64]net.Conn),
+		conns:      make(map[string]map[uint64]trackedConn),
 	}
 }
 
@@ -102,6 +115,11 @@ func (d *DynamicAuthenticator) ValidateTrojanKey(key [56]byte) (AuthResult, bool
 			go d.RevokeSession(sess.Token)
 			return AuthResult{}, false
 		}
+		// Asked every time rather than when the password was handed out:
+		// access taken away has to stop a client that kept its password.
+		if ac, ok := d.validator.(AccessChecker); ok && !ac.CanUse(sess.Username, sess.TunnelName) {
+			return AuthResult{}, false
+		}
 	}
 	return AuthResult{
 		TunnelName: sess.TunnelName,
@@ -111,14 +129,14 @@ func (d *DynamicAuthenticator) ValidateTrojanKey(key [56]byte) (AuthResult, bool
 }
 
 // TrackConnection records an active connection under a session token for immediate severance upon revocation.
-func (d *DynamicAuthenticator) TrackConnection(username, token string, conn net.Conn) func() {
+func (d *DynamicAuthenticator) TrackConnection(username, token, tunnel string, conn net.Conn) func() {
 	d.connsMu.Lock()
 	id := d.nextID
 	d.nextID++
 	if d.conns[token] == nil {
-		d.conns[token] = make(map[uint64]net.Conn)
+		d.conns[token] = make(map[uint64]trackedConn)
 	}
-	d.conns[token][id] = conn
+	d.conns[token][id] = trackedConn{conn: conn, tunnel: tunnel}
 	d.connsMu.Unlock()
 
 	return func() {
@@ -141,7 +159,7 @@ func (d *DynamicAuthenticator) RevokeSession(token string) {
 	d.connsMu.Lock()
 	conns := make([]net.Conn, 0, len(d.conns[token]))
 	for _, c := range d.conns[token] {
-		conns = append(conns, c)
+		conns = append(conns, c.conn)
 	}
 	delete(d.conns, token)
 	d.connsMu.Unlock()
@@ -174,6 +192,36 @@ func (d *DynamicAuthenticator) RevokeSession(token string) {
 
 	if len(conns) > 0 && d.log != nil {
 		d.log.Info("revoked session and closed active trojan connections", "token", token, "closed_connections", len(conns))
+	}
+}
+
+// CloseDisallowed closes a user's connections to tunnels they may no longer
+// use. Their sessions stay: what they may still use keeps working.
+func (d *DynamicAuthenticator) CloseDisallowed(username string) {
+	ac, ok := d.validator.(AccessChecker)
+	if !ok || username == "" {
+		return
+	}
+	d.mu.RLock()
+	toks := append([]string(nil), d.userTokens[username]...)
+	d.mu.RUnlock()
+
+	var closing []net.Conn
+	d.connsMu.Lock()
+	for _, tok := range toks {
+		for id, c := range d.conns[tok] {
+			if !ac.CanUse(username, c.tunnel) {
+				closing = append(closing, c.conn)
+				delete(d.conns[tok], id)
+			}
+		}
+	}
+	d.connsMu.Unlock()
+	for _, c := range closing {
+		_ = c.Close()
+	}
+	if len(closing) > 0 && d.log != nil {
+		d.log.Info("closed connections to tunnels the user may no longer use", "username", username, "closed_connections", len(closing))
 	}
 }
 
@@ -239,6 +287,6 @@ func (s *StaticAuthenticator) remove(name string) {
 }
 
 // TrackConnection is a no-op for static authenticator.
-func (s *StaticAuthenticator) TrackConnection(username, token string, conn net.Conn) func() {
+func (s *StaticAuthenticator) TrackConnection(username, token, tunnel string, conn net.Conn) func() {
 	return func() {}
 }

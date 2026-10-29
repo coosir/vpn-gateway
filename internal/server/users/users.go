@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -25,19 +26,26 @@ var usernameRE = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,31}$`)
 
 // User represents a registered user.
 type User struct {
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"password_hash"`
-	IsAdmin      bool      `json:"is_admin"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	Username     string `json:"username"`
+	PasswordHash string `json:"password_hash"`
+	IsAdmin      bool   `json:"is_admin"`
+	// Restricted limits the user to Tunnels. Off, the user may use every
+	// tunnel, which is what every user could before access was configurable,
+	// so a user nobody has restricted keeps working as they did.
+	Restricted bool      `json:"restricted,omitempty"`
+	Tunnels    []string  `json:"tunnels,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // UserSummary is a safe representation of a user without sensitive hashes.
 type UserSummary struct {
-	Username  string    `json:"username"`
-	IsAdmin   bool      `json:"is_admin"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Username   string    `json:"username"`
+	IsAdmin    bool      `json:"is_admin"`
+	Restricted bool      `json:"restricted"`
+	Tunnels    []string  `json:"tunnels"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // Session represents an active authenticated user session.
@@ -65,6 +73,7 @@ type Manager struct {
 	cancels         map[string][]contextCancel
 	onRevokeUser    func(username string)
 	onRevokeSession func(token string)
+	onAccessChange  func(username string)
 	log             *slog.Logger
 }
 
@@ -245,8 +254,102 @@ func (m *Manager) SetAdmin(username string, isAdmin bool) error {
 		return err
 	}
 
+	// No longer an administrator, the user may be left with fewer tunnels
+	// than they are connected to.
+	m.accessChangedLocked(username)
 	m.log.Info("updated admin status for user", "username", username, "is_admin", isAdmin)
 	return nil
+}
+
+// SetAccess decides which tunnels a user may use: every one, or only those
+// named. Connections to a tunnel the user may no longer use are closed.
+func (m *Manager) SetAccess(username string, restricted bool, tunnels []string) error {
+	username = strings.TrimSpace(username)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	user, exists := m.users[username]
+	if !exists {
+		return fmt.Errorf("user %q does not exist", username)
+	}
+	user.Restricted = restricted
+	user.Tunnels = nil
+	if restricted {
+		user.Tunnels = normalizeNames(tunnels)
+	}
+	user.UpdatedAt = time.Now().UTC()
+	m.users[username] = user
+	if err := m.saveLocked(); err != nil {
+		return err
+	}
+	m.accessChangedLocked(username)
+	m.log.Info("updated tunnel access for user", "username", username, "restricted", restricted, "tunnels", user.Tunnels)
+	return nil
+}
+
+// ForgetTunnel takes a deleted tunnel out of every user's list, so a tunnel
+// added later under the same name is not handed to whoever had the old one.
+func (m *Manager) ForgetTunnel(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	changed := false
+	for k, u := range m.users {
+		if slices.Contains(u.Tunnels, name) {
+			u.Tunnels = slices.DeleteFunc(slices.Clone(u.Tunnels), func(t string) bool { return t == name })
+			m.users[k] = u
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return m.saveLocked()
+}
+
+// CanUse reports whether a user may use a tunnel.
+func (m *Manager) CanUse(username, tunnel string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	u, ok := m.users[username]
+	if !ok {
+		return false
+	}
+	return u.IsAdmin || !u.Restricted || slices.Contains(u.Tunnels, tunnel)
+}
+
+// SetAccessHook sets what is called when a user's access may have narrowed.
+func (m *Manager) SetAccessHook(fn func(username string)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onAccessChange = fn
+}
+
+// accessChangedLocked tells the listener to drop what the user may no longer
+// use, and ends the user's event streams so their clients list the tunnels
+// again rather than go on showing ones that now refuse them.
+func (m *Manager) accessChangedLocked(username string) {
+	if list, ok := m.cancels[username]; ok {
+		for _, c := range list {
+			if c.cancel != nil {
+				go c.cancel()
+			}
+		}
+		delete(m.cancels, username)
+	}
+	if m.onAccessChange != nil {
+		go m.onAccessChange(username)
+	}
+}
+
+func normalizeNames(in []string) []string {
+	out := []string{}
+	for _, n := range in {
+		if n = strings.TrimSpace(n); n != "" && !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // UpdatePassword updates an existing user's password and revokes all their active sessions.
@@ -318,10 +421,12 @@ func (m *Manager) List() []UserSummary {
 	out := make([]UserSummary, 0, len(m.users))
 	for _, u := range m.users {
 		out = append(out, UserSummary{
-			Username:  u.Username,
-			IsAdmin:   u.IsAdmin,
-			CreatedAt: u.CreatedAt,
-			UpdatedAt: u.UpdatedAt,
+			Username:   u.Username,
+			IsAdmin:    u.IsAdmin,
+			Restricted: u.Restricted,
+			Tunnels:    append([]string{}, u.Tunnels...),
+			CreatedAt:  u.CreatedAt,
+			UpdatedAt:  u.UpdatedAt,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Username < out[j].Username })

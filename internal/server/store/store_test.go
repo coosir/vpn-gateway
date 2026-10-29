@@ -70,11 +70,14 @@ func TestSeedOnceThenEditByRow(t *testing.T) {
 	if err != nil || len(us) != 1 || us[0].Username != "alice" || !us[0].IsAdmin || us[0].CreatedAt.IsZero() {
 		t.Fatalf("users = %+v, %v", us, err)
 	}
-	if err := st.SaveUsers([]users.User{{Username: "bob", PasswordHash: "x"}}); err != nil {
+	if us[0].Restricted || len(us[0].Tunnels) != 0 {
+		t.Errorf("a user nobody restricted came back restricted: %+v", us[0])
+	}
+	if err := st.SaveUsers([]users.User{{Username: "bob", PasswordHash: "x", Restricted: true, Tunnels: []string{"lab", "office"}}}); err != nil {
 		t.Fatal(err)
 	}
 	us, _ = st.LoadUsers()
-	if len(us) != 1 || us[0].Username != "bob" {
+	if len(us) != 1 || us[0].Username != "bob" || !us[0].Restricted || len(us[0].Tunnels) != 2 || us[0].Tunnels[1] != "office" {
 		t.Fatalf("users after save = %+v", us)
 	}
 }

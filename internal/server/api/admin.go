@@ -185,6 +185,11 @@ func (s *Server) deleteTunnelConfig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if s.usersMgr != nil {
+		if err := s.usersMgr.ForgetTunnel(name); err != nil {
+			s.log.Warn("could not take the deleted tunnel out of users' access", "tunnel", name, "error", err)
+		}
+	}
 	s.log.Info("tunnel deleted from the admin page", "tunnel", name, "by", userOf(r))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

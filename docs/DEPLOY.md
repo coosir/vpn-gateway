@@ -254,6 +254,17 @@ typed into the page are stored in the database, which is created 0600;
 `password_env` and `password_file` keep working for anyone who would rather
 not. `vgctl` reads the same database.
 
+**Who may use which tunnel.** Each user can be allowed every tunnel --
+including ones added later -- or only those ticked in the user's dialog.
+Administrators always have every tunnel. Users that existed before this was
+configurable, and users added with `vgctl user add`, have every tunnel until
+somebody limits them; a user created in the page starts with only what is
+ticked. A tunnel a user may not use is left out of what their client is
+shown, and the listener refuses it even to a client that kept its password.
+Narrowing a user's access closes their connections to what was taken away at
+once, and their client lists its tunnels again. Deleting a tunnel takes it out
+of everyone's list.
+
 **Web sign-in (SAML) from the page.** A gateway that signs in through an
 identity provider ends with a cookie on the gateway's own website. The desktop
 client reads it out of a window it opens itself; a web page cannot read another

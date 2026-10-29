@@ -146,6 +146,9 @@ func run(configPath string, check bool, logLevel string) error {
 		func(username string) { trojanAuth.RevokeUser(username) },
 		func(token string) { trojanAuth.RevokeSession(token) },
 	)
+	// Access narrowed: what the user is connected to and may no longer use
+	// is cut off, not left running until they disconnect.
+	usersMgr.SetAccessHook(trojanAuth.CloseDisallowed)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

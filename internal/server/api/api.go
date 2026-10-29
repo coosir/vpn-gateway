@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -271,6 +272,58 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// canUse reports whether the caller may see and use a tunnel. Administrators
+// may use every one; other users what their access allows.
+func (s *Server) canUse(r *http.Request, tunnel string) bool {
+	if isAdmin, _ := r.Context().Value(isAdminContextKey).(bool); isAdmin {
+		return true
+	}
+	if s.usersMgr == nil {
+		return true
+	}
+	username, _ := r.Context().Value(userContextKey).(string)
+	return s.usersMgr.CanUse(username, tunnel)
+}
+
+// lookupFor finds a tunnel the caller may use, answering 404 for one they
+// may not: a user limited to some tunnels is not told the others exist.
+func (s *Server) lookupFor(w http.ResponseWriter, r *http.Request) (*tunnel.Tunnel, bool) {
+	name := r.PathValue("name")
+	t, ok := s.mgr.Lookup(name)
+	if !ok || !s.canUse(r, name) {
+		writeErr(w, http.StatusNotFound, "no such tunnel")
+		return nil, false
+	}
+	return t, true
+}
+
+// accessRequest is how a user's tunnel access is set.
+type accessRequest struct {
+	Restricted *bool     `json:"restricted,omitempty"`
+	Tunnels    *[]string `json:"tunnels,omitempty"`
+}
+
+// applyAccess sets a user's access when the request says anything about it.
+func (s *Server) applyAccess(username string, req accessRequest) error {
+	if req.Restricted == nil && req.Tunnels == nil {
+		return nil
+	}
+	restricted := req.Tunnels != nil
+	if req.Restricted != nil {
+		restricted = *req.Restricted
+	}
+	var tunnels []string
+	if req.Tunnels != nil {
+		tunnels = *req.Tunnels
+	}
+	for _, name := range tunnels {
+		if _, ok := s.mgr.Lookup(name); !ok {
+			return fmt.Errorf("no tunnel named %q", name)
+		}
+	}
+	return s.usersMgr.SetAccess(username, restricted, tunnels)
+}
+
 func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 	if s.usersMgr == nil {
 		writeJSON(w, http.StatusOK, []users.UserSummary{})
@@ -284,6 +337,7 @@ func (s *Server) postUser(w http.ResponseWriter, r *http.Request) {
 		Username string `json:"username"`
 		Password string `json:"password"`
 		IsAdmin  bool   `json:"is_admin"`
+		accessRequest
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
@@ -293,7 +347,17 @@ func (s *Server) postUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "user manager not available")
 		return
 	}
+	for _, name := range ptrSlice(req.Tunnels) {
+		if _, ok := s.mgr.Lookup(name); !ok {
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("no tunnel named %q", name))
+			return
+		}
+	}
 	if err := s.usersMgr.Add(req.Username, req.Password, req.IsAdmin); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.applyAccess(strings.TrimSpace(req.Username), req.accessRequest); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -305,6 +369,7 @@ func (s *Server) putUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Password *string `json:"password,omitempty"`
 		IsAdmin  *bool   `json:"is_admin,omitempty"`
+		accessRequest
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
@@ -319,6 +384,10 @@ func (s *Server) putUser(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
+	}
+	if err := s.applyAccess(username, req.accessRequest); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	if req.IsAdmin != nil {
 		if err := s.usersMgr.SetAdmin(username, *req.IsAdmin); err != nil {
@@ -343,7 +412,15 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listTunnels(w http.ResponseWriter, r *http.Request) {
-	snaps := s.mgr.Snapshots()
+	var snaps []tunnel.Snapshot
+	for _, snap := range s.mgr.Snapshots() {
+		if s.canUse(r, snap.Name) {
+			snaps = append(snaps, snap)
+		}
+	}
+	if snaps == nil {
+		snaps = []tunnel.Snapshot{}
+	}
 	tok, _ := r.Context().Value(tokenContextKey).(string)
 	uname, _ := r.Context().Value(userContextKey).(string)
 	if tok != "" && s.trojanAuth != nil {
@@ -380,6 +457,9 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 	defer release()
 
 	writeFilteredEvent := func(ev tunnel.Event) bool {
+		if !s.canUse(r, ev.Tunnel.Name) {
+			return true
+		}
 		evClone := ev
 		if evClone.Tunnel.Challenge != nil && evClone.Tunnel.Challenge.TargetUser != "" {
 			if username != "" && username != evClone.Tunnel.Challenge.TargetUser && !isAdmin {
@@ -442,9 +522,8 @@ func writeEvent(w http.ResponseWriter, rc *http.ResponseController, ev tunnel.Ev
 }
 
 func (s *Server) getTunnel(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.mgr.Lookup(r.PathValue("name"))
+	t, ok := s.lookupFor(w, r)
 	if !ok {
-		writeErr(w, http.StatusNotFound, "no such tunnel")
 		return
 	}
 	snap := t.Snapshot()
@@ -457,9 +536,8 @@ func (s *Server) getTunnel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.mgr.Lookup(r.PathValue("name"))
+	t, ok := s.lookupFor(w, r)
 	if !ok {
-		writeErr(w, http.StatusNotFound, "no such tunnel")
 		return
 	}
 	tail := 200
@@ -478,9 +556,8 @@ func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getChallenge(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.mgr.Lookup(r.PathValue("name"))
+	t, ok := s.lookupFor(w, r)
 	if !ok {
-		writeErr(w, http.StatusNotFound, "no such tunnel")
 		return
 	}
 	ch, err := t.Client().Challenge(r.Context())
@@ -504,9 +581,8 @@ func (s *Server) getChallenge(w http.ResponseWriter, r *http.Request) {
 // postAuth relays an authentication answer from the client GUI to the
 // container. The answer is never logged.
 func (s *Server) postAuth(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.mgr.Lookup(r.PathValue("name"))
+	t, ok := s.lookupFor(w, r)
 	if !ok {
-		writeErr(w, http.StatusNotFound, "no such tunnel")
 		return
 	}
 	var ans contract.AuthAnswer
@@ -576,6 +652,13 @@ func Serve(ctx context.Context, addr string, h http.Handler, log *slog.Logger) e
 		return err
 	}
 	return nil
+}
+
+func ptrSlice(p *[]string) []string {
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

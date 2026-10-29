@@ -52,6 +52,13 @@ var migrations = []string{
 		created_at    TEXT NOT NULL,
 		updated_at    TEXT NOT NULL
 	);`,
+	// 2: which tunnels each user may use. Existing users stay unrestricted.
+	`ALTER TABLE users ADD COLUMN restricted INTEGER NOT NULL DEFAULT 0;
+	CREATE TABLE user_tunnels (
+		username TEXT NOT NULL,
+		tunnel   TEXT NOT NULL,
+		PRIMARY KEY (username, tunnel)
+	);`,
 }
 
 // Store is the server's database.
@@ -209,7 +216,25 @@ func (s *Store) DeleteTunnel(name string) error {
 
 // LoadUsers implements users.Persister.
 func (s *Store) LoadUsers() ([]users.User, error) {
-	rows, err := s.db.Query(`SELECT username, password_hash, is_admin, created_at, updated_at FROM users ORDER BY username`)
+	grants := map[string][]string{}
+	rows, err := s.db.Query(`SELECT username, tunnel FROM user_tunnels ORDER BY username, tunnel`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var u, t string
+		if err := rows.Scan(&u, &t); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		grants[u] = append(grants[u], t)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	rows, err = s.db.Query(`SELECT username, password_hash, is_admin, restricted, created_at, updated_at FROM users ORDER BY username`)
 	if err != nil {
 		return nil, err
 	}
@@ -218,11 +243,12 @@ func (s *Store) LoadUsers() ([]users.User, error) {
 	for rows.Next() {
 		var u users.User
 		var created, updated string
-		if err := rows.Scan(&u.Username, &u.PasswordHash, &u.IsAdmin, &created, &updated); err != nil {
+		if err := rows.Scan(&u.Username, &u.PasswordHash, &u.IsAdmin, &u.Restricted, &created, &updated); err != nil {
 			return nil, err
 		}
 		u.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
 		u.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+		u.Tunnels = grants[u.Username]
 		out = append(out, u)
 	}
 	return out, rows.Err()
@@ -237,6 +263,9 @@ func (s *Store) SaveUsers(us []users.User) error {
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`DELETE FROM users`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM user_tunnels`); err != nil {
 		return err
 	}
 	if err := putUsers(tx, us); err != nil {
@@ -270,10 +299,15 @@ func putUsers(db execer, us []users.User) error {
 		if updated.IsZero() {
 			updated = created
 		}
-		if _, err := db.Exec(`INSERT INTO users (username, password_hash, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-			u.Username, u.PasswordHash, u.IsAdmin,
+		if _, err := db.Exec(`INSERT INTO users (username, password_hash, is_admin, restricted, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			u.Username, u.PasswordHash, u.IsAdmin, u.Restricted,
 			created.UTC().Format(time.RFC3339Nano), updated.UTC().Format(time.RFC3339Nano)); err != nil {
 			return fmt.Errorf("user %q: %w", u.Username, err)
+		}
+		for _, t := range u.Tunnels {
+			if _, err := db.Exec(`INSERT OR IGNORE INTO user_tunnels (username, tunnel) VALUES (?, ?)`, u.Username, t); err != nil {
+				return fmt.Errorf("user %q: %w", u.Username, err)
+			}
 		}
 	}
 	return nil

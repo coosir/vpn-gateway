@@ -146,7 +146,7 @@ func (h *DynamicTrojanInbound) handleConnection(ctx context.Context, conn net.Co
 	metadata.User = authRes.TunnelName
 	metadata.Destination = destination
 
-	untrack := h.auth.TrackConnection(authRes.Username, authRes.Token, conn)
+	untrack := h.auth.TrackConnection(authRes.Username, authRes.Token, authRes.TunnelName, conn)
 	wrappedClose := func(it error) {
 		untrack()
 		if onClose != nil {
