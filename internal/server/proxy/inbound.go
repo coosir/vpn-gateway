@@ -37,12 +37,12 @@ type DynamicTrojanInbound struct {
 	auth      Authenticator
 	traffic   *trafficTracker
 
-	outbounds   adapter.OutboundManager
+	routes      *routeTable
 	connections adapter.ConnectionManager
 }
 
 // NewDynamicTrojanInbound creates an inbound adapter with dynamic authentication.
-func NewDynamicTrojanInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.TrojanInboundOptions, auth Authenticator, traffic *trafficTracker) (adapter.Inbound, error) {
+func NewDynamicTrojanInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.TrojanInboundOptions, auth Authenticator, traffic *trafficTracker, routes *routeTable) (adapter.Inbound, error) {
 	inboundAdapter := inbound.NewAdapter(C.TypeTrojan, tag)
 	inb := &DynamicTrojanInbound{
 		Adapter:     inboundAdapter,
@@ -50,11 +50,11 @@ func NewDynamicTrojanInbound(ctx context.Context, router adapter.Router, logger 
 		logger:      logger,
 		auth:        auth,
 		traffic:     traffic,
-		outbounds:   service.FromContext[adapter.OutboundManager](ctx),
+		routes:      routes,
 		connections: service.FromContext[adapter.ConnectionManager](ctx),
 	}
-	if inb.outbounds == nil || inb.connections == nil {
-		return nil, errors.New("trojan inbound: the outbound and connection managers are not registered")
+	if inb.connections == nil {
+		return nil, errors.New("trojan inbound: the connection manager is not registered")
 	}
 	if options.TLS != nil {
 		tlsConfig, err := tls.NewServerWithOptions(tls.ServerOptions{
@@ -77,7 +77,7 @@ func NewDynamicTrojanInbound(ctx context.Context, router adapter.Router, logger 
 	return inb, nil
 }
 
-func (h *DynamicTrojanInbound) Start(stage adapter.StartStage) error {
+func (h *DynamicTrojanInbound) Start(stage adapter.StartStage, scope *adapter.Scope) error {
 	if stage != adapter.StartStateStart {
 		return nil
 	}
@@ -85,18 +85,16 @@ func (h *DynamicTrojanInbound) Start(stage adapter.StartStage) error {
 		if err := h.tlsConfig.Start(); err != nil {
 			return err
 		}
+		scope.Add(h.tlsConfig.Close)
 	}
-	return h.listener.Start()
+	if err := h.listener.Start(); err != nil {
+		return err
+	}
+	scope.Add(h.listener.Close)
+	return nil
 }
 
-func (h *DynamicTrojanInbound) Close() error {
-	return common.Close(
-		h.listener,
-		h.tlsConfig,
-	)
-}
-
-func (h *DynamicTrojanInbound) NewConnectionEx(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
+func (h *DynamicTrojanInbound) NewConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
 	if h.tlsConfig != nil {
 		tlsConn, err := tls.ServerHandshake(ctx, conn, h.tlsConfig)
 		if err != nil {
@@ -179,7 +177,7 @@ func (h *DynamicTrojanInbound) handleConnection(ctx context.Context, conn net.Co
 // changing one swaps its outbound without restarting the listener under every
 // other tunnel's connections.
 func (h *DynamicTrojanInbound) tunnelOutbound(name string, network string) (adapter.Outbound, error) {
-	ob, ok := h.outbounds.Outbound(tunnelPrefix + name)
+	ob, ok := h.routes.lookup(name)
 	if !ok {
 		return nil, fmt.Errorf("no tunnel named %q", name)
 	}
@@ -203,8 +201,8 @@ func (h *DynamicTrojanInbound) routeConnection(ctx context.Context, conn net.Con
 		conn = deadline.NewConn(conn)
 	}
 	conn = h.traffic.RoutedConnection(ctx, conn, metadata, nil, ob)
-	if handler, ok := ob.(adapter.ConnectionHandlerEx); ok {
-		handler.NewConnectionEx(ctx, conn, metadata, onClose)
+	if handler, ok := ob.(adapter.ConnectionHandler); ok {
+		handler.NewConnection(ctx, conn, metadata, onClose)
 		return
 	}
 	h.connections.NewConnection(ctx, ob, conn, metadata, onClose)
@@ -219,8 +217,8 @@ func (h *DynamicTrojanInbound) routePacketConnection(ctx context.Context, conn N
 		return
 	}
 	conn = h.traffic.RoutedPacketConnection(ctx, conn, metadata, nil, ob)
-	if handler, ok := ob.(adapter.PacketConnectionHandlerEx); ok {
-		handler.NewPacketConnectionEx(ctx, conn, metadata, onClose)
+	if handler, ok := ob.(adapter.PacketConnectionHandler); ok {
+		handler.NewPacketConnection(ctx, conn, metadata, onClose)
 		return
 	}
 	h.connections.NewPacketConnection(ctx, ob, conn, metadata, onClose)

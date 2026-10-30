@@ -16,6 +16,7 @@ import (
 	"time"
 
 	box "github.com/sagernet/sing-box"
+	"github.com/sagernet/sing-box/adapter/certificate"
 	"github.com/sagernet/sing-box/adapter/endpoint"
 	"github.com/sagernet/sing-box/adapter/inbound"
 	"github.com/sagernet/sing-box/adapter/outbound"
@@ -352,7 +353,7 @@ func newClientBox(t *testing.T, raw []byte) (*box.Box, error) {
 	transport.RegisterTCP(dnsR)
 	local.RegisterTransport(dnsR)
 
-	ctx := box.Context(context.Background(), inR, outR, endpoint.NewRegistry(), dnsR, service.NewRegistry())
+	ctx := box.Context(context.Background(), inR, outR, endpoint.NewRegistry(), dnsR, service.NewRegistry(), certificate.NewRegistry())
 
 	var parsed option.Options
 	if err := singjson.UnmarshalContext(ctx, raw, &parsed); err != nil {

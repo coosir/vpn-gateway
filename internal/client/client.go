@@ -16,6 +16,7 @@ import (
 
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/adapter/certificate"
 	"github.com/sagernet/sing-box/adapter/endpoint"
 	"github.com/sagernet/sing-box/adapter/inbound"
 	"github.com/sagernet/sing-box/adapter/outbound"
@@ -38,6 +39,7 @@ import (
 	"github.com/sagernet/sing-box/protocol/vmess"
 	singjson "github.com/sagernet/sing/common/json"
 	M "github.com/sagernet/sing/common/metadata"
+	N "github.com/sagernet/sing/common/network"
 
 	"github.com/vpn-gateway/vpn-gateway/internal/server/clientcfg"
 )
@@ -850,17 +852,23 @@ func (c *Client) ProxyNow() (selected, auto string) {
 	if instance == nil {
 		return "", ""
 	}
-	if ob, ok := instance.Outbound().Outbound(tagProxy); ok {
-		if g, ok := ob.(adapter.OutboundGroup); ok {
-			selected = g.Now()
-		}
+	return groupNow(instance, tagProxy), groupNow(instance, tagAuto)
+}
+
+// groupNow is the tag of the member a group currently sends TCP through.
+func groupNow(instance *box.Box, tag string) string {
+	ob, ok := instance.Outbound().Outbound(tag)
+	if !ok {
+		return ""
 	}
-	if ob, ok := instance.Outbound().Outbound(tagAuto); ok {
-		if g, ok := ob.(adapter.OutboundGroup); ok {
-			auto = g.Now()
-		}
+	g, ok := ob.(adapter.OutboundGroup)
+	if !ok {
+		return ""
 	}
-	return selected, auto
+	if member := g.Selected(N.NetworkTCP); member != nil {
+		return member.Tag()
+	}
+	return ""
 }
 
 func countUp(tunnels []TunnelState) int {
@@ -901,7 +909,7 @@ func registryContext(ctx context.Context) context.Context {
 	local.RegisterTransport(dnsR)
 	registerQUICTransports(dnsR)
 
-	return box.Context(ctx, inR, outR, endpoint.NewRegistry(), dnsR, service.NewRegistry())
+	return box.Context(ctx, inR, outR, endpoint.NewRegistry(), dnsR, service.NewRegistry(), certificate.NewRegistry())
 }
 
 // ensure the adapter import is used for its interface assertions.

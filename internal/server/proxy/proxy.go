@@ -10,13 +10,12 @@ package proxy
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/adapter/certificate"
 	"github.com/sagernet/sing-box/adapter/endpoint"
 	"github.com/sagernet/sing-box/adapter/inbound"
 	"github.com/sagernet/sing-box/adapter/outbound"
@@ -206,6 +205,8 @@ func outboundFor(r Route) (map[string]any, error) {
 type Proxy struct {
 	instance *box.Box
 	ctx      context.Context
+	registry adapter.OutboundRegistry
+	routes   *routeTable
 	traffic  *trafficTracker
 	auth     Authenticator
 	log      *slog.Logger
@@ -213,7 +214,15 @@ type Proxy struct {
 
 // New builds and starts the listener described by opts.
 func New(ctx context.Context, opts Options, log *slog.Logger) (*Proxy, error) {
-	raw, err := BuildConfig(opts)
+	// Rendered with the routes once only to check them; the listener itself
+	// is built without, and each tunnel's outbound is added to the route
+	// table once it runs.
+	if _, err := BuildConfig(opts); err != nil {
+		return nil, err
+	}
+	bare := opts
+	bare.Routes = nil
+	raw, err := BuildConfig(bare)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +231,8 @@ func New(ctx context.Context, opts Options, log *slog.Logger) (*Proxy, error) {
 		auth = NewStaticAuthenticator(opts.Routes)
 	}
 	traffic := newTrafficTracker(opts.Routes)
-	boxCtx := registryContext(ctx, auth, traffic)
+	routes := newRouteTable()
+	boxCtx, registry := registryContext(ctx, auth, traffic, routes)
 
 	var parsed option.Options
 	if err := singjson.UnmarshalContext(boxCtx, raw, &parsed); err != nil {
@@ -237,14 +247,21 @@ func New(ctx context.Context, opts Options, log *slog.Logger) (*Proxy, error) {
 		return nil, fmt.Errorf("proxy: start listener on %s: %w", opts.Listen, err)
 	}
 
+	p := &Proxy{instance: instance, ctx: boxCtx, registry: registry, routes: routes, traffic: traffic, auth: auth, log: log}
+	for _, r := range opts.Routes {
+		if err := p.addOutbound(r); err != nil {
+			p.Close()
+			return nil, err
+		}
+	}
 	log.Info("trojan listener started",
 		"listen", opts.Listen, "server_name", opts.ServerName, "tunnels", len(opts.Routes))
-	return &Proxy{instance: instance, ctx: boxCtx, traffic: traffic, auth: auth, log: log}, nil
+	return p, nil
 }
 
-// SetRoute adds a tunnel to the running listener, or replaces what it had for
-// one, without disturbing any other tunnel's connections.
-func (p *Proxy) SetRoute(r Route) error {
+// addOutbound creates and starts a tunnel's outbound and puts it in the
+// route table, in place of any it had.
+func (p *Proxy) addOutbound(r Route) error {
 	ob, err := outboundFor(r)
 	if err != nil {
 		return err
@@ -259,8 +276,23 @@ func (p *Proxy) SetRoute(r Route) error {
 	}
 	tag := tunnelPrefix + r.Name
 	logger := p.instance.LogFactory().NewLogger("outbound/" + parsed.Type + "[" + tag + "]")
-	if err := p.instance.Outbound().Create(p.ctx, p.instance.Router(), logger, tag, parsed.Type, parsed.Options); err != nil {
+	created, err := p.registry.CreateOutbound(p.ctx, p.instance.Router(), logger, tag, parsed.Type, parsed.Options)
+	if err != nil {
 		return fmt.Errorf("proxy: tunnel %q: %w", r.Name, err)
+	}
+	scope, err := startOutbound(p.ctx, logger, created)
+	if err != nil {
+		return fmt.Errorf("proxy: tunnel %q: start: %w", r.Name, err)
+	}
+	p.routes.set(r.Name, created, scope)
+	return nil
+}
+
+// SetRoute adds a tunnel to the running listener, or replaces what it had for
+// one, without disturbing any other tunnel's connections.
+func (p *Proxy) SetRoute(r Route) error {
+	if err := p.addOutbound(r); err != nil {
+		return err
 	}
 	p.traffic.add(r.Name)
 	if s, ok := p.auth.(*StaticAuthenticator); ok {
@@ -273,9 +305,7 @@ func (p *Proxy) SetRoute(r Route) error {
 // RemoveRoute takes a tunnel out of the running listener. A client still
 // holding its password is refused from then on.
 func (p *Proxy) RemoveRoute(name string) {
-	if err := p.instance.Outbound().Remove(tunnelPrefix + name); err != nil && !errors.Is(err, os.ErrInvalid) {
-		p.log.Warn("removing a tunnel from the listener failed", "tunnel", name, "error", err)
-	}
+	p.routes.remove(name)
 	p.traffic.remove(name)
 	if s, ok := p.auth.(*StaticAuthenticator); ok {
 		s.remove(name)
@@ -287,6 +317,7 @@ func (p *Proxy) Close() error {
 	if p == nil || p.instance == nil {
 		return nil
 	}
+	p.routes.closeAll()
 	return p.instance.Close()
 }
 
@@ -298,10 +329,10 @@ func (p *Proxy) Close() error {
 // that is not is refused when it is parsed, which is a server that will not
 // start rather than a tunnel that does not work -- see the test that walks
 // one of each kind through this.
-func registryContext(ctx context.Context, auth Authenticator, traffic *trafficTracker) context.Context {
+func registryContext(ctx context.Context, auth Authenticator, traffic *trafficTracker, routes *routeTable) (context.Context, adapter.OutboundRegistry) {
 	inR := inbound.NewRegistry()
 	inbound.Register[option.TrojanInboundOptions](inR, C.TypeTrojan, func(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.TrojanInboundOptions) (adapter.Inbound, error) {
-		return NewDynamicTrojanInbound(ctx, router, logger, tag, options, auth, traffic)
+		return NewDynamicTrojanInbound(ctx, router, logger, tag, options, auth, traffic, routes)
 	})
 
 	outR := outbound.NewRegistry()
@@ -320,5 +351,5 @@ func registryContext(ctx context.Context, auth Authenticator, traffic *trafficTr
 	transport.RegisterHTTPS(dnsR)
 	local.RegisterTransport(dnsR)
 
-	return box.Context(ctx, inR, outR, endpoint.NewRegistry(), dnsR, service.NewRegistry())
+	return box.Context(ctx, inR, outR, endpoint.NewRegistry(), dnsR, service.NewRegistry(), certificate.NewRegistry()), outR
 }

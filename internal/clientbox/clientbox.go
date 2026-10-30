@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	box "github.com/sagernet/sing-box"
+	"github.com/sagernet/sing-box/adapter/certificate"
 	"github.com/sagernet/sing-box/adapter/endpoint"
 	"github.com/sagernet/sing-box/adapter/inbound"
 	"github.com/sagernet/sing-box/adapter/outbound"
@@ -137,7 +138,7 @@ func registryContext(ctx context.Context) context.Context {
 	transport.RegisterHTTPS(dnsR)
 	local.RegisterTransport(dnsR)
 
-	return box.Context(ctx, inR, outR, endpoint.NewRegistry(), dnsR, service.NewRegistry())
+	return box.Context(ctx, inR, outR, endpoint.NewRegistry(), dnsR, service.NewRegistry(), certificate.NewRegistry())
 }
 
 func freePort() (int, error) {

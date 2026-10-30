@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
+	tun "github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common/bufio"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -34,7 +35,7 @@ func (p *Proxy) Probe(ctx context.Context, tunnel, url string) error {
 	if p == nil || p.instance == nil {
 		return errors.New("the listener is not running")
 	}
-	ob, ok := p.instance.Outbound().Outbound(tunnelPrefix + tunnel)
+	ob, ok := p.routes.lookup(tunnel)
 	if !ok {
 		return fmt.Errorf("no outbound for tunnel %q", tunnel)
 	}
@@ -166,6 +167,12 @@ func (t *trafficTracker) RoutedConnection(_ context.Context, conn net.Conn, _ ad
 		return conn
 	}
 	return bufio.NewCounterConn(conn, nil, []N.CountFunc{count})
+}
+
+// RoutedFlow is for flows a TUN interface hands over whole. This listener
+// has no TUN interface, so there are none to watch.
+func (t *trafficTracker) RoutedFlow(context.Context, adapter.InboundContext, adapter.Rule, adapter.Outbound) tun.FlowTracker {
+	return nil
 }
 
 // RoutedPacketConnection is RoutedConnection for UDP.

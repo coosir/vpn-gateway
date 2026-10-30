@@ -61,8 +61,10 @@ dist:
 
 # The minimum macOS the desktop shell is built for. Go defaults the link step
 # to 10.13, older than the framework's Objective-C, which makes the linker warn
-# on every object file; naming it on both sides settles that.
-MACOS_MIN ?= 11.0
+# on every object file; naming it on both sides settles that. 12.0 because
+# sing-box's TLS verification calls SecTrustCopyCertificateChain, which macOS
+# 11 does not have.
+MACOS_MIN ?= 12.0
 DESKTOP_ENV := MACOSX_DEPLOYMENT_TARGET=$(MACOS_MIN) \
 	CGO_CFLAGS=-mmacosx-version-min=$(MACOS_MIN) \
 	CGO_LDFLAGS=-mmacosx-version-min=$(MACOS_MIN)
