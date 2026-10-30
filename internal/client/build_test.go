@@ -513,7 +513,7 @@ func TestProxySelectorNodeSelectionAndDeselection(t *testing.T) {
 		t.Errorf("proxy selector default = %v, want node-jp1", proxySelector["default"])
 	}
 
-	// 2. Deselected (empty / direct)
+	// 2. Nothing chosen follows the fastest node.
 	cfg.SelectedNode = ""
 	builtDeselected := build(t, cfg, testTunnels())
 	outboundsDeselected, _ := builtDeselected["outbounds"].([]any)
@@ -528,9 +528,32 @@ func TestProxySelectorNodeSelectionAndDeselection(t *testing.T) {
 	if proxySelectorDeselected == nil {
 		t.Fatal("proxy selector outbound not found when deselected")
 	}
-	if proxySelectorDeselected["default"] != tagDirect {
-		t.Errorf("proxy selector default when deselected = %v, want %v", proxySelectorDeselected["default"], tagDirect)
+	if proxySelectorDeselected["default"] != tagAuto {
+		t.Errorf("proxy selector default when nothing is chosen = %v, want %v", proxySelectorDeselected["default"], tagAuto)
 	}
+
+	// 3. Choosing direct is a choice of its own.
+	cfg.SelectedNode = TargetDirect
+	if got := findOutbound(t, build(t, cfg, testTunnels()), tagProxy)["default"]; got != tagDirect {
+		t.Errorf("proxy selector default when direct is chosen = %v, want %v", got, tagDirect)
+	}
+
+	// 4. A node a subscription update dropped falls back to auto.
+	cfg.SelectedNode = "node-gone"
+	if got := findOutbound(t, build(t, cfg, testTunnels()), tagProxy)["default"]; got != tagAuto {
+		t.Errorf("proxy selector default for a vanished node = %v, want %v", got, tagAuto)
+	}
+}
+
+func findOutbound(t *testing.T, built map[string]any, tag string) map[string]any {
+	t.Helper()
+	for _, o := range built["outbounds"].([]any) {
+		if om := o.(map[string]any); om["tag"] == tag {
+			return om
+		}
+	}
+	t.Fatalf("no outbound tagged %q", tag)
+	return nil
 }
 
 func TestAPinnedOutboundInterfaceReplacesAutoDetection(t *testing.T) {

@@ -26,10 +26,11 @@ type fakeController struct {
 	phase      client.Phase
 	configPath string
 
-	applied  [][]client.Rule
-	bundles  [][]byte
-	connects int
-	rev      uint64
+	applied         [][]client.Rule
+	bundles         [][]byte
+	gatewaySwitches []bool
+	connects        int
+	rev             uint64
 
 	applyErr  error
 	importErr error
@@ -88,11 +89,41 @@ func (f *fakeController) Apply(ctx context.Context, cfg *client.Config) error {
 	if f.applyErr != nil {
 		return f.applyErr
 	}
+	// The session fills in defaults and validates before it applies
+	// anything. The defaults are its business; what these tests send is
+	// rules and nodes, so those are checked here the same way.
+	probe := cfg.Clone()
+	probe.TUN = client.TUNConfig{}
+	probe.Proxy.Enabled = true
+	if err := probe.Validate(); err != nil {
+		return err
+	}
 	f.applied = append(f.applied, cfg.Rules)
 	f.cfg = cfg
 	f.rev++
 	return nil
 }
+
+func (f *fakeController) Remember(cfg *client.Config) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cfg = cfg
+	f.rev++
+	return nil
+}
+
+func (f *fakeController) SetGatewayEnabled(_ context.Context, on bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	next := f.cfg.Clone()
+	next.GatewayDisabled = !on
+	f.cfg = next
+	f.gatewaySwitches = append(f.gatewaySwitches, on)
+	f.rev++
+	return nil
+}
+
+func (f *fakeController) UpdateSubscription(context.Context, string) error { return nil }
 
 const uiConfig = `# kept
 bundle: /dev/null
@@ -569,8 +600,10 @@ func TestNodesAPI(t *testing.T) {
 		t.Errorf("SelectedNode = %q, want %q", ctl.Settings().SelectedNode, "node-"+node.ID)
 	}
 
-	// 3. Update node
-	updateBody := `{"name": "HK-Node-Updated", "port": 8443}`
+	// 3. Update node: the form sends the whole node back.
+	node.Name, node.Port = "HK-Node-Updated", 8443
+	edited, _ := json.Marshal(node)
+	updateBody := string(edited)
 	resp = do(t, srv, http.MethodPut, "/api/nodes/"+node.ID, token, updateBody)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("PUT /api/nodes/%s: %d", node.ID, resp.StatusCode)
@@ -679,5 +712,90 @@ func TestPickingAStackIsRememberedAsAChoice(t *testing.T) {
 	resp.Body.Close()
 	if got := ctl.Settings().TUN; got.Stack != "" || got.StackChosen {
 		t.Errorf("after going back to the default: %+v", got)
+	}
+}
+
+// Many share links pasted at once are all added, whatever their protocol.
+func TestSeveralLinksAreImportedAtOnce(t *testing.T) {
+	_, _, _, srv := testServer(t)
+	links := "trojan://p@a.example:443#A\nvless://b831381d-6324-4d53-ad4f-8cda48b30811@b.example:443?security=tls#B\nnot a link\n"
+	body, _ := json.Marshal(map[string]string{"url": links})
+	resp := do(t, srv, http.MethodPost, "/api/nodes", "tok", string(body))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/nodes: %d", resp.StatusCode)
+	}
+	var st State
+	json.NewDecoder(resp.Body).Decode(&st)
+	if len(st.AllNodes) != 2 || st.AllNodes[1].Type != client.NodeVLESS {
+		t.Errorf("nodes = %+v, want the trojan and the vless one", st.AllNodes)
+	}
+}
+
+// A node filled in by hand is checked before it is saved.
+func TestANodeWithNoServerIsRefused(t *testing.T) {
+	_, _, _, srv := testServer(t)
+	resp := do(t, srv, http.MethodPost, "/api/nodes", "tok", `{"node":{"type":"vmess","port":443}}`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// Proxy rules are kept apart from the gateway's: saving one list leaves the
+// other alone, and neither carries the other's target.
+func TestProxyRulesAreKeptApartFromTheGateways(t *testing.T) {
+	_, ctl, _, srv := testServer(t)
+	resp := do(t, srv, http.MethodPut, "/api/proxy-rules", "tok",
+		`[{"geosite":["cn"],"outbound":"direct","tunnel":"office"},{"domain_suffix":["google.com"],"outbound":"proxy"}]`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT /api/proxy-rules: %d", resp.StatusCode)
+	}
+	cfg := ctl.Settings()
+	if len(cfg.ProxyRules) != 2 || cfg.ProxyRules[0].Tunnel != "" || cfg.ProxyRules[1].Outbound != "proxy" {
+		t.Errorf("proxy rules = %+v", cfg.ProxyRules)
+	}
+	if len(cfg.Rules) != 1 || cfg.Rules[0].Tunnel != "office" {
+		t.Errorf("gateway rules changed: %+v", cfg.Rules)
+	}
+
+	resp = do(t, srv, http.MethodPut, "/api/proxy-rules", "tok", `[{"domain_suffix":["x.com"],"outbound":"office"}]`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("a proxy rule naming a tunnel was accepted: %d", resp.StatusCode)
+	}
+}
+
+func TestTheGatewaySwitchReachesTheSession(t *testing.T) {
+	_, ctl, _, srv := testServer(t)
+	resp := do(t, srv, http.MethodPost, "/api/gateway", "tok", `{"enabled":false}`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/gateway: %d", resp.StatusCode)
+	}
+	if len(ctl.gatewaySwitches) != 1 || ctl.gatewaySwitches[0] {
+		t.Errorf("switches = %v, want one off", ctl.gatewaySwitches)
+	}
+}
+
+// Choosing auto is stored as no choice at all, which is what follows the
+// fastest node; choosing direct is kept.
+func TestSelectingAutoAndDirect(t *testing.T) {
+	_, ctl, _, srv := testServer(t)
+	resp := do(t, srv, http.MethodPost, "/api/nodes/select", "tok", `{"id":"direct"}`)
+	resp.Body.Close()
+	if got := ctl.Settings().SelectedNode; got != client.TargetDirect {
+		t.Errorf("after choosing direct: %q", got)
+	}
+	resp = do(t, srv, http.MethodPost, "/api/nodes/select", "tok", `{"id":"auto"}`)
+	resp.Body.Close()
+	if got := ctl.Settings().SelectedNode; got != "" {
+		t.Errorf("after choosing auto: %q, want empty", got)
+	}
+	resp = do(t, srv, http.MethodPost, "/api/nodes/select", "tok", `{"id":"nope"}`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("choosing a node that does not exist: %d, want 404", resp.StatusCode)
 	}
 }

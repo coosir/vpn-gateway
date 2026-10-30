@@ -2,6 +2,12 @@ GO      ?= go
 BIN     := bin
 LDFLAGS := -s -w
 
+# The client's proxy protocols that sing-box keeps behind build tags:
+# with_quic for hysteria2 and tuic, with_utls for reality and browser TLS
+# fingerprints. Nodes that need one are skipped, not fatal, in a build without
+# it -- but every client that ships is built with both.
+CLIENT_TAGS := with_quic with_utls
+
 # Cross-compilation target for `make dist`. A NAS is usually linux/amd64;
 # set GOARCH=arm64 for an ARM one.
 DIST_OS   ?= linux
@@ -16,7 +22,7 @@ build:
 	$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/vpn-gateway-server ./cmd/vpn-gateway-server
 	$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/vg-agent ./cmd/vg-agent
 	$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/vgctl ./cmd/vgctl
-	$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/vpn-gateway ./cmd/vpn-gateway
+	$(GO) build -tags "$(CLIENT_TAGS)" -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/vpn-gateway ./cmd/vpn-gateway
 
 test:
 	$(GO) test ./...
@@ -50,7 +56,7 @@ dist:
 	GOOS=$(DIST_OS) GOARCH=$(DIST_ARCH) CGO_ENABLED=0 \
 		$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(DIST)/vgctl ./cmd/vgctl
 	GOOS=$(DIST_OS) GOARCH=$(DIST_ARCH) CGO_ENABLED=0 \
-		$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(DIST)/vpn-gateway ./cmd/vpn-gateway
+		$(GO) build -tags "$(CLIENT_TAGS)" -trimpath -ldflags="$(LDFLAGS)" -o $(DIST)/vpn-gateway ./cmd/vpn-gateway
 	@echo "built for $(DIST_OS)/$(DIST_ARCH) in $(DIST)"
 
 # The minimum macOS the desktop shell is built for. Go defaults the link step
@@ -69,7 +75,7 @@ DESKTOP_ENV := MACOSX_DEPLOYMENT_TARGET=$(MACOS_MIN) \
 #
 #   Linux also needs: libgtk-3-dev libwebkit2gtk-4.1-dev
 desktop:
-	$(DESKTOP_ENV) $(GO) build -tags desktop -trimpath -ldflags="$(LDFLAGS)" \
+	$(DESKTOP_ENV) $(GO) build -tags "desktop $(CLIENT_TAGS)" -trimpath -ldflags="$(LDFLAGS)" \
 		-o $(BIN)/vpn-gateway-desktop ./cmd/vpn-gateway-desktop
 
 # A macOS application bundle, so the shell can be launched from Finder and
@@ -87,7 +93,7 @@ APPDIR := dist/$(shell $(GO) env GOOS)-$(shell $(GO) env GOARCH)
 APP    := $(APPDIR)/vpn-gateway.app
 
 app: desktop
-	$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/vpn-gateway ./cmd/vpn-gateway
+	$(GO) build -tags "$(CLIENT_TAGS)" -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/vpn-gateway ./cmd/vpn-gateway
 	@rm -rf "$(APP)" "$(APPDIR)/icon.iconset"
 	@mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
 	cp packaging/macos/Info.plist "$(APP)/Contents/Info.plist"
@@ -114,13 +120,13 @@ PACKED := internal/clientbin/client.bin
 windows:
 	@mkdir -p dist/windows-amd64
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
-		$(GO) build -tags with_gvisor -trimpath -ldflags="$(LDFLAGS)" \
+		$(GO) build -tags "with_gvisor $(CLIENT_TAGS)" -trimpath -ldflags="$(LDFLAGS)" \
 		-o dist/windows-amd64/vpn-gateway.exe ./cmd/vpn-gateway
 	@set -e; \
 	trap 'rm -f $(PACKED)' EXIT; \
 	gzip -9 -c dist/windows-amd64/vpn-gateway.exe > $(PACKED); \
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
-		$(GO) build -tags "desktop packed with_gvisor" -trimpath -ldflags="$(LDFLAGS) -H=windowsgui" \
+		$(GO) build -tags "desktop packed with_gvisor $(CLIENT_TAGS)" -trimpath -ldflags="$(LDFLAGS) -H=windowsgui" \
 		-o dist/windows-amd64/vpn-gateway-desktop.exe ./cmd/vpn-gateway-desktop
 	@echo "built dist/windows-amd64/vpn-gateway-desktop.exe (carries vpn-gateway.exe) and vpn-gateway.exe"
 

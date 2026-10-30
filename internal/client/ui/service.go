@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vpn-gateway/vpn-gateway/internal/client"
 	"github.com/vpn-gateway/vpn-gateway/internal/client/helper"
 	"github.com/vpn-gateway/vpn-gateway/internal/version"
 )
@@ -31,9 +30,9 @@ import (
 // is anything for a service to run yet.
 type serviceStatus struct {
 	helper.Status
-	// Ready is false while no bundle has been imported. A service installed
-	// then would start, find nothing to connect to and be restarted by launchd
-	// for as long as that stayed true.
+	// Ready says whether there is anything for a service to run. A client
+	// with nothing configured is still an ordinary proxy client, so it always
+	// is; the field stays for pages that read it.
 	Ready bool `json:"ready"`
 	// LinkFile is where the installed service publishes its interface link.
 	// The application reads it to attach.
@@ -92,7 +91,7 @@ func (s *Server) serviceState() serviceStatus {
 
 	st := serviceStatus{
 		Status:     hStatus,
-		Ready:      s.ctl.Status().Phase != client.PhaseSetup,
+		Ready:      true,
 		LinkFile:   linkPath,
 		Link:       link,
 		Managed:    s.managed,
@@ -106,12 +105,6 @@ func (s *Server) serviceState() serviceStatus {
 	// application is running, that is where the page can be sent.
 	if hStatus.Elevated {
 		st.AppLink = s.appLink()
-	}
-	// Answered in the order the steps have to happen in: being told to find an
-	// executable, when the first thing missing is a server to connect to, is
-	// an answer to a question nobody has reached yet.
-	if !st.Ready {
-		st.Blocker = "import a server bundle first; a service with nothing to connect to would only be restarted in a loop"
 	}
 	st.Outdated = outdated(st.Installed, st.InstalledVersion, s.replacementVersion(st.AppLink))
 	return st

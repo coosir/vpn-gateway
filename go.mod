@@ -18,6 +18,7 @@ require (
 require (
 	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/andybalholm/brotli v1.1.0 // indirect
+	github.com/anytls/sing-anytls v0.0.11 // indirect
 	github.com/caddyserver/certmagic v0.25.3-0.20260421143802-60d9d8b415d6 // indirect
 	github.com/caddyserver/zerossl v0.1.5 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
@@ -54,13 +55,18 @@ require (
 	github.com/miekg/dns v1.1.72 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
+	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/sagernet/bbolt v0.0.0-20231014093535-ea5cb2fe9f0a // indirect
 	github.com/sagernet/fswatch v0.1.2 // indirect
 	github.com/sagernet/gvisor v0.0.0-20250811.0-sing-box-mod.1 // indirect
 	github.com/sagernet/netlink v0.0.0-20240612041022-b9a21c07ac6a // indirect
 	github.com/sagernet/nftables v0.3.0-mod.2 // indirect
+	github.com/sagernet/quic-go v0.59.0-sing-box-mod.4 // indirect
 	github.com/sagernet/sing-mux v0.3.5 // indirect
+	github.com/sagernet/sing-quic v0.6.5 // indirect
+	github.com/sagernet/sing-shadowsocks v0.2.8 // indirect
+	github.com/sagernet/sing-shadowsocks2 v0.2.1 // indirect
 	github.com/sagernet/sing-vmess v0.2.8-0.20250909125414-3aed155119a1 // indirect
 	github.com/sagernet/smux v1.5.50-sing-box-mod.1 // indirect
 	github.com/sagernet/ws v0.0.0-20231204124109-acfe8907c854 // indirect
@@ -80,6 +86,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/grpc v1.79.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
+	lukechampine.com/blake3 v1.3.0 // indirect
 	modernc.org/libc v1.67.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

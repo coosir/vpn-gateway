@@ -69,18 +69,19 @@ func newTestSession(t *testing.T) *client.Session {
 	return client.NewSession(filepath.Join(dir, "client.yaml"), slog.New(slog.DiscardHandler))
 }
 
-func TestMenuSaysItNeedsSettingUp(t *testing.T) {
-	// Opening this for the first time has to say what to do, not show an
-	// empty list of tunnels.
+func TestMenuOffersConnectWithNothingConfigured(t *testing.T) {
+	// With no gateway it is an ordinary proxy client, and that connects too:
+	// there is nothing to set up first. What it must not do is mention
+	// tunnels that do not exist.
 	v := buildView(sessionSnapshot(newTestSession(t)), translator("en"))
-	if !strings.Contains(v.Status, "Not set up") {
+	if v.Status != "Not connected" {
 		t.Errorf("status = %q", v.Status)
 	}
 	if v.Healthy {
-		t.Error("an unconfigured application was shown as healthy")
+		t.Error("an idle application was shown as healthy")
 	}
-	if v.CanToggle {
-		t.Error("connecting was offered with nothing to connect to")
+	if !v.CanToggle || v.Action != "Connect" {
+		t.Errorf("action = %q, canToggle = %t", v.Action, v.CanToggle)
 	}
 }
 
@@ -104,7 +105,7 @@ func TestMenuOffersConnectOnceABundleExists(t *testing.T) {
 
 func TestMenuIsChineseByDefault(t *testing.T) {
 	v := buildView(sessionSnapshot(newTestSession(t)), translator("zh"))
-	if v.Status != "尚未配置" {
+	if v.Status != "未连接" {
 		t.Errorf("status = %q", v.Status)
 	}
 }

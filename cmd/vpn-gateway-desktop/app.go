@@ -592,7 +592,7 @@ func buildView(st snapshot, t func(string, ...any) string) view {
 		v.CanToggle = true
 		return v
 	case client.PhaseIdle:
-		v.Status = t("status.idle", st.TunnelCount)
+		v.Status = t("status.idle")
 		v.Tooltip = t("tip.idle")
 		v.CanToggle = true
 		return v

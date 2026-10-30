@@ -39,9 +39,17 @@ Phases 0 to 2 are complete and verified end to end. What works today:
 - `vgctl`: emits the client bundle and verifies every tunnel end to end
 - per-tunnel control: nothing dials by itself, and a tunnel that keeps
   failing stops rather than knocking
-- `vpn-gateway`: the desktop client. TUN interface or local proxy port,
-  custom and auto-derived routing rules by domain and IP with enable/disable
-  toggles, per-tunnel DNS, and failover
+- `vpn-gateway`: the desktop client, usable on its own as an ordinary
+  sing-box client: VLESS (with Reality), VMess, Trojan, Shadowsocks,
+  Hysteria2, TUIC, AnyTLS, SOCKS and HTTP nodes, share links and Clash or
+  Base64 subscriptions that update themselves, an auto group that follows
+  the fastest node, real latency tests, and rule/global/direct modes with
+  routing rules by domain, IP, geosite, geoip and process
+- the enterprise gateway is a module of that client with a switch of its
+  own: TUN interface or local proxy port, custom and auto-derived routing
+  rules by domain and IP with enable/disable toggles, per-tunnel DNS, and
+  failover. Its rules always win: gateway rules, then routing rules, then
+  direct
 - interactive login: a gateway asking for an SMS code, a TOTP token, a
   captcha or a single sign-on address raises a challenge that reaches the
   client and is answered there
@@ -249,6 +257,31 @@ sudo vpn-gateway -config client.yaml run  # bring up routing
 
 Start with `proxy.enabled` and a local SOCKS5 port, which needs no
 privileges, and switch to `tun` once the rules do what you expect.
+
+Without a bundle the client is an ordinary proxy client; `bundle`,
+`auth` and the gateway rules below only matter once there is one, and
+`gateway_disabled: true` switches the gateway off without forgetting it.
+The proxy side is configured the same way:
+
+```yaml
+mode: rule             # rule, global or direct; the gateway always comes first
+selected_node: ""      # empty or "auto" for the fastest, "direct", or "node-<id>"
+proxy_rules:           # matched after every gateway rule
+  - ip_cidr: [10.0.0.0/8, 192.168.0.0/16]
+    outbound: direct
+  - geosite: [cn]
+    outbound: direct
+  - geosite: [geolocation-!cn]
+    outbound: proxy    # proxy, auto, direct, block, or node-<id>
+  - process_name: [Telegram.exe]
+    outbound: proxy
+dns:
+  remote: https://1.1.1.1/dns-query  # resolves proxied names through the proxy
+```
+
+Geosite and geoip sets are downloaded beside the configuration. One that
+cannot be fetched leaves its rules out rather than stopping the client, and is
+tried again through the proxy once connected.
 
 Rules are matched in order and explicit rules come before anything derived
 from what a tunnel reports, so a specific choice always beats an inferred

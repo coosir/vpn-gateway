@@ -29,14 +29,11 @@ func TestServiceStatusNeedsTheToken(t *testing.T) {
 	}
 }
 
-func TestInstallingIsRefusedBeforeThereIsABundle(t *testing.T) {
-	// A service installed with nothing to connect to would start, fail and be
-	// restarted by launchd for as long as that stayed true. The refusal says
-	// what to do first, and nothing is installed.
-	_, ctl, _, srv := testServer(t)
-	ctl.mu.Lock()
-	ctl.phase = client.PhaseSetup
-	ctl.mu.Unlock()
+func TestAServiceNeedsNoBundle(t *testing.T) {
+	// A client with no gateway configured is still an ordinary proxy client,
+	// so a service installed then has something to run and is not restarted
+	// in a loop. Nothing about a missing bundle stands in the way.
+	_, _, _, srv := testServer(t)
 
 	resp := do(t, srv, http.MethodGet, "/api/service", "tok", "")
 	defer resp.Body.Close()
@@ -44,20 +41,11 @@ func TestInstallingIsRefusedBeforeThereIsABundle(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
 		t.Fatal(err)
 	}
-	if st.Ready {
-		t.Error("a session with no bundle was reported ready for a service")
+	if !st.Ready {
+		t.Error("the service was reported as having nothing to run")
 	}
-	if !strings.Contains(st.Blocker, "bundle") {
-		t.Errorf("the blocker does not say what is missing: %q", st.Blocker)
-	}
-
-	resp = do(t, srv, http.MethodPost, "/api/service/install", "tok", "")
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("installing with no bundle returned %d, want 400", resp.StatusCode)
-	}
-	if len(ctl.applied) != 0 {
-		t.Error("the configuration was changed for an install that was refused")
+	if strings.Contains(st.Blocker, "bundle") {
+		t.Errorf("the blocker still asks for a bundle: %q", st.Blocker)
 	}
 }
 

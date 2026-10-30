@@ -1,6 +1,6 @@
 // Command vpn-gateway is the desktop client. It brings up one TUN interface
-// (or a local proxy port), connects to the server over trojan, and routes
-// traffic to whichever tunnel each rule selects.
+// (or a local proxy port) and routes traffic by rule: to the enterprise
+// gateway's tunnels first, then to proxy nodes, and directly otherwise.
 package main
 
 import (
@@ -38,14 +38,15 @@ func openBrowser(link string, log *slog.Logger) {
 	}
 }
 
-const usage = `vpn-gateway routes traffic to several VPNs at once.
+const usage = `vpn-gateway is a sing-box client that can also route traffic to
+several VPNs at once through an enterprise gateway.
 
 Usage:
   vpn-gateway [-config path] <command>
 
 Commands:
-  run      bring up routing and keep it in step with the server
-  status   show what the server reports for each tunnel
+  run      bring up routing and keep it in step with the gateway
+  status   show what the gateway reports for each tunnel
   config   print the generated sing-box configuration and exit
   check    validate the configuration and the bundle, then exit
   auth     answer interactive login prompts as tunnels raise them
@@ -99,25 +100,9 @@ func run(ctx context.Context, configPath, logLevel, command string) error {
 	if err != nil {
 		return err
 	}
-	bundle, err := client.LoadBundle(cfg.Bundle)
-	if err != nil {
-		return err
-	}
 
 	if command == "check" {
-		fmt.Printf("configuration is valid\n")
-		fmt.Printf("  server     %s (sni %s)\n", bundle.Server.Address, bundle.Server.ServerName)
-		fmt.Printf("  api        %s\n", bundle.Server.APIURL)
-		if len(bundle.Tunnels) > 0 {
-			fmt.Printf("  tunnels    %d in bundle (dynamic sync enabled)\n", len(bundle.Tunnels))
-		} else {
-			fmt.Printf("  tunnels    dynamic from server API\n")
-		}
-		fmt.Printf("  rules      %d explicit, auto_routes=%t auto_domains=%t\n",
-			len(cfg.Rules), cfg.AutoRoutes, cfg.AutoDomains)
-		fmt.Printf("  ingress    tun=%t proxy=%t\n", cfg.TUN.Enabled, cfg.Proxy.Enabled)
-		fmt.Printf("  on_failure %s\n", cfg.OnFailure)
-		return nil
+		return printCheck(cfg)
 	}
 
 	session := client.NewSession(configPath, log)
@@ -146,6 +131,9 @@ func run(ctx context.Context, configPath, logLevel, command string) error {
 		return printStatus(c)
 
 	case "auth":
+		if c.API() == nil {
+			return errors.New("the enterprise gateway is not connected; check gateway_disabled, the bundle and the credentials")
+		}
 		fmt.Println("waiting for tunnels that need a verification code; press ctrl-c to stop")
 		err := client.WatchChallenges(ctx, c.API(), &client.TerminalPrompter{In: os.Stdin, Out: os.Stdout})
 		if errors.Is(err, context.Canceled) {
@@ -195,6 +183,45 @@ func run(ctx context.Context, configPath, logLevel, command string) error {
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}
+}
+
+// printCheck describes a configuration that loaded, the gateway part only
+// when there is one.
+func printCheck(cfg *client.Config) error {
+	fmt.Printf("configuration is valid\n")
+	fmt.Printf("  mode       %s, %d proxy rules\n", cfg.EffectiveMode(), len(cfg.ProxyRules))
+	fmt.Printf("  nodes      %d (%d custom, %d subscriptions)\n",
+		len(cfg.AllNodes()), len(cfg.CustomNodes), len(cfg.Subscriptions))
+	fmt.Printf("  ingress    tun=%t proxy=%t\n", cfg.TUN.Enabled, cfg.Proxy.Enabled)
+
+	if !cfg.GatewayConfigured() {
+		fmt.Printf("  gateway    not configured\n")
+		return nil
+	}
+	bundle, err := client.LoadBundle(cfg.Bundle)
+	if errors.Is(err, os.ErrNotExist) {
+		fmt.Printf("  gateway    no bundle imported yet (%s)\n", cfg.Bundle)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	state := "on"
+	if cfg.GatewayDisabled {
+		state = "switched off"
+	}
+	fmt.Printf("  gateway    %s\n", state)
+	fmt.Printf("  server     %s (sni %s)\n", bundle.Server.Address, bundle.Server.ServerName)
+	fmt.Printf("  api        %s\n", bundle.Server.APIURL)
+	if len(bundle.Tunnels) > 0 {
+		fmt.Printf("  tunnels    %d in bundle (dynamic sync enabled)\n", len(bundle.Tunnels))
+	} else {
+		fmt.Printf("  tunnels    dynamic from server API\n")
+	}
+	fmt.Printf("  rules      %d explicit, auto_routes=%t auto_domains=%t\n",
+		len(cfg.Rules), cfg.AutoRoutes, cfg.AutoDomains)
+	fmt.Printf("  on_failure %s\n", cfg.OnFailure)
+	return nil
 }
 
 func printStatus(c *client.Client) error {

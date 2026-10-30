@@ -913,6 +913,92 @@ input:checked + .slider:before { transform: translateX(18px); }
 .alert-banner.info { background: var(--primary-bg); color: var(--primary); border: 1px solid var(--primary-border); }
 .alert-banner.danger { background: var(--down-bg); color: var(--down); border: 1px solid var(--down-border); }
 .alert-banner.warn { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-border); }
+
+/* --- Proxy client & enterprise gateway ---------------------------------- */
+.rail button.gw-off span.count { display: none; }
+.rail-group-title .gw-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  margin-left: 6px; vertical-align: middle; background: var(--faint);
+}
+.rail-group-title .gw-dot.live { background: var(--live); }
+.rail-group-title .gw-dot.amber { background: var(--amber); }
+.rail-group-title .gw-dot.down { background: var(--down); }
+
+.pick-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--hair); border-radius: var(--radius-lg);
+  padding: 12px 16px; margin-bottom: 16px; box-shadow: var(--shadow-sm);
+}
+.pick-bar .pick-label { font-size: 12px; color: var(--dim); }
+.pick-bar .pick-now { font-weight: 600; color: var(--ink); }
+.pick-bar .grow { flex: 1; }
+.pick-chip {
+  border: 1px solid var(--hair); background: var(--bg); color: var(--ink);
+  border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer;
+}
+.pick-chip:hover { border-color: var(--primary-border); }
+.pick-chip.active { background: var(--primary-bg); color: var(--primary); border-color: var(--primary-border); font-weight: 600; }
+
+.node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.node-tile {
+  background: var(--surface); border: 1px solid var(--hair); border-radius: var(--radius-lg);
+  padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 6px;
+  box-shadow: var(--shadow-sm); transition: border-color .15s ease, box-shadow .15s ease;
+  min-width: 0;
+}
+.node-tile:hover { border-color: var(--hair-firm); }
+.node-tile.active { border-color: var(--primary); box-shadow: var(--focus-ring); }
+.node-tile.unsupported { opacity: .55; cursor: not-allowed; }
+.node-tile .nt-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.node-tile .nt-name { font-weight: 600; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.node-tile .nt-addr { font-family: var(--mono); font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-tile .nt-foot { display: flex; align-items: center; gap: 6px; min-height: 22px; }
+.node-tile .nt-foot .grow { flex: 1; }
+.node-tile .nt-foot button { padding: 2px 8px; font-size: 11px; }
+.node-tile .nt-why { font-size: 11px; color: var(--amber); }
+
+.usage { margin-top: 6px; }
+.usage-bar { height: 6px; border-radius: 3px; background: var(--hair); overflow: hidden; }
+.usage-bar > span { display: block; height: 100%; background: var(--primary); }
+.usage-bar > span.warn { background: var(--amber); }
+.usage-bar > span.full { background: var(--down); }
+.usage-text { font-size: 11px; color: var(--dim); margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; }
+
+.prule {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start;
+  background: var(--surface); border: 1px solid var(--hair); border-radius: var(--radius);
+  padding: 10px 12px; margin-bottom: 8px;
+}
+.prule.disabled { opacity: .55; border-style: dashed; }
+.prule .prule-idx { font-family: var(--mono); font-size: 11px; color: var(--faint); padding-top: 8px; min-width: 18px; text-align: right; }
+.prule .prule-side { display: flex; flex-direction: column; gap: 6px; align-items: stretch; min-width: 170px; }
+.prule .prule-side .prule-acts { display: flex; gap: 4px; justify-content: flex-end; }
+.prule .prule-side .prule-acts button { padding: 3px 8px; font-size: 11px; }
+.prule .matcher-row { margin-bottom: 6px; }
+.prule .matcher-row:last-child { margin-bottom: 0; }
+
+.priority-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--dim); margin-bottom: 14px; }
+.priority-strip .badge { font-size: 11.5px; }
+
+.gw-card .gw-top { display: flex; align-items: center; gap: 14px; }
+.gw-card .gw-top .grow { flex: 1; min-width: 0; }
+.gw-card .gw-title { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.gw-card .gw-sub { font-size: 12px; color: var(--dim); margin-top: 3px; overflow-wrap: anywhere; }
+.gw-card .gw-facts { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--dim); }
+.gw-card .gw-facts b { color: var(--ink); font-weight: 600; }
+.switch.big { transform: scale(1.25); transform-origin: right center; }
+
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.form-grid .span2 { grid-column: 1 / -1; }
+.form-grid label.f { display: block; font-size: 11.5px; font-weight: 600; color: var(--dim); margin-bottom: 4px; }
+.form-grid .inline { display: flex; align-items: center; gap: 8px; font-size: 12px; padding-top: 18px; }
+details.more > summary { cursor: pointer; font-size: 12px; color: var(--primary); margin: 4px 0 8px; }
+
+@media (max-width: 860px) {
+  .form-grid { grid-template-columns: 1fr; }
+  .prule { grid-template-columns: 1fr; }
+  .prule .prule-idx { display: none; }
+}
 </style>
 </head>
 <body>
@@ -953,28 +1039,39 @@ input:checked + .slider:before { transform: translateX(18px); }
         <span data-i18n="nav.home"></span>
       </button>
 
-      <div class="rail-group-title" data-i18n="nav.manageGroup"></div>
-      <button data-pane="tunnels">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
-        <span data-i18n="nav.tunnels"></span>
-        <span class="count" id="c-tunnels"></span>
-      </button>
-      <button data-pane="nodes" id="nav-nodes" style="display:none">
+      <div class="rail-group-title" data-i18n="nav.proxyGroup"></div>
+      <button data-pane="nodes">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
         <span data-i18n="nav.nodes"></span>
         <span class="count" id="c-nodes"></span>
       </button>
-      <button data-pane="rules">
+      <button data-pane="proxy-rules">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 4l2.29 2.29-2.88 2.88 1.42 1.42 2.88-2.88L20 10V4h-6zm-4 0H4v6l2.29-2.29 4.71 4.7V20h2v-8.41l-5.29-5.3L10 4z"/></svg>
+        <span data-i18n="nav.proxyRules"></span>
+        <span class="count" id="c-proxy-rules"></span>
+      </button>
+
+      <div class="rail-group-title"><span data-i18n="nav.gatewayGroup"></span><span class="gw-dot" id="rail-gw-dot"></span></div>
+      <button data-pane="gateway">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z"/></svg>
+        <span data-i18n="nav.gateway"></span>
+      </button>
+      <button data-pane="tunnels" data-gateway>
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
+        <span data-i18n="nav.tunnels"></span>
+        <span class="count" id="c-tunnels"></span>
+      </button>
+      <button data-pane="rules" data-gateway>
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
         <span data-i18n="nav.rules"></span>
         <span class="count" id="c-rules"></span>
       </button>
-
-      <div class="rail-group-title" data-i18n="nav.systemGroup"></div>
-      <button data-pane="logs">
+      <button data-pane="logs" data-gateway>
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 10h2v2H6zm0 4h8v2H6zm10 0h2v2h-2zm-6-4h8v2h-8z"/></svg>
         <span data-i18n="nav.logs"></span>
       </button>
+
+      <div class="rail-group-title" data-i18n="nav.systemGroup"></div>
       <button data-pane="settings">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
         <span data-i18n="nav.settings"></span>
@@ -982,10 +1079,6 @@ input:checked + .slider:before { transform: translateX(18px); }
       <button data-pane="config">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
         <span data-i18n="nav.config"></span>
-      </button>
-      <button data-pane="setup">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
-        <span data-i18n="nav.setup"></span>
       </button>
 
       <div class="sep"></div>
@@ -997,7 +1090,7 @@ input:checked + .slider:before { transform: translateX(18px); }
 
     <!-- Content Panes -->
     <main>
-      <!-- ================= 1. 首页 (HOME) ================= -->
+      <!-- ================= 首页 (HOME) ================= -->
       <section class="pane" id="pane-home">
         <div class="alert-banner danger" id="home-offline" hidden></div>
 
@@ -1010,7 +1103,7 @@ input:checked + .slider:before { transform: translateX(18px); }
               </div>
               <div class="hero-status-text">
                 <h3 id="home-phase-title">未连接</h3>
-                <p id="home-phase-sub">点击右侧按钮一键连接网关与内网隧道</p>
+                <p id="home-phase-sub"></p>
               </div>
             </div>
             <div class="master-btn-wrap">
@@ -1022,7 +1115,7 @@ input:checked + .slider:before { transform: translateX(18px); }
           </div>
 
           <div class="hero-stats">
-            <div class="hero-stat-item" id="hero-stat-mode" style="display:none">
+            <div class="hero-stat-item" id="hero-stat-mode">
               <span class="hero-stat-label" data-i18n="home.statMode"></span>
               <span class="hero-stat-val" id="h-mode-val">直连模式</span>
             </div>
@@ -1030,19 +1123,19 @@ input:checked + .slider:before { transform: translateX(18px); }
               <span class="hero-stat-label" data-i18n="home.statIngress"></span>
               <span class="hero-stat-val" id="h-ingress-val">TUN 网卡</span>
             </div>
-            <div class="hero-stat-item">
-              <span class="hero-stat-label" data-i18n="home.statTunnels"></span>
-              <span class="hero-stat-val" id="h-tunnels-val">0 在线</span>
-            </div>
-            <div class="hero-stat-item" id="hero-stat-proxy" style="display:none">
+            <div class="hero-stat-item" id="hero-stat-proxy">
               <span class="hero-stat-label" data-i18n="home.statProxy"></span>
-              <span class="hero-stat-val" id="h-proxy-val">默认直连</span>
+              <span class="hero-stat-val" id="h-proxy-val"></span>
+            </div>
+            <div class="hero-stat-item" id="hero-stat-gateway">
+              <span class="hero-stat-label" data-i18n="home.statGateway"></span>
+              <span class="hero-stat-val" id="h-gateway-val"></span>
             </div>
           </div>
         </div>
 
-        <!-- 模式切换 (Mode Switching Cards - Hidden) -->
-        <div id="home-mode-section" style="display:none; margin-bottom: 22px;">
+        <!-- 路由模式 -->
+        <div id="home-mode-section" style="margin-bottom: 22px;">
           <div class="card-header" style="margin-bottom: 12px;">
             <div>
               <div class="card-title">
@@ -1054,31 +1147,19 @@ input:checked + .slider:before { transform: translateX(18px); }
           </div>
 
           <div class="mode-cards-grid">
-            <!-- 1. 全局直连 (Direct - Default) -->
-            <div class="mode-card" data-mode="direct" id="mode-card-direct">
-              <div class="mode-card-head">
-                <div class="mode-card-icon">
-                  <svg viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
-                </div>
-                <span class="badge primary" data-i18n="mode.directBadge"></span>
-              </div>
-              <div class="mode-card-title" data-i18n="mode.direct"></div>
-              <div class="mode-card-desc" data-i18n="mode.directDesc"></div>
-            </div>
-
-            <!-- 2. 规则分流 (Rule) -->
+            <!-- 1. 规则分流 (Rule - Default) -->
             <div class="mode-card" data-mode="rule" id="mode-card-rule">
               <div class="mode-card-head">
                 <div class="mode-card-icon">
                   <svg viewBox="0 0 24 24"><path d="M12 2C6.49 2 2 6.49 2 12s4.49 10 10 10 10-4.49 10-10S17.51 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3-8c0 1.66-1.34 3-3 3s-3-1.34-3-3 1.34-3 3-3 3 1.34 3 3z"/></svg>
                 </div>
-                <span class="badge" data-i18n="mode.ruleBadge"></span>
+                <span class="badge primary" data-i18n="mode.ruleBadge"></span>
               </div>
               <div class="mode-card-title" data-i18n="mode.rule"></div>
               <div class="mode-card-desc" data-i18n="mode.ruleDesc"></div>
             </div>
 
-            <!-- 3. 全局代理 (Global) -->
+            <!-- 2. 全局代理 (Global) -->
             <div class="mode-card" data-mode="global" id="mode-card-global">
               <div class="mode-card-head">
                 <div class="mode-card-icon">
@@ -1089,16 +1170,42 @@ input:checked + .slider:before { transform: translateX(18px); }
               <div class="mode-card-title" data-i18n="mode.global"></div>
               <div class="mode-card-desc" data-i18n="mode.globalDesc"></div>
             </div>
+
+            <!-- 3. 全局直连 (Direct) -->
+            <div class="mode-card" data-mode="direct" id="mode-card-direct">
+              <div class="mode-card-head">
+                <div class="mode-card-icon">
+                  <svg viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
+                </div>
+                <span class="badge" data-i18n="mode.directBadge"></span>
+              </div>
+              <div class="mode-card-title" data-i18n="mode.direct"></div>
+              <div class="mode-card-desc" data-i18n="mode.directDesc"></div>
+            </div>
           </div>
 
-          <!-- Active Proxy quick info -->
-          <div id="home-proxy-info-bar" style="display:flex; justify-content:space-between; align-items:center; background:var(--surface); border:1px solid var(--hair); border-radius:var(--radius); padding:10px 14px; font-size:12px;">
-            <div style="display:flex; align-items:center; gap:8px;">
-              <span style="color:var(--dim)" data-i18n="nodes.activeProxy"></span>:
-              <b id="home-active-proxy-name" style="color:var(--ink)">未选用</b>
-              <span class="badge" id="home-active-proxy-ping" hidden></span>
-            </div>
+          <div class="pick-bar" id="home-proxy-info-bar">
+            <span class="pick-label" data-i18n="nodes.activeProxy"></span>
+            <span class="pick-now" id="home-active-proxy-name"></span>
+            <span class="badge" id="home-active-proxy-ping" hidden></span>
+            <span class="grow"></span>
             <button class="act quiet" id="home-change-node-btn" data-i18n="home.manageNodes"></button>
+          </div>
+        </div>
+
+        <!-- 企业网关 -->
+        <div class="card gw-card" id="home-gw-card" style="margin-bottom:22px;">
+          <div class="gw-top">
+            <div class="service-icon"><svg viewBox="0 0 24 24" ><path d="M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z"/></svg></div>
+            <div class="grow">
+              <div class="gw-title"><span data-i18n="gw.title"></span><span class="badge" id="home-gw-badge"></span></div>
+              <div class="gw-sub" id="home-gw-sub"></div>
+            </div>
+            <button class="act" id="home-gw-manage" data-i18n="gw.manage"></button>
+            <label class="switch big" id="home-gw-switch-wrap">
+              <input type="checkbox" id="home-gw-switch">
+              <span class="slider"></span>
+            </label>
           </div>
         </div>
 
@@ -1125,27 +1232,19 @@ input:checked + .slider:before { transform: translateX(18px); }
         </div>
       </section>
 
-      <!-- ================= 2. 隧道管理 (TUNNELS) ================= -->
-      <section class="pane" id="pane-tunnels" hidden>
-        <div class="pane-header">
-          <h2 data-i18n="tunnels.title"></h2>
-          <p class="sub" data-i18n="tunnels.subManual"></p>
-        </div>
-        <div class="toolbar" style="margin:0 0 16px">
-          <button class="act" id="tunnels-refresh">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
-            <span data-i18n="tunnels.refresh"></span>
-          </button>
-          <span class="note" id="tunnels-updated"></span>
-        </div>
-        <div class="tunnels-grid" id="tunnels"></div>
-      </section>
-
-      <!-- ================= 3. 节点与订阅 (NODES & SUBS) ================= -->
+      <!-- ================= 节点与订阅 (NODES & SUBS) ================= -->
       <section class="pane" id="pane-nodes" hidden>
         <div class="pane-header">
           <h2 data-i18n="nodes.title"></h2>
           <p class="sub" data-i18n="nodes.sub"></p>
+        </div>
+
+        <div class="pick-bar">
+          <span class="pick-label" data-i18n="nodes.activeProxy"></span>
+          <span class="pick-now" id="nodes-active-name"></span>
+          <span class="grow"></span>
+          <button class="pick-chip" id="pick-auto" data-pick="auto" data-i18n="nodes.pickAuto"></button>
+          <button class="pick-chip" id="pick-direct" data-pick="direct" data-i18n="nodes.pickDirect"></button>
         </div>
 
         <div class="toolbar" style="margin:0 0 16px">
@@ -1168,9 +1267,167 @@ input:checked + .slider:before { transform: translateX(18px); }
         </div>
 
         <div>
-          <h3 style="font-size:12px; margin:0 0 10px; text-transform:uppercase; letter-spacing:0.06em; color:var(--dim);" data-i18n="nodes.nodesTitle"></h3>
-          <div id="nodes-list"></div>
+          <div style="display:flex; align-items:center; gap:10px; margin:0 0 10px; flex-wrap:wrap;">
+            <h3 style="font-size:12px; margin:0; text-transform:uppercase; letter-spacing:0.06em; color:var(--dim);" data-i18n="nodes.nodesTitle"></h3>
+            <span class="grow" style="flex:1"></span>
+            <select id="nodes-source" style="max-width:200px;"></select>
+            <select id="nodes-sort" style="max-width:140px;">
+              <option value="" data-i18n="nodes.sortDefault"></option>
+              <option value="latency" data-i18n="nodes.sortLatency"></option>
+              <option value="name" data-i18n="nodes.sortName"></option>
+            </select>
+            <input type="search" id="nodes-filter" data-i18n-ph="nodes.filter" style="max-width:200px;">
+          </div>
+          <div class="node-grid" id="nodes-list"></div>
         </div>
+      </section>
+
+      <!-- ================= 分流规则 (PROXY RULES) ================= -->
+      <section class="pane" id="pane-proxy-rules" hidden>
+        <div class="pane-header">
+          <h2 data-i18n="prules.title"></h2>
+          <p class="sub" data-i18n="prules.sub"></p>
+        </div>
+        <div class="priority-strip">
+          <span data-i18n="prules.order"></span>
+          <span class="badge primary" data-i18n="prules.orderGateway"></span>
+          <span>›</span>
+          <span class="badge primary" data-i18n="prules.orderRules"></span>
+          <span>›</span>
+          <span class="badge" data-i18n="prules.orderFinal"></span>
+        </div>
+        <div class="alert-banner warn" id="prules-mode-banner" hidden></div>
+        <div class="alert-banner warn" id="prules-sets-banner" hidden></div>
+        <div class="toolbar" style="margin:0 0 14px">
+          <button class="act" id="prules-add">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            <span data-i18n="rules.add"></span>
+          </button>
+          <button class="act" id="prules-preset" data-i18n="prules.preset"></button>
+          <span class="grow" style="flex:1"></span>
+          <button class="act quiet" id="prules-revert" data-i18n="rules.revert"></button>
+          <button class="act primary" id="prules-apply" data-i18n="rules.apply"></button>
+          <span class="note" id="prules-note"></span>
+        </div>
+        <div id="prules"></div>
+      </section>
+
+      <!-- ================= 企业网关 (GATEWAY) ================= -->
+      <section class="pane" id="pane-gateway" hidden>
+        <div class="pane-header">
+          <h2 data-i18n="gw.title"></h2>
+          <p class="sub" data-i18n="gw.sub"></p>
+        </div>
+
+        <div class="card gw-card" style="margin-bottom:16px;">
+          <div class="gw-top">
+            <div class="grow">
+              <div class="gw-title"><span data-i18n="gw.switchTitle"></span><span class="badge" id="gw-badge"></span></div>
+              <div class="gw-sub" id="gw-sub"></div>
+            </div>
+            <label class="switch big">
+              <input type="checkbox" id="gw-switch">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="gw-facts" id="gw-facts"></div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px;" id="gw-settings-card">
+          <div class="card-title" style="margin-bottom:12px;" data-i18n="gw.settingsTitle"></div>
+          <div class="field">
+            <label data-i18n="settings.auth"></label>
+            <div style="display:flex; gap:10px; margin-top:6px;">
+              <input type="text" id="set-username" data-i18n-ph="auth.username" autocomplete="username">
+              <input type="password" id="set-password" data-i18n-ph="auth.password" autocomplete="current-password">
+            </div>
+            <p class="hint" data-i18n="settings.auth.b"></p>
+          </div>
+          <div class="field">
+            <label data-i18n="settings.onfail"></label>
+            <select id="set-onfail">
+              <option value="direct"></option>
+              <option value="block"></option>
+            </select>
+            <p class="hint" data-i18n="settings.onfail.b"></p>
+          </div>
+          <div class="field">
+            <div class="check-row">
+              <div class="check-row-info">
+                <b data-i18n="settings.autoroutes"></b>
+                <span data-i18n="settings.autoroutesHint"></span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="set-autoroutes">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="check-row">
+              <div class="check-row-info">
+                <b data-i18n="settings.autodomains"></b>
+                <span data-i18n="settings.autodomainsHint"></span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="set-autodomains">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="toolbar">
+            <button class="act primary" id="gw-settings-save" data-i18n="settings.save"></button>
+            <span class="note" id="gw-settings-note"></span>
+          </div>
+        </div>
+
+        <details class="card" id="gw-import" style="margin-bottom:16px;">
+          <summary class="card-title" style="cursor:pointer;" data-i18n="setup.title"></summary>
+          <p class="hint" style="margin:8px 0 14px;" data-i18n="setup.sub"></p>
+        <div style="margin-bottom:16px;">
+          <div style="font-weight:600; margin-bottom:6px;" data-i18n="setup.s1.t"></div>
+          <p style="font-size:12px; color:var(--dim); margin:0 0 8px;" data-i18n="setup.s1.b"></p>
+          <pre style="background:var(--bg); border:1px solid var(--hair); padding:10px; border-radius:var(--radius); font-family:var(--mono); font-size:12px; margin:0; overflow-x:auto;">vgctl -config /etc/vpn-gateway/config.yaml client-config &gt; client.json</pre>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <div style="font-weight:600; margin-bottom:6px;" data-i18n="setup.s2.t"></div>
+          <p style="font-size:12px; color:var(--dim); margin:0 0 8px;" data-i18n="setup.s2.b"></p>
+          <div style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">
+            <input type="file" id="bundle-file" accept=".json,application/json" hidden>
+            <button class="act" id="bundle-pick" data-i18n="setup.pick"></button>
+            <span style="font-size:11.5px; color:var(--faint);" data-i18n="setup.or"></span>
+          </div>
+          <textarea id="bundle-text" rows="6" spellcheck="false" data-i18n-ph="setup.paste" style="font-family:var(--mono); font-size:12px;"></textarea>
+        </div>
+
+          <div style="margin-bottom:16px;" id="setup-creds">
+            <div style="font-weight:600; margin-bottom:6px;" data-i18n="setup.s3.t"></div>
+            <p style="font-size:12px; color:var(--dim); margin:0 0 8px;" data-i18n="setup.s3.b"></p>
+            <div style="display:flex; gap:10px;">
+              <input type="text" id="bundle-user" data-i18n-ph="auth.username" autocomplete="username">
+              <input type="password" id="bundle-pass" data-i18n-ph="auth.password" autocomplete="current-password">
+            </div>
+          </div>
+          <div class="toolbar">
+            <button class="act primary" id="bundle-save" data-i18n="setup.save"></button>
+            <span class="note" id="setup-note"></span>
+          </div>
+        </details>
+      </section>
+
+      <!-- ================= 2. 隧道管理 (TUNNELS) ================= -->
+      <section class="pane" id="pane-tunnels" hidden>
+        <div class="pane-header">
+          <h2 data-i18n="tunnels.title"></h2>
+          <p class="sub" data-i18n="tunnels.subManual"></p>
+        </div>
+        <div class="toolbar" style="margin:0 0 16px">
+          <button class="act" id="tunnels-refresh">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+            <span data-i18n="tunnels.refresh"></span>
+          </button>
+          <span class="note" id="tunnels-updated"></span>
+        </div>
+        <div class="tunnels-grid" id="tunnels"></div>
       </section>
 
       <!-- ================= 4. 分流规则 (RULES) ================= -->
@@ -1179,7 +1436,6 @@ input:checked + .slider:before { transform: translateX(18px); }
           <h2 data-i18n="rules.title"></h2>
           <p class="sub" data-i18n="rules.sub"></p>
         </div>
-        <div id="rules-global-banner" class="alert-banner warn" hidden data-i18n="rules.globalBanner"></div>
         <div id="rules"></div>
         <div class="toolbar" style="display:none">
           <button class="act" id="add-rule" style="display:none">
@@ -1207,7 +1463,7 @@ input:checked + .slider:before { transform: translateX(18px); }
         <pre class="log-box" id="logs" data-i18n="logs.pick"></pre>
       </section>
 
-      <!-- ================= 6. 客户端设置 (SETTINGS) ================= -->
+      <!-- ================= 客户端设置 (SETTINGS) ================= -->
       <section class="pane" id="pane-settings" hidden>
         <div class="pane-header">
           <h2 data-i18n="settings.title"></h2>
@@ -1225,15 +1481,6 @@ input:checked + .slider:before { transform: translateX(18px); }
               <span class="note" id="service-note"></span>
             </div>
           </div>
-        </div>
-
-        <div class="field">
-          <label data-i18n="settings.auth"></label>
-          <div style="display:flex; gap:10px; margin-top:6px;">
-            <input type="text" id="set-username" data-i18n-ph="auth.username" autocomplete="username">
-            <input type="password" id="set-password" data-i18n-ph="auth.password" autocomplete="current-password">
-          </div>
-          <p class="hint" data-i18n="settings.auth.b"></p>
         </div>
 
         <div class="field">
@@ -1289,42 +1536,15 @@ input:checked + .slider:before { transform: translateX(18px); }
         </div>
 
         <div class="field">
-          <label data-i18n="settings.onfail"></label>
-          <select id="set-onfail">
-            <option value="direct"></option>
-            <option value="block"></option>
-          </select>
-          <p class="hint" data-i18n="settings.onfail.b"></p>
-        </div>
-
-        <div class="field">
           <label data-i18n="settings.dns"></label>
           <input type="text" id="set-dns" placeholder="local">
           <p class="hint" data-i18n="settings.dns.b"></p>
         </div>
 
         <div class="field">
-          <div class="check-row">
-            <div class="check-row-info">
-              <b data-i18n="settings.autoroutes"></b>
-              <span data-i18n="settings.autoroutesHint"></span>
-            </div>
-            <label class="switch">
-              <input type="checkbox" id="set-autoroutes">
-              <span class="slider"></span>
-            </label>
-          </div>
-
-          <div class="check-row">
-            <div class="check-row-info">
-              <b data-i18n="settings.autodomains"></b>
-              <span data-i18n="settings.autodomainsHint"></span>
-            </div>
-            <label class="switch">
-              <input type="checkbox" id="set-autodomains">
-              <span class="slider"></span>
-            </label>
-          </div>
+          <label data-i18n="settings.dnsRemote"></label>
+          <input type="text" id="set-dns-remote" placeholder="https://1.1.1.1/dns-query">
+          <p class="hint" data-i18n="settings.dnsRemote.b"></p>
         </div>
 
         <div class="toolbar">
@@ -1342,44 +1562,6 @@ input:checked + .slider:before { transform: translateX(18px); }
         <pre class="log-box" id="genconfig" data-i18n="loading"></pre>
       </section>
 
-      <!-- ================= 8. 导入配置 (SETUP) ================= -->
-      <section class="pane" id="pane-setup" hidden>
-        <div class="pane-header">
-          <h2 data-i18n="setup.title"></h2>
-          <p class="sub" data-i18n="setup.sub"></p>
-        </div>
-
-        <div class="card" style="margin-bottom:16px;">
-          <div style="font-weight:600; margin-bottom:6px;" data-i18n="setup.s1.t"></div>
-          <p style="font-size:12px; color:var(--dim); margin:0 0 8px;" data-i18n="setup.s1.b"></p>
-          <pre style="background:var(--bg); border:1px solid var(--hair); padding:10px; border-radius:var(--radius); font-family:var(--mono); font-size:12px; margin:0; overflow-x:auto;">vgctl -config /etc/vpn-gateway/config.yaml client-config &gt; client.json</pre>
-        </div>
-
-        <div class="card" style="margin-bottom:16px;">
-          <div style="font-weight:600; margin-bottom:6px;" data-i18n="setup.s2.t"></div>
-          <p style="font-size:12px; color:var(--dim); margin:0 0 8px;" data-i18n="setup.s2.b"></p>
-          <div style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">
-            <input type="file" id="bundle-file" accept=".json,application/json" hidden>
-            <button class="act" id="bundle-pick" data-i18n="setup.pick"></button>
-            <span style="font-size:11.5px; color:var(--faint);" data-i18n="setup.or"></span>
-          </div>
-          <textarea id="bundle-text" rows="6" spellcheck="false" data-i18n-ph="setup.paste" style="font-family:var(--mono); font-size:12px;"></textarea>
-        </div>
-
-        <div class="card" style="margin-bottom:16px;">
-          <div style="font-weight:600; margin-bottom:6px;" data-i18n="setup.s3.t"></div>
-          <p style="font-size:12px; color:var(--dim); margin:0 0 8px;" data-i18n="setup.s3.b"></p>
-          <div style="display:flex; gap:10px;">
-            <input type="text" id="bundle-user" data-i18n-ph="auth.username" autocomplete="username">
-            <input type="password" id="bundle-pass" data-i18n-ph="auth.password" autocomplete="current-password">
-          </div>
-        </div>
-
-        <div class="toolbar">
-          <button class="act primary" id="bundle-save" data-i18n="setup.save"></button>
-          <span class="note" id="setup-note"></span>
-        </div>
-      </section>
     </main>
   </div>
 </div>
@@ -1416,45 +1598,154 @@ input:checked + .slider:before { transform: translateX(18px); }
 
 <!-- 2. Add / Edit Node Modal -->
 <div class="veil" id="node-modal-veil" hidden>
-  <div class="prompt-box" role="dialog" aria-modal="true" style="max-width:480px">
+  <div class="prompt-box" role="dialog" aria-modal="true" style="max-width:620px; max-height:90vh; overflow:auto;">
     <div style="font-size:16px; font-weight:700; color:var(--ink); margin-bottom:14px;" id="node-modal-title"></div>
-    <div style="display:flex; flex-direction:column; gap:12px;">
+    <div id="node-link-section" style="margin-bottom:14px;">
+      <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.pasteLink"></label>
+      <textarea id="node-url-input" rows="3" spellcheck="false" placeholder="vless://…  vmess://…  ss://…  trojan://…  hy2://…  tuic://…" style="font-family:var(--mono); font-size:12px;"></textarea>
+      <div style="font-size:11px; color:var(--faint); text-align:center; margin-top:8px;" data-i18n="nodes.orManual"></div>
+    </div>
+    <div class="form-grid" id="node-form">
       <div>
-        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.pasteLink"></label>
-        <input type="text" id="node-url-input" placeholder="trojan://password@server:443#Name" style="font-family:var(--mono);">
+        <label class="f" data-i18n="nodes.type"></label>
+        <select id="node-type-input">
+          <option value="vless">VLESS</option>
+          <option value="vmess">VMess</option>
+          <option value="trojan">Trojan</option>
+          <option value="shadowsocks">Shadowsocks</option>
+          <option value="hysteria2">Hysteria2</option>
+          <option value="tuic">TUIC</option>
+          <option value="anytls">AnyTLS</option>
+          <option value="socks">SOCKS5</option>
+          <option value="http">HTTP</option>
+        </select>
       </div>
-      <div style="font-size:11px; color:var(--faint); text-align:center;" data-i18n="nodes.orManual"></div>
-      <div>
-        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.nodeName"></label>
-        <input type="text" id="node-name-input" placeholder="HongKong-01">
+      <div class="" data-types="">
+        <label class="f" data-i18n="nodes.nodeName"></label>
+        <input type="text" id="node-name-input" placeholder="HongKong-01" autocomplete="off" spellcheck="false">
       </div>
-      <div style="display:flex; gap:10px;">
-        <div style="flex:2">
-          <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.server"></label>
-          <input type="text" id="node-server-input" placeholder="example.com">
+      <div class="span2" style="display:grid; grid-template-columns:3fr 1fr; gap:10px;">
+        <div><label class="f" data-i18n="nodes.server"></label><input type="text" id="node-server-input" placeholder="example.com" spellcheck="false"></div>
+        <div><label class="f" data-i18n="nodes.port"></label><input type="number" id="node-port-input" placeholder="443" min="1" max="65535"></div>
+      </div>
+      <div class="span2" data-types="vless vmess tuic">
+        <label class="f" data-i18n="nodes.uuid"></label>
+        <input type="text" id="node-uuid-input" placeholder="b831381d-6324-4d53-ad4f-8cda48b30811" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="" data-types="socks http">
+        <label class="f" data-i18n="nodes.username"></label>
+        <input type="text" id="node-user-input" placeholder="" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="" data-types="trojan shadowsocks hysteria2 tuic anytls socks http">
+        <label class="f" data-i18n="nodes.password"></label>
+        <input type="text" id="node-pass-input" placeholder="" autocomplete="off" spellcheck="false">
+      </div>
+      <div data-types="shadowsocks">
+        <label class="f" data-i18n="nodes.method"></label>
+        <select id="node-method-input">
+          <option>2022-blake3-aes-128-gcm</option><option>2022-blake3-aes-256-gcm</option><option>2022-blake3-chacha20-poly1305</option>
+          <option>aes-128-gcm</option><option>aes-256-gcm</option><option>chacha20-ietf-poly1305</option><option>xchacha20-ietf-poly1305</option>
+          <option>none</option>
+        </select>
+      </div>
+      <div data-types="vmess">
+        <label class="f" data-i18n="nodes.security"></label>
+        <select id="node-security-input">
+          <option value="">auto</option><option>aes-128-gcm</option><option>chacha20-poly1305</option><option>none</option><option>zero</option>
+        </select>
+      </div>
+      <div class="" data-types="vmess">
+        <label class="f" data-i18n="nodes.alterId"></label>
+        <input type="number" id="node-alterid-input" placeholder="0" autocomplete="off" spellcheck="false">
+      </div>
+      <div data-types="vless">
+        <label class="f" data-i18n="nodes.flow"></label>
+        <select id="node-flow-input"><option value="">—</option><option>xtls-rprx-vision</option></select>
+      </div>
+      <div class="inline" data-types="vmess vless http socks">
+        <label class="switch"><input type="checkbox" id="node-tls-input"><span class="slider"></span></label>
+        <span>TLS</span>
+      </div>
+      <div class="" data-types="trojan hysteria2 tuic anytls tls">
+        <label class="f" data-i18n="nodes.sni"></label>
+        <input type="text" id="node-sni-input" placeholder="example.com" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="inline" data-types="trojan hysteria2 tuic anytls tls">
+        <label class="switch"><input type="checkbox" id="node-insecure-input"><span class="slider"></span></label>
+        <span data-i18n="nodes.allowInsecure"></span>
+      </div>
+      <div class="span2" data-types="trojan vmess vless">
+        <label class="f" data-i18n="nodes.transport"></label>
+        <select id="node-transport-input">
+          <option value="">TCP</option><option value="ws">WebSocket</option><option value="grpc">gRPC</option>
+          <option value="http">HTTP/2</option><option value="httpupgrade">HTTPUpgrade</option>
+        </select>
+      </div>
+      <div class="" data-types="ws http httpupgrade">
+        <label class="f" data-i18n="nodes.path"></label>
+        <input type="text" id="node-path-input" placeholder="/" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="" data-types="ws http httpupgrade">
+        <label class="f" data-i18n="nodes.host"></label>
+        <input type="text" id="node-host-input" placeholder="" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="span2" data-types="grpc">
+        <label class="f" data-i18n="nodes.serviceName"></label>
+        <input type="text" id="node-service-input" placeholder="" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="" data-types="shadowsocks">
+        <label class="f" data-i18n="nodes.plugin"></label>
+        <input type="text" id="node-plugin-input" placeholder="obfs-local" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="" data-types="shadowsocks">
+        <label class="f" data-i18n="nodes.pluginOpts"></label>
+        <input type="text" id="node-plugin-opts-input" placeholder="obfs=http;obfs-host=example.com" autocomplete="off" spellcheck="false">
+      </div>
+      <div data-types="hysteria2">
+        <label class="f" data-i18n="nodes.obfs"></label>
+        <select id="node-obfs-input"><option value="">—</option><option>salamander</option></select>
+      </div>
+      <div class="" data-types="hysteria2">
+        <label class="f" data-i18n="nodes.obfsPassword"></label>
+        <input type="text" id="node-obfs-pass-input" placeholder="" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="" data-types="hysteria2">
+        <label class="f" data-i18n="nodes.upMbps"></label>
+        <input type="number" id="node-up-input" placeholder="" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="" data-types="hysteria2">
+        <label class="f" data-i18n="nodes.downMbps"></label>
+        <input type="number" id="node-down-input" placeholder="" autocomplete="off" spellcheck="false">
+      </div>
+      <div data-types="tuic">
+        <label class="f" data-i18n="nodes.congestion"></label>
+        <select id="node-cc-input"><option value="">cubic</option><option>bbr</option><option>new_reno</option></select>
+      </div>
+      <div data-types="tuic">
+        <label class="f" data-i18n="nodes.udpRelay"></label>
+        <select id="node-udp-relay-input"><option value="">native</option><option>quic</option></select>
+      </div>
+      <details class="more span2" data-types="trojan hysteria2 tuic anytls tls">
+        <summary data-i18n="nodes.advancedTLS"></summary>
+        <div class="form-grid">
+      <div class="" data-types="">
+        <label class="f" data-i18n="nodes.alpn"></label>
+        <input type="text" id="node-alpn-input" placeholder="h2,http/1.1" autocomplete="off" spellcheck="false">
+      </div>
+          <div>
+            <label class="f" data-i18n="nodes.fingerprint"></label>
+            <select id="node-fp-input"><option value="">—</option><option>chrome</option><option>firefox</option><option>safari</option><option>ios</option><option>edge</option><option>random</option></select>
+          </div>
+      <div class="span2" data-types="vless">
+        <label class="f" data-i18n="nodes.realityKey"></label>
+        <input type="text" id="node-pbk-input" placeholder="" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="" data-types="vless">
+        <label class="f" data-i18n="nodes.realityShortId"></label>
+        <input type="text" id="node-sid-input" placeholder="" autocomplete="off" spellcheck="false">
+      </div>
         </div>
-        <div style="flex:1">
-          <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.port"></label>
-          <input type="text" id="node-port-input" placeholder="443">
-        </div>
-      </div>
-      <div>
-        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.password"></label>
-        <input type="text" id="node-pass-input" placeholder="password">
-      </div>
-      <div>
-        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.sni"></label>
-        <input type="text" id="node-sni-input" placeholder="example.com">
-      </div>
-      <div class="check-row" style="margin:4px 0 0;">
-        <div class="check-row-info">
-          <span style="font-size:12px; font-weight:500;" data-i18n="nodes.allowInsecure"></span>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="node-insecure-input">
-          <span class="slider"></span>
-        </label>
-      </div>
+      </details>
     </div>
     <div style="margin-top:18px; display:flex; gap:8px; align-items:center; justify-content:flex-end;">
       <span class="note bad" id="node-modal-err" style="flex:1;"></span>
@@ -1464,18 +1755,32 @@ input:checked + .slider:before { transform: translateX(18px); }
   </div>
 </div>
 
-<!-- 3. Add Subscription Modal -->
+<!-- 3. Add / Edit Subscription Modal -->
 <div class="veil" id="sub-modal-veil" hidden>
   <div class="prompt-box" role="dialog" aria-modal="true" style="max-width:480px">
-    <div style="font-size:16px; font-weight:700; color:var(--ink); margin-bottom:14px;" data-i18n="nodes.modalAddSub"></div>
+    <div style="font-size:16px; font-weight:700; color:var(--ink); margin-bottom:14px;" id="sub-modal-title"></div>
     <div style="display:flex; flex-direction:column; gap:12px;">
       <div>
-        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.subName"></label>
-        <input type="text" id="sub-name-input" placeholder="My Airport Sub">
+        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.subURL"></label>
+        <input type="text" id="sub-url-input" placeholder="https://example.com/api/v1/client/subscribe?token=…" style="font-family:var(--mono);">
       </div>
       <div>
-        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.subURL"></label>
-        <input type="text" id="sub-url-input" placeholder="https://example.com/sub/trojan" style="font-family:var(--mono);">
+        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.subName"></label>
+        <input type="text" id="sub-name-input" data-i18n-ph="nodes.subNamePh">
+      </div>
+      <div class="check-row" style="margin:0;">
+        <div class="check-row-info">
+          <b data-i18n="nodes.autoUpdate"></b>
+          <span data-i18n="nodes.autoUpdateHint"></span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="sub-auto-input" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div>
+        <label style="display:block; font-size:11.5px; font-weight:600; color:var(--dim); margin-bottom:4px;" data-i18n="nodes.updateHours"></label>
+        <input type="number" id="sub-hours-input" min="1" max="720" placeholder="24">
       </div>
     </div>
     <div style="margin-top:18px; display:flex; gap:8px; align-items:center; justify-content:flex-end;">
@@ -1566,10 +1871,10 @@ async function api(path, opts = {}) {
 /* --- Language Strings -------------------------------------------------- */
 const STRINGS = {
   zh: {
-    "nav.overviewGroup": "概览", "nav.manageGroup": "管理", "nav.systemGroup": "系统",
+    "nav.overviewGroup": "概览", "nav.systemGroup": "系统",
     "nav.home": "首页", "nav.tunnels": "隧道管理", "nav.nodes": "节点与订阅",
-    "nav.rules": "分流规则", "nav.logs": "运行日志", "nav.settings": "客户端设置",
-    "nav.config": "运行配置", "nav.setup": "导入配置",
+    "nav.rules": "网关规则", "nav.logs": "隧道日志", "nav.settings": "客户端设置",
+    "nav.config": "运行配置",
 
     "bar.tunnels": "隧道", "bar.ingress": "入口", "bar.onfail": "故障处理",
     "bar.langTitle": "切换语言", "bar.themeTitle": "切换主题",
@@ -1577,28 +1882,27 @@ const STRINGS = {
 
     "phase.setup": "未导入配置", "phase.idle": "未连接", "phase.connecting": "连接中…",
     "phase.connected": "已连接", "phase.failed": "连接失败",
-    "home.phaseSetupSub": "请先在“导入配置”页面导入服务端签发的 Bundle",
-    "home.phaseIdleSub": "网关配置就绪，随时可以一键启动连接",
-    "home.phaseConnectingSub": "正在连接网关并初始化各隧道…",
-    "home.phaseConnectedSub": "隧道及路由引擎正常运行中",
-    "home.phaseFailedSub": "网关连接发生错误，请检查网络或配置",
+    "home.phaseIdleSub": "点击右侧按钮启动代理与路由引擎",
+    "home.phaseConnectingSub": "正在启动路由引擎…",
+    "home.phaseConnectedSub": "路由引擎运行中",
+    "home.phaseFailedSub": "路由引擎启动失败，请检查配置",
 
-    "home.connect": "一键连接", "home.disconnect": "断开连接", "home.connecting": "连接中…", "home.disconnecting": "正在断开…", "home.retry": "重试连接", "home.importNow": "去导入配置",
-    "home.statMode": "路由模式", "home.statIngress": "流量入口", "home.statTunnels": "在线隧道", "home.statProxy": "代理出口",
+    "home.connect": "一键连接", "home.disconnect": "断开连接", "home.connecting": "连接中…", "home.disconnecting": "正在断开…", "home.retry": "重试连接",
+    "home.statMode": "路由模式", "home.statIngress": "流量入口", "home.statProxy": "代理出口",
     "home.modeSelectTitle": "路由模式切换",
-    "home.modeSelectSub": "支持全局直连、规则分流与全局代理，默认推荐全局直连",
+    "home.modeSelectSub": "企业网关的规则始终优先；其余流量按这里选的模式走",
     "home.manageNodes": "管理节点与订阅 →",
 
     "mode.title": "路由模式",
     "mode.rule": "规则分流",
     "mode.global": "全局代理",
     "mode.direct": "全局直连",
-    "mode.directBadge": "默认模式",
-    "mode.ruleBadge": "智能分流",
+    "mode.directBadge": "不用代理",
+    "mode.ruleBadge": "默认模式",
     "mode.globalBadge": "全部代理",
-    "mode.directDesc": "仅公司内网走 VPN 隧道，不走任何代理，其余外网流量全部直连。",
-    "mode.ruleDesc": "公司内网走 VPN 隧道，命中自定义/域名/IP规则走代理节点，其余直连。",
-    "mode.globalDesc": "公司内网走 VPN 隧道，其余所有外网流量统一通过选中的代理节点出海。",
+    "mode.directDesc": "企业网关之外的流量全部直连，不使用代理。",
+    "mode.ruleDesc": "按分流规则选择代理或直连，未匹配的直连。",
+    "mode.globalDesc": "企业网关之外的流量全部经代理出口。",
 
     "service.title": "后台提权服务",
     "service.install": "一键安装服务",
@@ -1648,26 +1952,25 @@ const STRINGS = {
     "service.transitionClose": "知道了",
 
     "nodes.title": "节点与订阅",
-    "nodes.sub": "管理用于访问外网的自建 Trojan 节点与订阅，可作为分流规则的目标或默认代理出口。",
+    "nodes.sub": "支持 VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / TUIC / AnyTLS / SOCKS / HTTP 节点，以及 Clash 与通用 Base64 订阅。点击节点即可选用。",
     "nodes.addNode": "添加节点", "nodes.addSub": "添加订阅",
     "nodes.pingAll": "一键测速", "nodes.updateAllSubs": "更新全部订阅",
     "nodes.subsTitle": "订阅列表", "nodes.nodesTitle": "全部节点",
     "nodes.emptySubs": "暂无订阅，点击上方按钮添加订阅链接。",
-    "nodes.emptyNodes": "暂无可用节点。可添加自建 Trojan 节点或导入订阅。",
+    "nodes.emptyNodes": "暂无节点。可以粘贴分享链接添加，或导入订阅。",
     "nodes.ping": "测速", "nodes.edit": "编辑", "nodes.delete": "删除", "nodes.update": "更新",
     "nodes.nodeCount": "%d 个节点", "nodes.lastUpdated": "更新于 %s", "nodes.neverUpdated": "尚未更新",
     "nodes.testing": "测速中…", "nodes.timeout": "超时",
-    "nodes.modalAddNode": "添加自建 Trojan 节点", "nodes.modalEditNode": "编辑 Trojan 节点",
-    "nodes.pasteLink": "粘贴 trojan:// 链接（自动解析）", "nodes.orManual": "或手动填写参数",
+    "nodes.modalAddNode": "添加节点", "nodes.modalEditNode": "编辑节点",
+    "nodes.pasteLink": "粘贴分享链接（可一次粘贴多条，每行一条）", "nodes.orManual": "或手动填写参数",
     "nodes.nodeName": "节点名称", "nodes.server": "服务器地址", "nodes.port": "端口",
     "nodes.password": "密码", "nodes.sni": "SNI (域名)",
     "nodes.allowInsecure": "允许不安全证书 (Skip Cert Verify)",
-    "nodes.modalAddSub": "添加节点订阅",
-    "nodes.subName": "订阅名称", "nodes.subURL": "订阅 URL (支持 Trojan 节点 / Base64 / Clash)",
+    "nodes.modalAddSub": "添加订阅",
+    "nodes.subName": "名称（可选）", "nodes.subURL": "订阅地址（Clash / Base64 / 分享链接列表）",
     "nodes.save": "保存", "nodes.cancel": "取消",
     "nodes.updating": "正在更新订阅…", "nodes.updated": "订阅已更新",
-    "nodes.activeProxy": "当前代理出口", "nodes.noActiveProxy": "未选用 (默认直连)",
-    "nodes.select": "选用为代理", "nodes.deselect": "取消选用", "nodes.active": "当前使用",
+    "nodes.activeProxy": "当前代理出口", "nodes.noActiveProxy": "直连（未使用代理）", "nodes.active": "当前使用",
 
     "tunnels.title": "隧道管理",
     "tunnels.subManual": "每条隧道独立运行与认证。路由和 DNS 由 VPN 自行下发并自动注入分流规则。",
@@ -1680,7 +1983,6 @@ const STRINGS = {
 
     "rules.title": "分流规则",
     "rules.sub": "规则按从上到下顺序匹配。自定义规则优先级高于隧道自动下发规则。",
-    "rules.globalBanner": "当前处于全局代理模式：所有未匹配公司内网规则的外网流量将统一走当前选中的代理节点。",
     "rules.empty": "没有自定义规则。流量按各隧道上报的路由分流，其余流量直连。",
     "rules.add": "新增规则", "rules.apply": "应用并保存", "rules.revert": "放弃改动",
     "rules.matcher": "+ 匹配条件", "rules.delete": "删除规则", "rules.dropMatcher": "移除此条件",
@@ -1692,14 +1994,14 @@ const STRINGS = {
     "ph.domain": "corp.example.com, internal.corp", "ph.ip_cidr": "10.20.0.0/16, 192.168.1.0/24",
     "ph.port": "443, 8443",
     "t.direct": "直连 (Direct)", "t.block": "阻断 (Block)", "t.proxy": "默认代理 (Proxy)",
-    "t.tunnelPrefix": "[隧道] ", "t.subPrefix": "[订阅] ", "t.customPrefix": "[自建] ",
+    "t.tunnelPrefix": "[隧道] ",
 
     "logs.title": "运行日志", "logs.sub": "实时读取服务端各隧道容器及客户端路由引擎的输出日志。",
     "logs.refresh": "刷新日志", "logs.reconnect": "重连隧道", "logs.pick": "请在上方下拉列表选择隧道查看日志。",
     "logs.empty": "暂无日志输出。", "logs.reconnecting": "正在发起重连 %s…",
 
-    "settings.title": "客户端设置", "settings.sub": "改动会立即生效并自动持久化。已连接时会平滑重建路由引擎。",
-    "settings.auth": "用户认证凭据", "settings.auth.b": "连接网关服务端所需的用户名与密码。",
+    "settings.title": "客户端设置", "settings.sub": "流量接管方式、DNS 等全局设置。改动会立即生效，已连接时会自动重建路由引擎。",
+    "settings.auth": "用户认证凭据", "settings.auth.b": "登录企业网关服务端所需的用户名与密码。",
     "settings.ingress": "流量接管方式", "settings.tun": "TUN 虚拟网卡", "settings.tun.b": "全自动接管整机网络流量，需管理员权限",
     "settings.proxy": "本地代理端口", "settings.proxy.b": "提供本地 HTTP/SOCKS5 代理端口，无需系统权限",
     "settings.tunAdvanced": "TUN 高级设置",
@@ -1712,13 +2014,13 @@ const STRINGS = {
     "settings.tunAdvanced.b": "和其他代理、加速器（如游戏加速器）同时使用出问题时再改：先确认网络栈是 gvisor（Windows 默认就是）；还不行，把出口网卡固定为实际上网的网卡（有线/Wi-Fi），避免本客户端的连接被别的软件的虚拟网卡截走。严格路由会阻止流量绕开本客户端，更彻底，但也更容易和其他软件冲突。",
     "settings.proxyListen": "代理监听地址", "settings.onfail": "内网隧道离线时",
     "settings.onfail.b": "直连：离线流量正常外网直连。阻断：阻断内网请求，避免涉密请求泄漏。",
-    "settings.dns": "默认 DNS 解析器", "settings.dns.b": "local 代表使用系统默认 DNS，也可配置 https://1.1.1.1/dns-query 等公共 DoH",
+    "settings.dns": "本地 DNS", "settings.dns.b": "直连流量和节点地址的解析器。local 代表系统默认 DNS，也可填 https://223.5.5.5/dns-query 等。",
     "settings.autoroutes": "自动路由转换", "settings.autoroutesHint": "自动将内网隧道上报的 IP 网段转为路由规则",
     "settings.autodomains": "自动搜索域转换", "settings.autodomainsHint": "自动将内网隧道上报的域名后缀转为路由规则",
     "settings.save": "保存设置", "settings.saved": "设置已保存并生效",
 
     "config.title": "运行配置", "config.sub": "路由引擎当前正在执行的底层完整 JSON 配置。",
-    "setup.title": "导入配置", "setup.sub": "将服务端签发的 client.json 导入客户端即可开启安全网关连接。",
+    "setup.title": "导入 / 更换网关配置", "setup.sub": "将服务端签发的 client.json 导入客户端即可使用企业网关。",
     "setup.s1.t": "1. 服务端生成配置", "setup.s1.b": "在 vpn-gateway-server 运行机器上执行命令导出：",
     "setup.s2.t": "2. 导入配置 Bundle", "setup.s2.b": "选择文件或直接粘贴 JSON 内容：",
     "setup.s3.t": "3. 用户凭据 (可选)", "setup.s3.b": "如果网关配置了账号密码，请在此填写：",
@@ -1740,13 +2042,109 @@ const STRINGS = {
     "k.vnc.t": "图形界面登录 (VNC)", "k.vnc.w": "该隧道需要图形交互认证。",
     "auth.generic": "安全认证挑战",
 
+    "nav.proxyGroup": "代理",
+    "nav.gatewayGroup": "企业网关",
+    "nav.gateway": "网关连接",
+    "nav.proxyRules": "分流规则",
+    "home.statGateway": "企业网关",
+    "gw.title": "企业网关",
+    "gw.sub": "连接公司的 vpn-gateway 服务端，把访问内网的流量交给对应的 VPN 隧道。它的规则优先于代理分流规则，可以单独开关。",
+    "gw.switchTitle": "企业网关开关",
+    "gw.manage": "管理",
+    "gw.settingsTitle": "网关设置",
+    "gw.unconfigured": "未配置",
+    "gw.off": "已关闭",
+    "gw.idle": "随连接启动",
+    "gw.connecting": "连接中…",
+    "gw.connected": "已连接",
+    "gw.failed": "连接失败",
+    "gw.subUnconfigured": "尚未导入企业网关配置。导入服务端签发的 client.json 后即可使用。",
+    "gw.subOff": "已关闭。内网流量不会走 VPN 隧道，代理功能不受影响。",
+    "gw.subIdle": "已开启，将随路由引擎一起连接。打开开关可一键连接。",
+    "gw.subConnecting": "正在登录网关服务端…",
+    "gw.subConnected": "%s 条隧道在线（共 %s 条）",
+    "gw.subFailed": "网关连接失败，代理功能不受影响。",
+    "gw.server": "服务端",
+    "gw.tunnelsUp": "在线隧道",
+    "gw.user": "用户",
+    "gw.importNow": "导入配置",
+    "gw.saved": "网关设置已保存",
+    "home.statGatewayOff": "未启用",
+    "nodes.modalEditSub": "编辑订阅",
+    "nodes.subNamePh": "留空则使用订阅域名",
+    "nodes.autoUpdate": "自动更新",
+    "nodes.autoUpdateHint": "按设定间隔在后台重新拉取订阅",
+    "nodes.updateHours": "更新间隔（小时）",
+    "nodes.pickAuto": "自动选择",
+    "nodes.pickDirect": "直连",
+    "nodes.autoNow": "自动选择 · %s",
+    "nodes.autoPending": "自动选择（测速中）",
+    "nodes.allSources": "全部来源",
+    "nodes.customSource": "自建节点",
+    "nodes.sortDefault": "默认排序",
+    "nodes.sortLatency": "按延迟",
+    "nodes.sortName": "按名称",
+    "nodes.filter": "搜索节点",
+    "nodes.unsupported": "不可用",
+    "nodes.type": "协议",
+    "nodes.uuid": "UUID",
+    "nodes.username": "用户名",
+    "nodes.method": "加密方式",
+    "nodes.security": "加密",
+    "nodes.alterId": "Alter ID",
+    "nodes.flow": "流控 (flow)",
+    "nodes.transport": "传输方式",
+    "nodes.path": "路径",
+    "nodes.host": "Host",
+    "nodes.serviceName": "gRPC 服务名",
+    "nodes.plugin": "插件",
+    "nodes.pluginOpts": "插件参数",
+    "nodes.obfs": "混淆",
+    "nodes.obfsPassword": "混淆密码",
+    "nodes.upMbps": "上行 Mbps",
+    "nodes.downMbps": "下行 Mbps",
+    "nodes.congestion": "拥塞控制",
+    "nodes.udpRelay": "UDP 中继",
+    "nodes.advancedTLS": "TLS 高级选项（ALPN / 指纹 / Reality）",
+    "nodes.alpn": "ALPN",
+    "nodes.fingerprint": "TLS 指纹",
+    "nodes.realityKey": "Reality 公钥",
+    "nodes.realityShortId": "Reality Short ID",
+    "nodes.used": "已用 %s / %s",
+    "nodes.expires": "到期 %s",
+    "nodes.unlimited": "不限量",
+    "nodes.added": "已添加 %d 个节点",
+    "prules.title": "分流规则",
+    "prules.sub": "普通代理的分流规则，在规则模式下从上到下匹配。企业网关的规则总是先于这里匹配。",
+    "prules.order": "匹配顺序：",
+    "prules.orderGateway": "企业网关规则",
+    "prules.orderRules": "分流规则",
+    "prules.orderFinal": "默认直连",
+    "prules.modeGlobal": "当前是全局代理模式：除企业网关外的流量都走代理，分流规则暂不生效。",
+    "prules.modeDirect": "当前是全局直连模式：除企业网关外的流量都直连，分流规则暂不生效。",
+    "prules.setsMissing": "以下规则集暂时下载失败，用到它们的规则先被跳过，连接后会通过代理重试：%s",
+    "prules.empty": "没有分流规则，规则模式下所有流量直连。可以点“导入常用规则”快速开始。",
+    "prules.preset": "导入常用规则",
+    "prules.presetConfirm": "用常用规则（局域网与国内直连、国外走代理）替换当前的分流规则？",
+    "prules.up": "上移",
+    "prules.down": "下移",
+    "m.geosite": "GeoSite 分类",
+    "m.geoip": "GeoIP 地区",
+    "m.process_name": "进程名",
+    "ph.geosite": "cn, geolocation-!cn, google",
+    "ph.geoip": "cn, us, jp",
+    "ph.process_name": "chrome.exe, Telegram",
+    "t.auto": "自动选择 (Auto)",
+    "t.nodePrefix": "[节点] ",
+    "settings.dnsRemote": "远程 DNS",
+    "settings.dnsRemote.b": "走代理的域名经代理出口用这个解析器查询，避免泄漏与污染。填 local 表示不使用远程解析。",
     "loading": "加载中…", "notoken": "此页面需要客户端启动时携带的 Token，请使用客户端打开。"
   },
   en: {
-    "nav.overviewGroup": "Overview", "nav.manageGroup": "Manage", "nav.systemGroup": "System",
+    "nav.overviewGroup": "Overview", "nav.systemGroup": "System",
     "nav.home": "Home", "nav.tunnels": "Tunnels", "nav.nodes": "Nodes & Subs",
-    "nav.rules": "Routing Rules", "nav.logs": "Logs", "nav.settings": "Settings",
-    "nav.config": "Engine Config", "nav.setup": "Import Bundle",
+    "nav.rules": "Gateway Rules", "nav.logs": "Tunnel Logs", "nav.settings": "Settings",
+    "nav.config": "Engine Config",
 
     "bar.tunnels": "Tunnels", "bar.ingress": "Ingress", "bar.onfail": "On Failure",
     "bar.langTitle": "Switch Language", "bar.themeTitle": "Switch Theme",
@@ -1754,28 +2152,27 @@ const STRINGS = {
 
     "phase.setup": "Not Configured", "phase.idle": "Disconnected", "phase.connecting": "Connecting…",
     "phase.connected": "Connected", "phase.failed": "Failed",
-    "home.phaseSetupSub": "Please import server bundle from the 'Import Bundle' tab first",
-    "home.phaseIdleSub": "Configuration ready, click to start gateway connection",
-    "home.phaseConnectingSub": "Connecting to server and establishing tunnels…",
-    "home.phaseConnectedSub": "VPN Gateway and routing engine are running normally",
-    "home.phaseFailedSub": "Connection error occurred, check server and network status",
+    "home.phaseIdleSub": "Press the button to start the proxy and routing engine",
+    "home.phaseConnectingSub": "Starting the routing engine…",
+    "home.phaseConnectedSub": "The routing engine is running",
+    "home.phaseFailedSub": "The routing engine could not start; check the configuration",
 
-    "home.connect": "Connect Now", "home.disconnect": "Disconnect", "home.connecting": "Connecting…", "home.disconnecting": "Disconnecting…", "home.retry": "Retry Connection", "home.importNow": "Import Bundle",
-    "home.statMode": "Mode", "home.statIngress": "Ingress", "home.statTunnels": "Active Tunnels", "home.statProxy": "Proxy Outbound",
+    "home.connect": "Connect Now", "home.disconnect": "Disconnect", "home.connecting": "Connecting…", "home.disconnecting": "Disconnecting…", "home.retry": "Retry Connection",
+    "home.statMode": "Mode", "home.statIngress": "Ingress", "home.statProxy": "Proxy Outbound",
     "home.modeSelectTitle": "Traffic Routing Mode",
-    "home.modeSelectSub": "Switch between Direct, Rule, and Global modes. Direct mode is default.",
+    "home.modeSelectSub": "Enterprise gateway rules always come first; everything else follows the mode chosen here",
     "home.manageNodes": "Manage Nodes & Subs →",
 
     "mode.title": "Routing Mode",
     "mode.rule": "Rule Mode",
     "mode.global": "Global Proxy",
     "mode.direct": "Direct Mode",
-    "mode.directBadge": "Default",
-    "mode.ruleBadge": "Smart Routing",
+    "mode.directBadge": "No proxy",
+    "mode.ruleBadge": "Default",
     "mode.globalBadge": "All Proxy",
-    "mode.directDesc": "Intranet traffic via VPN tunnels only, no proxy used, all other traffic direct.",
-    "mode.ruleDesc": "Intranet via VPN tunnels, matching rules via proxy node, other traffic direct.",
-    "mode.globalDesc": "Intranet via VPN tunnels, all other internet traffic routed through selected proxy node.",
+    "mode.directDesc": "Everything outside the enterprise gateway goes direct; no proxy is used.",
+    "mode.ruleDesc": "Routing rules pick proxy or direct; anything unmatched goes direct.",
+    "mode.globalDesc": "Everything outside the enterprise gateway goes through the proxy.",
 
     "service.title": "Privileged Helper Service",
     "service.install": "Install Service",
@@ -1825,26 +2222,25 @@ const STRINGS = {
     "service.transitionClose": "Got it",
 
     "nodes.title": "Nodes & Subscriptions",
-    "nodes.sub": "Manage outbound Trojan nodes and subscriptions for proxy routing.",
+    "nodes.sub": "VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, AnyTLS, SOCKS and HTTP nodes, and Clash or Base64 subscriptions. Click a node to use it.",
     "nodes.addNode": "Add Node", "nodes.addSub": "Add Subscription",
     "nodes.pingAll": "Test All Latencies", "nodes.updateAllSubs": "Update All Subs",
     "nodes.subsTitle": "Subscriptions", "nodes.nodesTitle": "Proxy Nodes",
     "nodes.emptySubs": "No subscriptions yet. Click above to add one.",
-    "nodes.emptyNodes": "No nodes available. Add a Trojan node or subscription.",
+    "nodes.emptyNodes": "No nodes yet. Paste share links or add a subscription.",
     "nodes.ping": "Ping", "nodes.edit": "Edit", "nodes.delete": "Delete", "nodes.update": "Update",
     "nodes.nodeCount": "%d nodes", "nodes.lastUpdated": "Updated %s", "nodes.neverUpdated": "Not updated yet",
     "nodes.testing": "Testing…", "nodes.timeout": "Timeout",
-    "nodes.modalAddNode": "Add Trojan Node", "nodes.modalEditNode": "Edit Trojan Node",
-    "nodes.pasteLink": "Paste trojan:// link (auto parse)", "nodes.orManual": "or enter parameters manually",
+    "nodes.modalAddNode": "Add Node", "nodes.modalEditNode": "Edit Node",
+    "nodes.pasteLink": "Paste share links (several at once, one per line)", "nodes.orManual": "or enter parameters manually",
     "nodes.nodeName": "Node Name", "nodes.server": "Server Address", "nodes.port": "Port",
     "nodes.password": "Password", "nodes.sni": "SNI (Domain)",
     "nodes.allowInsecure": "Allow Insecure Certificate (Skip Cert Verify)",
     "nodes.modalAddSub": "Add Subscription",
-    "nodes.subName": "Subscription Name", "nodes.subURL": "Subscription URL (Trojan / Base64 / Clash)",
+    "nodes.subName": "Name (optional)", "nodes.subURL": "Subscription URL (Clash / Base64 / share links)",
     "nodes.save": "Save", "nodes.cancel": "Cancel",
     "nodes.updating": "Updating subscription…", "nodes.updated": "Subscription updated",
-    "nodes.activeProxy": "Active Proxy Outbound", "nodes.noActiveProxy": "None (Direct)",
-    "nodes.select": "Select Proxy", "nodes.deselect": "Deselect", "nodes.active": "Active",
+    "nodes.activeProxy": "Active Proxy Outbound", "nodes.noActiveProxy": "Direct (no proxy)", "nodes.active": "Active",
 
     "tunnels.title": "Tunnels",
     "tunnels.subManual": "Each tunnel is dialed independently. Routes and DNS are issued by the VPN and auto-injected into routing rules.",
@@ -1857,7 +2253,6 @@ const STRINGS = {
 
     "rules.title": "Routing Rules",
     "rules.sub": "Rules are evaluated from top to bottom. Custom rules take priority over tunnel auto-rules.",
-    "rules.globalBanner": "Currently in Global Proxy mode: all non-tunnel traffic is routed through the active proxy node.",
     "rules.empty": "No custom rules. Traffic follows tunnel routes, and everything else goes direct.",
     "rules.add": "Add Rule", "rules.apply": "Apply & Save", "rules.revert": "Discard Changes",
     "rules.matcher": "+ Matcher", "rules.delete": "Delete", "rules.dropMatcher": "Remove",
@@ -1869,14 +2264,14 @@ const STRINGS = {
     "ph.domain": "corp.example.com, internal.corp", "ph.ip_cidr": "10.20.0.0/16, 192.168.1.0/24",
     "ph.port": "443, 8443",
     "t.direct": "Direct", "t.block": "Block", "t.proxy": "Default Proxy",
-    "t.tunnelPrefix": "[Tunnel] ", "t.subPrefix": "[Sub] ", "t.customPrefix": "[Custom] ",
+    "t.tunnelPrefix": "[Tunnel] ",
 
     "logs.title": "Logs", "logs.sub": "Real-time output logs from tunnel containers and routing engine.",
     "logs.refresh": "Refresh", "logs.reconnect": "Reconnect Tunnel", "logs.pick": "Select a tunnel from the dropdown above to view logs.",
     "logs.empty": "No logs recorded yet.", "logs.reconnecting": "Reconnecting %s…",
 
-    "settings.title": "Settings", "settings.sub": "Changes take effect immediately and are saved to config file.",
-    "settings.auth": "User Authentication", "settings.auth.b": "Credentials to connect to vpn-gateway-server.",
+    "settings.title": "Settings", "settings.sub": "How traffic is captured, DNS and other global settings. Changes apply at once; a running engine is rebuilt.",
+    "settings.auth": "User Authentication", "settings.auth.b": "Credentials for the enterprise gateway server.",
     "settings.ingress": "Traffic Ingress", "settings.tun": "TUN Interface", "settings.tun.b": "Captures all system traffic, requires privileges",
     "settings.proxy": "Local Proxy Port", "settings.proxy.b": "Exposes local HTTP/SOCKS5 proxy port",
     "settings.tunAdvanced": "TUN advanced",
@@ -1889,13 +2284,13 @@ const STRINGS = {
     "settings.tunAdvanced.b": "Change these only if TUN mode misbehaves next to another proxy or accelerator (a game booster, say): make sure the stack is gvisor (the Windows default); if that is not enough, pin the outbound adapter to the one that really reaches the internet (Ethernet/Wi-Fi), so this client's own connections are not taken by another program's virtual adapter. Strict route stops traffic bypassing this client; more thorough, more likely to clash with other software.",
     "settings.proxyListen": "Proxy Listen Address", "settings.onfail": "When Tunnel is Down",
     "settings.onfail.b": "Direct sends intranet traffic directly. Block drops packets to prevent leaks.",
-    "settings.dns": "Default DNS Resolver", "settings.dns.b": "local uses system DNS, or provide DoH like https://1.1.1.1/dns-query",
+    "settings.dns": "Local DNS", "settings.dns.b": "Resolves direct traffic and node addresses. local is the system resolver; https://223.5.5.5/dns-query and the like also work.",
     "settings.autoroutes": "Auto Routes", "settings.autoroutesHint": "Convert tunnel reported IP routes into rules automatically",
     "settings.autodomains": "Auto Domains", "settings.autodomainsHint": "Convert tunnel search domains into rules automatically",
     "settings.save": "Save Settings", "settings.saved": "Settings saved successfully",
 
     "config.title": "Engine Config", "config.sub": "Current active JSON configuration executed by routing engine.",
-    "setup.title": "Import Bundle", "setup.sub": "Import the client.json bundle issued by the server to start connecting.",
+    "setup.title": "Import / Replace Gateway Bundle", "setup.sub": "Import the client.json your server issued to use the enterprise gateway.",
     "setup.s1.t": "1. Generate Bundle on Server", "setup.s1.b": "Run vgctl on your vpn-gateway-server machine:",
     "setup.s2.t": "2. Import Bundle JSON", "setup.s2.b": "Select file or paste JSON content directly:",
     "setup.s3.t": "3. Credentials (Optional)", "setup.s3.b": "If server authentication is configured, fill in below:",
@@ -1917,6 +2312,102 @@ const STRINGS = {
     "k.vnc.t": "Graphical VNC Login", "k.vnc.w": "This gateway requires graphical desktop login.",
     "auth.generic": "Security Challenge",
 
+    "nav.proxyGroup": "Proxy",
+    "nav.gatewayGroup": "Enterprise Gateway",
+    "nav.gateway": "Gateway",
+    "nav.proxyRules": "Routing Rules",
+    "home.statGateway": "Gateway",
+    "gw.title": "Enterprise Gateway",
+    "gw.sub": "Connects to your company's vpn-gateway server and hands intranet traffic to its VPN tunnels. Its rules come before the proxy rules, and it has a switch of its own.",
+    "gw.switchTitle": "Enterprise gateway",
+    "gw.manage": "Manage",
+    "gw.settingsTitle": "Gateway settings",
+    "gw.unconfigured": "Not configured",
+    "gw.off": "Off",
+    "gw.idle": "Starts on connect",
+    "gw.connecting": "Connecting…",
+    "gw.connected": "Connected",
+    "gw.failed": "Failed",
+    "gw.subUnconfigured": "No enterprise gateway yet. Import the client.json your server issued to use it.",
+    "gw.subOff": "Switched off. Intranet traffic does not use the VPN tunnels; proxying is unaffected.",
+    "gw.subIdle": "On; connects together with the routing engine. Flip the switch to connect now.",
+    "gw.subConnecting": "Signing in to the gateway server…",
+    "gw.subConnected": "%s of %s tunnels up",
+    "gw.subFailed": "The gateway could not connect; proxying is unaffected.",
+    "gw.server": "Server",
+    "gw.tunnelsUp": "Tunnels up",
+    "gw.user": "User",
+    "gw.importNow": "Import",
+    "gw.saved": "Gateway settings saved",
+    "home.statGatewayOff": "Not in use",
+    "nodes.modalEditSub": "Edit Subscription",
+    "nodes.subNamePh": "Leave empty to use the subscription's host",
+    "nodes.autoUpdate": "Update automatically",
+    "nodes.autoUpdateHint": "Fetch the subscription again in the background",
+    "nodes.updateHours": "Update interval (hours)",
+    "nodes.pickAuto": "Auto",
+    "nodes.pickDirect": "Direct",
+    "nodes.autoNow": "Auto · %s",
+    "nodes.autoPending": "Auto (testing)",
+    "nodes.allSources": "All sources",
+    "nodes.customSource": "Custom nodes",
+    "nodes.sortDefault": "Default order",
+    "nodes.sortLatency": "By latency",
+    "nodes.sortName": "By name",
+    "nodes.filter": "Search nodes",
+    "nodes.unsupported": "Unavailable",
+    "nodes.type": "Protocol",
+    "nodes.uuid": "UUID",
+    "nodes.username": "Username",
+    "nodes.method": "Cipher",
+    "nodes.security": "Security",
+    "nodes.alterId": "Alter ID",
+    "nodes.flow": "Flow",
+    "nodes.transport": "Transport",
+    "nodes.path": "Path",
+    "nodes.host": "Host",
+    "nodes.serviceName": "gRPC service name",
+    "nodes.plugin": "Plugin",
+    "nodes.pluginOpts": "Plugin options",
+    "nodes.obfs": "Obfuscation",
+    "nodes.obfsPassword": "Obfuscation password",
+    "nodes.upMbps": "Up Mbps",
+    "nodes.downMbps": "Down Mbps",
+    "nodes.congestion": "Congestion control",
+    "nodes.udpRelay": "UDP relay",
+    "nodes.advancedTLS": "Advanced TLS (ALPN / fingerprint / Reality)",
+    "nodes.alpn": "ALPN",
+    "nodes.fingerprint": "TLS fingerprint",
+    "nodes.realityKey": "Reality public key",
+    "nodes.realityShortId": "Reality short ID",
+    "nodes.used": "Used %s of %s",
+    "nodes.expires": "Expires %s",
+    "nodes.unlimited": "Unlimited",
+    "nodes.added": "Added %d nodes",
+    "prules.title": "Routing Rules",
+    "prules.sub": "The proxy client's rules, matched top to bottom in rule mode. Enterprise gateway rules are always matched before these.",
+    "prules.order": "Matched in order:",
+    "prules.orderGateway": "Gateway rules",
+    "prules.orderRules": "Routing rules",
+    "prules.orderFinal": "Direct",
+    "prules.modeGlobal": "Global mode: everything outside the gateway goes through the proxy, so these rules are not in use.",
+    "prules.modeDirect": "Direct mode: everything outside the gateway goes direct, so these rules are not in use.",
+    "prules.setsMissing": "These rule sets could not be downloaded yet; rules using them are skipped for now and retried through the proxy once connected: %s",
+    "prules.empty": "No routing rules: in rule mode everything goes direct. Import the common rules to get started.",
+    "prules.preset": "Import Common Rules",
+    "prules.presetConfirm": "Replace the current rules with the common set (LAN and China direct, everything abroad through the proxy)?",
+    "prules.up": "Up",
+    "prules.down": "Down",
+    "m.geosite": "GeoSite category",
+    "m.geoip": "GeoIP region",
+    "m.process_name": "Process name",
+    "ph.geosite": "cn, geolocation-!cn, google",
+    "ph.geoip": "cn, us, jp",
+    "ph.process_name": "chrome.exe, Telegram",
+    "t.auto": "Auto",
+    "t.nodePrefix": "[Node] ",
+    "settings.dnsRemote": "Remote DNS",
+    "settings.dnsRemote.b": "Names that leave through the proxy are resolved with this, through the proxy, so they neither leak nor get tampered with. local turns it off.",
     "loading": "Loading…", "notoken": "Token required. Please open this interface from the link generated by client."
   },
 };
@@ -1975,10 +2466,13 @@ $("lang").addEventListener("click", () => {
   applyLanguage();
   updateThemeLabel();
   renderedRules = null;
+  renderedProxyRules = null;
   renderedTunnels = null;
   shownPrompt = null;
+  if (pdraft !== null) renderProxyRules(pdraft);
   render(state);
   if (currentPane() === "settings") fillSettings();
+  if (currentPane() === "gateway") fillGatewaySettings();
 });
 
 /* --- Pane Navigation --------------------------------------------------- */
@@ -1986,6 +2480,7 @@ document.querySelectorAll(".rail button[data-pane]").forEach((b) => {
   b.addEventListener("click", () => showPane(b.dataset.pane));
 });
 $("home-change-node-btn").addEventListener("click", () => showPane("nodes"));
+$("home-gw-manage").addEventListener("click", () => showPane("gateway"));
 
 function currentPane() {
   const open = document.querySelector('.pane:not([hidden])');
@@ -2005,34 +2500,46 @@ function showPane(name) {
   if (name === "home") renderHome(state);
   if (name === "tunnels") refreshTunnels();
   if (name === "nodes") renderNodes(state);
+  if (name === "proxy-rules" && pdraft === null) renderProxyRules(state.proxy_rules);
+  if (name === "gateway") { renderGateway(state); fillGatewaySettings(); }
   if (name === "config") loadGeneratedConfig();
   if (name === "logs" && $("log-tunnel").value) loadLogs();
   if (name === "settings") fillSettings();
 }
 
 /* --- State Management & Render ----------------------------------------- */
-let state = { tunnels: [], prompts: [], rules: [], client: {}, session: {}, subscriptions: [], custom_nodes: [], all_nodes: [] };
+let state = { tunnels: [], prompts: [], rules: [], proxy_rules: [], client: {}, session: { gateway: {} }, subscriptions: [], custom_nodes: [], all_nodes: [] };
 let draft = null;
+let pdraft = null;
 let shownPrompt = null;
 let renderedRules = null;
+let renderedProxyRules = null;
 let renderedTunnels = null;
 let latencies = {};
 let service = { supported: false };
 
+function gatewayOf(s) {
+  return (s.session && s.session.gateway) || { phase: "unconfigured" };
+}
+
 function render(s) {
   s.tunnels = s.tunnels || [];
   s.rules = s.rules || [];
+  s.proxy_rules = s.proxy_rules || [];
   s.prompts = s.prompts || [];
   s.subscriptions = s.subscriptions || [];
   s.custom_nodes = s.custom_nodes || [];
   s.all_nodes = s.all_nodes || [];
-  s.mode = s.mode || "direct";
+  s.mode = s.mode || "rule";
   s.is_admin = !!s.is_admin;
+  s.session = s.session || {};
+  s.session.gateway = s.session.gateway || { phase: "unconfigured" };
   state = s;
 
   renderPhase(s);
   renderReadout(s);
   renderHome(s);
+  renderGateway(s);
 
   if (!s.is_admin && currentPane() === "logs") {
     showPane("home");
@@ -2048,94 +2555,91 @@ function render(s) {
   $("log-reconnect").style.display = s.is_admin ? "" : "none";
   stampTunnels(s.at);
 
-  const freshRules = JSON.stringify(s.rules);
-  if (freshRules !== renderedRules) {
+  const freshRules = JSON.stringify({ rules: s.rules, tunnels: s.tunnels.map((t) => t.name) });
+  if (freshRules !== renderedRules && draft === null) {
     renderedRules = freshRules;
     renderRules(s.rules);
+  }
+  const freshProxyRules = JSON.stringify({ r: s.proxy_rules, n: s.all_nodes.map((n) => n.id + n.name), m: s.mode, e: s.rule_set_errors });
+  if (freshProxyRules !== renderedProxyRules && pdraft === null) {
+    renderedProxyRules = freshProxyRules;
+    renderProxyRules(s.proxy_rules);
   }
 
   $("c-tunnels").textContent = s.tunnels.length || "";
   $("c-nodes").textContent = s.all_nodes.length || "";
   $("c-rules").textContent = s.rules.length || "";
+  $("c-proxy-rules").textContent = s.proxy_rules.length || "";
   if (s.version) {
     $("rail-version-text").textContent = s.version;
   }
   renderPrompt(s.prompts);
 }
 
-let lastPhase = null;
+const POWER_SVG = `<svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z"/></svg>`;
+const SPIN_SVG = `<svg class="spin" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>`;
 
 function renderPhase(st) {
-  const phase = (st.session && st.session.phase) || "setup";
+  let phase = (st.session && st.session.phase) || "idle";
+  if (phase === "setup") phase = "idle";
   const pill = $("bar-status-pill");
   const text = $("bar-phase-text");
 
   pill.className = "status-pill " + (phase === "connected" ? "live" : phase === "connecting" ? "connecting" : phase === "failed" ? "bad" : "");
   text.textContent = t("phase." + phase);
 
-  // Home card status
   const orb = $("home-status-orb");
   orb.className = "status-orb " + (phase === "connected" ? "connected" : phase === "connecting" ? "connecting" : phase === "failed" ? "failed" : "");
   $("home-phase-title").textContent = t("phase." + phase);
 
-  const subDesc = phase === "setup" ? t("home.phaseSetupSub")
-                : phase === "connecting" ? t("home.phaseConnectingSub")
+  const subDesc = phase === "connecting" ? t("home.phaseConnectingSub")
                 : phase === "connected" ? t("home.phaseConnectedSub")
                 : phase === "failed" ? (st.session.last_error || t("home.phaseFailedSub"))
                 : t("home.phaseIdleSub");
   $("home-phase-sub").textContent = subDesc;
 
-  // Master switch button on Home
   const btn = $("home-master-btn");
   const btnText = $("home-master-btn-text");
   const btnSvg = btn.querySelector("svg");
-
   if (phase === "connected") {
     btn.className = "master-btn disconnect";
     btn.disabled = false;
     btnText.textContent = t("home.disconnect");
-    if (btnSvg) btnSvg.outerHTML = `<svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z"/></svg>`;
+    if (btnSvg) btnSvg.outerHTML = POWER_SVG;
   } else if (phase === "connecting") {
     btn.className = "master-btn connecting";
     btn.disabled = true;
     btnText.textContent = t("home.connecting");
-    if (btnSvg) btnSvg.outerHTML = `<svg class="spin" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>`;
+    if (btnSvg) btnSvg.outerHTML = SPIN_SVG;
   } else if (phase === "failed") {
     btn.className = "master-btn connect";
     btn.disabled = false;
     btnText.textContent = t("home.retry");
-    if (btnSvg) btnSvg.outerHTML = `<svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>`;
-  } else if (phase === "setup") {
-    btn.className = "master-btn connect";
-    btn.disabled = false;
-    btnText.textContent = t("home.importNow");
-    if (btnSvg) btnSvg.outerHTML = `<svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`;
+    if (btnSvg) btnSvg.outerHTML = SPIN_SVG.replace(' class="spin"', "");
   } else {
     btn.className = "master-btn connect";
     btn.disabled = false;
     btnText.textContent = t("home.connect");
-    if (btnSvg) btnSvg.outerHTML = `<svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z"/></svg>`;
+    if (btnSvg) btnSvg.outerHTML = POWER_SVG;
   }
 
-  const ready = phase !== "setup";
+  // The gateway's own panes mean nothing until there is a gateway, and the
+  // logs only to an administrator.
+  const gw = gatewayOf(st);
+  const configured = !!gw.configured;
   const isAdmin = !!(st && st.is_admin);
   document.querySelectorAll('.rail button[data-pane]').forEach((b) => {
-    if (b.dataset.pane === "nodes") {
-      b.style.display = "none";
-      return;
-    }
     if (b.dataset.pane === "logs") {
-      b.style.display = isAdmin ? "" : "none";
-      b.hidden = !ready && b.dataset.pane !== "setup" && b.dataset.pane !== "home";
+      b.hidden = !configured || !isAdmin;
       return;
     }
-    b.hidden = !ready && b.dataset.pane !== "setup" && b.dataset.pane !== "home";
+    if (b.hasAttribute("data-gateway")) b.hidden = !configured;
   });
+  const open = document.querySelector('.rail button[data-pane="' + currentPane() + '"]');
+  if (open && open.hidden) showPane("gateway");
 
-  if (!ready && lastPhase !== "setup" && currentPane() === "") {
-    showPane("home");
-  }
-  lastPhase = phase;
+  const dot = $("rail-gw-dot");
+  dot.className = "gw-dot " + (gw.phase === "connected" ? "live" : gw.phase === "connecting" ? "amber" : gw.phase === "failed" ? "down" : "");
 
   if (phase === "failed" && st.session.last_error) {
     $("home-offline").hidden = false;
@@ -2146,103 +2650,144 @@ function renderPhase(st) {
 }
 
 function renderReadout(s) {
-  const activeMode = s.mode || "direct";
-
-  // Segmented mode switcher buttons
-  document.querySelectorAll(".mode-btn").forEach((b) => {
-    b.classList.toggle("active", b.dataset.mode === activeMode);
-  });
-
-  // Home mode cards
+  const activeMode = s.mode || "rule";
   document.querySelectorAll(".mode-card").forEach((c) => {
     c.classList.toggle("active", c.dataset.mode === activeMode);
   });
 
-  if ($("r-up") && $("r-total")) {
-    const wanted = s.tunnels.filter((t) => t.wanted);
-    const up = wanted.filter((t) => t.up).length;
-    $("r-up").textContent = up;
-    $("r-total").textContent = wanted.length;
-  }
-
-  if ($("r-ingress")) {
-    const ingress = [s.client.tun && t("bar.tun"), s.client.proxy && t("bar.proxy")].filter(Boolean);
-    $("r-ingress").textContent = ingress.join(" + ") || t("bar.none");
-  }
-
-  // Bottom sidebar metadata
-  const onOff = (v) => v ? "开" : "关";
   const bits = [];
-  if (s.client.username) bits.push(t("auth.username") + ": " + s.client.username);
-  if (s.client.dns_default) bits.push("DNS: " + (s.client.dns_default === "local" ? "系统默认" : s.client.dns_default));
-  bits.push(t("settings.autoroutes") + ": " + onOff(s.client.auto_routes));
-  bits.push(t("settings.autodomains") + ": " + onOff(s.client.auto_domains));
+  bits.push(t("mode.title") + ": " + t("mode." + activeMode));
+  bits.push(t("home.statProxy") + ": " + proxyLabel(s));
+  const gw = gatewayOf(s);
+  if (gw.configured) bits.push(t("gw.title") + ": " + t("gw." + gw.phase));
+  if (s.client.dns_default) bits.push("DNS: " + s.client.dns_default);
   $("railmeta").textContent = bits.join("\n");
+}
+
+// nodeByTag finds a node from an outbound tag ("node-…").
+function nodeByTag(tag) {
+  if (!tag) return null;
+  const id = tag.replace(/^node-/, "");
+  return (state.all_nodes || []).find((n) => n.id === id) || null;
+}
+
+// proxyLabel says where the proxy group sends traffic: the node chosen, or
+// auto and the node auto has settled on, or direct.
+function proxyLabel(s) {
+  const nodes = s.all_nodes || [];
+  const sel = s.selected_node || "";
+  if (!nodes.length || sel === "direct") return t("nodes.noActiveProxy");
+  if (sel.startsWith("node-")) {
+    const n = nodeByTag(sel);
+    if (n) return n.name;
+  }
+  const settled = nodeByTag(s.auto_now);
+  return settled ? t("nodes.autoNow", settled.name) : t("nodes.autoPending");
+}
+
+// activeNode is the node traffic is actually leaving through, if any.
+function activeNode(s) {
+  const sel = s.selected_node || "";
+  if (sel === "direct") return null;
+  if (sel.startsWith("node-")) return nodeByTag(sel);
+  return nodeByTag(s.auto_now);
 }
 
 /* --- Home Overview Pane Rendering -------------------------------------- */
 function renderHome(s) {
-  const activeMode = s.mode || "direct";
-  const allNodes = s.all_nodes || [];
-  const selectedTag = s.selected_node || "";
-
-  // Stat values
+  const activeMode = s.mode || "rule";
   $("h-mode-val").textContent = t("mode." + activeMode);
   $("h-ingress-val").textContent = s.client.tun ? t("bar.tun") : s.client.proxy ? t("bar.proxy") : t("bar.none");
+  $("h-proxy-val").textContent = activeMode === "direct" ? t("mode.direct") : proxyLabel(s);
 
-  const wanted = s.tunnels.filter((t) => t.wanted);
-  const up = wanted.filter((t) => t.up).length;
-  $("h-tunnels-val").textContent = up + " / " + (s.tunnels.length || 0);
+  const gw = gatewayOf(s);
+  const wanted = s.tunnels.filter((x) => x.wanted);
+  const up = wanted.filter((x) => x.up).length;
+  $("h-gateway-val").textContent = !gw.configured || gw.phase === "off" ? t("home.statGatewayOff")
+    : gw.phase === "connected" ? up + " / " + wanted.length
+    : t("gw." + gw.phase);
 
-  let activeNodeName = t("nodes.noActiveProxy");
-  let activeNodePing = null;
-  if (selectedTag) {
-    const cleanTag = selectedTag.replace(/^node-/, "");
-    const found = allNodes.find((n) => n.id === selectedTag || n.id === cleanTag || "node-" + n.id === selectedTag);
-    if (found) {
-      activeNodeName = found.name;
-      activeNodePing = latencies[found.id];
-    }
-  }
-  $("h-proxy-val").textContent = activeMode === "direct" ? t("mode.direct") : activeNodeName;
-  $("home-active-proxy-name").textContent = activeNodeName;
-
+  $("home-active-proxy-name").textContent = proxyLabel(s);
+  const n = activeNode(s);
+  const ping = n ? latencies[n.id] : undefined;
   const pingBadge = $("home-active-proxy-ping");
-  if (activeNodePing !== null && activeNodePing !== undefined) {
+  if (ping !== undefined) {
     pingBadge.hidden = false;
-    pingBadge.className = "badge ping " + (activeNodePing < 0 ? "down" : activeNodePing < 200 ? "live" : "amber");
-    pingBadge.textContent = activeNodePing < 0 ? t("nodes.timeout") : activeNodePing + " ms";
+    pingBadge.className = "badge ping " + latencyClass(ping);
+    pingBadge.textContent = latencyText(ping);
   } else {
     pingBadge.hidden = true;
   }
 
+  // The gateway card: a switch of its own, and a way to it when there is
+  // nothing to switch yet.
+  $("home-gw-badge").textContent = t("gw." + gw.phase);
+  $("home-gw-badge").className = "badge " + gatewayBadgeClass(gw.phase);
+  $("home-gw-sub").textContent = gatewaySub(s);
+  $("home-gw-switch-wrap").hidden = !gw.configured;
+  $("home-gw-switch").checked = !!gw.enabled;
+  $("home-gw-manage").textContent = gw.configured ? t("gw.manage") : t("gw.importNow");
+
   loadService();
+}
+
+function gatewayBadgeClass(phase) {
+  return phase === "connected" ? "live" : phase === "failed" ? "down" : phase === "connecting" ? "amber" : phase === "idle" ? "primary" : "";
+}
+
+function gatewaySub(s) {
+  const gw = gatewayOf(s);
+  switch (gw.phase) {
+    case "unconfigured": return t("gw.subUnconfigured");
+    case "off": return t("gw.subOff");
+    case "idle": return t("gw.subIdle");
+    case "connecting": return gw.last_error ? t("gw.subConnecting") + " " + gw.last_error : t("gw.subConnecting");
+    case "failed": return t("gw.subFailed") + (gw.last_error ? " " + gw.last_error : "");
+    case "connected": {
+      const wanted = s.tunnels.filter((x) => x.wanted);
+      return t("gw.subConnected", wanted.filter((x) => x.up).length, s.tunnels.length);
+    }
+  }
+  return "";
+}
+
+function latencyClass(ms) {
+  return ms < 0 ? "down" : ms < 300 ? "live" : ms < 800 ? "amber" : "down";
+}
+function latencyText(ms) {
+  return ms < 0 ? t("nodes.timeout") : ms + " ms";
+}
+
+function connectErrorText(e) {
+  let errMsg = e.message;
+  if (errMsg && (errMsg.includes("permission denied") || errMsg.includes("operation not permitted") || errMsg.includes("elevated privileges") || errMsg.includes("Access is denied") || errMsg.includes("access is denied") || errMsg.includes("提权服务"))) {
+    errMsg = t("service.tunNeedsServiceSub") + "：" + t("service.tunNeedsServiceDesc").replace(/\n+/g, " ");
+  }
+  return errMsg;
+}
+
+// needsService says whether starting the engine has to wait for the helper
+// service: TUN asks for privileges this process may not have.
+function needsService() {
+  return state.client && state.client.tun && service.supported && !service.installed;
 }
 
 /* Master Switch Toggle Event */
 $("home-master-btn").addEventListener("click", async () => {
-  const currentPhase = state.session ? state.session.phase : "setup";
-  if (currentPhase === "setup") {
-    showPane("setup");
-    return;
-  }
+  const currentPhase = state.session ? state.session.phase : "idle";
   const isConnected = currentPhase === "connected";
 
-  // If TUN mode is enabled on a system supporting helper service, but service is not installed:
-  if (!isConnected && state.client && state.client.tun && service.supported && !service.installed) {
+  if (!isConnected && needsService()) {
     $("tun-service-modal-veil").hidden = false;
     return;
   }
 
   const path = isConnected ? "/api/disconnect" : "/api/connect";
-
-  // Immediately render intermediate connecting / disconnecting state
   if (state && state.session) {
     state.session.phase = isConnected ? "idle" : "connecting";
     renderPhase(state);
     if (isConnected) {
-      const btn = $("home-master-btn");
-      btn.disabled = true;
+      $("home-master-btn").disabled = true;
       $("home-master-btn-text").textContent = t("home.disconnecting");
     }
   }
@@ -2252,11 +2797,8 @@ $("home-master-btn").addEventListener("click", async () => {
     $("home-offline").hidden = true;
     render(await res.json());
   } catch (e) {
+    const errMsg = connectErrorText(e);
     $("home-offline").hidden = false;
-    let errMsg = e.message;
-    if (errMsg && (errMsg.includes("permission denied") || errMsg.includes("operation not permitted") || errMsg.includes("elevated privileges") || errMsg.includes("Access is denied") || errMsg.includes("access is denied") || errMsg.includes("提权服务"))) {
-      errMsg = t("service.tunNeedsServiceSub") + "：" + t("service.tunNeedsServiceDesc").replace(/\n+/g, " ");
-    }
     $("home-offline").textContent = errMsg;
     if (state) {
       if (state.session && !isConnected) {
@@ -2268,9 +2810,35 @@ $("home-master-btn").addEventListener("click", async () => {
   }
 });
 
+/* The gateway's switch: on starts the engine too when it is stopped, which is
+   the one-click connect the gateway always had; off leaves the proxy running. */
+async function setGateway(on, input) {
+  if (on && state.session.phase !== "connected" && needsService()) {
+    input.checked = false;
+    $("tun-service-modal-veil").hidden = false;
+    return;
+  }
+  input.disabled = true;
+  try {
+    const res = await api("/api/gateway", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: on }),
+    });
+    render(await res.json());
+  } catch (e) {
+    input.checked = !on;
+    alert(connectErrorText(e));
+  } finally {
+    input.disabled = false;
+  }
+}
+$("home-gw-switch").addEventListener("change", (e) => setGateway(e.target.checked, e.target));
+$("gw-switch").addEventListener("change", (e) => setGateway(e.target.checked, e.target));
+
 /* Mode Switching Click Handlers */
 async function switchMode(mode) {
-  if (!mode) return;
+  if (!mode || mode === state.mode) return;
   try {
     const res = await api("/api/mode", {
       method: "POST",
@@ -2284,15 +2852,9 @@ async function switchMode(mode) {
 }
 
 document.addEventListener("click", (e) => {
-  const modeBtn = e.target.closest(".mode-btn");
-  if (modeBtn) {
-    switchMode(modeBtn.dataset.mode);
-    return;
-  }
   const modeCard = e.target.closest(".mode-card");
   if (modeCard) {
     switchMode(modeCard.dataset.mode);
-    return;
   }
 });
 
@@ -2704,228 +3266,214 @@ function renderTunnels(tunnels) {
 
 /* --- Nodes & Subscriptions Rendering ---------------------------------- */
 let editingNodeId = null;
+let editingSubId = null;
+
+function nodesNote(cls, text) {
+  const note = $("nodes-note");
+  note.className = "note" + (cls ? " " + cls : "");
+  note.textContent = text || "";
+}
+
+function formatBytes(n) {
+  if (!n) return "0";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return (n >= 100 || i === 0 ? n.toFixed(0) : n.toFixed(1)) + " " + units[i];
+}
+
+async function selectProxy(id) {
+  try {
+    const res = await api("/api/nodes/select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    render(await res.json());
+  } catch (e) {
+    nodesNote("bad", e.message);
+  }
+}
+document.querySelectorAll(".pick-chip[data-pick]").forEach((b) =>
+  b.addEventListener("click", () => selectProxy(b.dataset.pick)));
 
 function renderNodes(s) {
   const subsBox = $("subscriptions-list");
   const nodesBox = $("nodes-list");
   if (!subsBox || !nodesBox) return;
-  subsBox.textContent = "";
-  nodesBox.textContent = "";
 
   const subs = s.subscriptions || [];
   const allNodes = s.all_nodes || [];
-  const selectedTag = s.selected_node || "";
+  const sel = s.selected_node || "";
 
-  $("c-nodes").textContent = allNodes.length || "";
+  $("nodes-active-name").textContent = proxyLabel(s);
+  $("pick-auto").classList.toggle("active", !!allNodes.length && sel !== "direct" && !sel.startsWith("node-"));
+  $("pick-direct").classList.toggle("active", !allNodes.length || sel === "direct");
 
-  // 1. Subscriptions list
+  // 1. Subscriptions
+  subsBox.textContent = "";
   if (!subs.length) {
     subsBox.appendChild(el("div", "empty-state", t("nodes.emptySubs")));
-  } else {
-    subs.forEach((sub) => {
-      const card = el("div", "sub-card");
-      const head = el("div", "sub-head");
-      const nameWrap = el("div", "sub-name");
-      nameWrap.appendChild(el("span", null, sub.name + " "));
-      const count = sub.nodes ? sub.nodes.length : 0;
-      nameWrap.appendChild(el("span", "badge primary", t("nodes.nodeCount", count)));
-      head.appendChild(nameWrap);
+  }
+  subs.forEach((sub) => {
+    const card = el("div", "sub-card");
+    const head = el("div", "sub-head");
+    const nameWrap = el("div", "sub-name");
+    nameWrap.appendChild(el("span", null, sub.name + " "));
+    nameWrap.appendChild(el("span", "badge primary", t("nodes.nodeCount", sub.nodes ? sub.nodes.length : 0)));
+    if (sub.auto_update) nameWrap.appendChild(el("span", "badge", t("nodes.autoUpdate")));
+    head.appendChild(nameWrap);
 
-      const acts = el("div", null);
-      const updateBtn = el("button", "act", t("nodes.update"));
-      updateBtn.addEventListener("click", async () => {
-        updateBtn.disabled = true;
-        const note = $("nodes-note");
-        note.className = "note";
-        note.textContent = t("nodes.updating");
-        try {
-          const res = await api("/api/subscriptions/" + encodeURIComponent(sub.id) + "/update", { method: "POST" });
-          note.className = "note good";
-          note.textContent = t("nodes.updated");
-          render(await res.json());
-        } catch (e) {
-          note.className = "note bad";
-          note.textContent = e.message;
-        } finally {
-          updateBtn.disabled = false;
-        }
-      });
-
-      const delBtn = el("button", "act quiet", t("nodes.delete"));
-      delBtn.addEventListener("click", async () => {
-        if (!confirm(t("nodes.delete") + ": " + sub.name + "?")) return;
-        delBtn.disabled = true;
-        try {
-          const res = await api("/api/subscriptions/" + encodeURIComponent(sub.id), { method: "DELETE" });
-          render(await res.json());
-        } catch (e) {
-          $("nodes-note").className = "note bad";
-          $("nodes-note").textContent = e.message;
-        } finally {
-          delBtn.disabled = false;
-        }
-      });
-
-      acts.append(updateBtn, " ", delBtn);
-      head.appendChild(acts);
-      card.appendChild(head);
-
-      const urlEl = el("div", "sub-url", sub.url);
-      card.appendChild(urlEl);
-
-      const meta = el("div", "sub-meta");
-      const updatedStr = sub.updated_at ? t("nodes.lastUpdated", new Date(sub.updated_at).toLocaleString()) : t("nodes.neverUpdated");
-      meta.appendChild(el("span", null, updatedStr));
-      card.appendChild(meta);
-
-      subsBox.appendChild(card);
+    const acts = el("div", null);
+    const updateBtn = el("button", "act", t("nodes.update"));
+    updateBtn.addEventListener("click", async () => {
+      updateBtn.disabled = true;
+      nodesNote("", t("nodes.updating"));
+      try {
+        const res = await api("/api/subscriptions/" + encodeURIComponent(sub.id) + "/update", { method: "POST" });
+        nodesNote("good", t("nodes.updated"));
+        render(await res.json());
+      } catch (e) {
+        nodesNote("bad", e.message);
+      } finally {
+        updateBtn.disabled = false;
+      }
     });
+    const editBtn = el("button", "act quiet", t("nodes.edit"));
+    editBtn.addEventListener("click", () => openSubModal(sub));
+    const delBtn = el("button", "act quiet", t("nodes.delete"));
+    delBtn.addEventListener("click", async () => {
+      if (!confirm(t("nodes.delete") + ": " + sub.name + "?")) return;
+      delBtn.disabled = true;
+      try {
+        const res = await api("/api/subscriptions/" + encodeURIComponent(sub.id), { method: "DELETE" });
+        render(await res.json());
+      } catch (e) {
+        nodesNote("bad", e.message);
+      } finally {
+        delBtn.disabled = false;
+      }
+    });
+    acts.append(updateBtn, " ", editBtn, " ", delBtn);
+    head.appendChild(acts);
+    card.appendChild(head);
+    card.appendChild(el("div", "sub-url", sub.url));
+
+    const meta = el("div", "sub-meta");
+    meta.appendChild(el("span", null, sub.updated_at ? t("nodes.lastUpdated", new Date(sub.updated_at).toLocaleString()) : t("nodes.neverUpdated")));
+    card.appendChild(meta);
+
+    const u = sub.usage;
+    if (u) {
+      const used = (u.upload || 0) + (u.download || 0);
+      const wrap = el("div", "usage");
+      if (u.total) {
+        const bar = el("div", "usage-bar");
+        const pct = Math.min(100, Math.round(used / u.total * 100));
+        const fill = el("span", pct >= 100 ? "full" : pct >= 85 ? "warn" : "");
+        fill.style.width = pct + "%";
+        bar.appendChild(fill);
+        wrap.appendChild(bar);
+      }
+      const txt = el("div", "usage-text");
+      txt.appendChild(el("span", null, t("nodes.used", formatBytes(used), u.total ? formatBytes(u.total) : t("nodes.unlimited"))));
+      if (u.expire) txt.appendChild(el("span", null, t("nodes.expires", new Date(u.expire * 1000).toLocaleDateString())));
+      wrap.appendChild(txt);
+      card.appendChild(wrap);
+    }
+    subsBox.appendChild(card);
+  });
+
+  // 2. Source filter, kept across redraws.
+  const srcSel = $("nodes-source");
+  const keepSrc = srcSel.value;
+  const srcOpts = [["", t("nodes.allSources")], ["custom", t("nodes.customSource")]].concat(subs.map((x) => [x.id, x.name]));
+  if (srcSel.options.length !== srcOpts.length || [...srcSel.options].some((o, i) => o.value !== srcOpts[i][0] || o.textContent !== srcOpts[i][1])) {
+    srcSel.replaceChildren(...srcOpts.map(([v, label]) => { const o = el("option", null, label); o.value = v; return o; }));
+    srcSel.value = srcOpts.some((o) => o[0] === keepSrc) ? keepSrc : "";
   }
 
-  // 2. All Nodes list
-  if (!allNodes.length) {
+  // 3. Nodes
+  const filter = $("nodes-filter").value.trim().toLowerCase();
+  const src = srcSel.value;
+  let shown = allNodes.filter((n) => {
+    if (src === "custom" && n.subscription_id) return false;
+    if (src && src !== "custom" && n.subscription_id !== src) return false;
+    if (filter && !(n.name + " " + n.server + " " + n.type).toLowerCase().includes(filter)) return false;
+    return true;
+  });
+  const sort = $("nodes-sort").value;
+  if (sort === "name") shown = shown.slice().sort((x, y) => x.name.localeCompare(y.name));
+  if (sort === "latency") {
+    const key = (n) => { const v = latencies[n.id]; return v === undefined ? 1e9 : v < 0 ? 1e8 : v; };
+    shown = shown.slice().sort((x, y) => key(x) - key(y));
+  }
+
+  nodesBox.textContent = "";
+  if (!shown.length) {
     nodesBox.appendChild(el("div", "empty-state", t("nodes.emptyNodes")));
-  } else {
-    allNodes.forEach((n) => {
-      const isSelected = selectedTag === n.id || selectedTag === "node-" + n.id || ("node-" + selectedTag) === ("node-" + n.id);
-      const card = el("div", "node-card" + (isSelected ? " active" : ""));
+    return;
+  }
+  const active = activeNode(s);
+  shown.forEach((n) => {
+    const picked = sel === "node-" + n.id;
+    const tile = el("div", "node-tile" + (picked || (active && active.id === n.id && !sel.startsWith("node-") && sel !== "direct") ? " active" : "") + (n.unsupported ? " unsupported" : ""));
+    tile.title = n.unsupported || n.name;
 
-      // Info
-      const info = el("div", null);
-      const nameLine = el("div", "node-name");
-      nameLine.appendChild(el("span", null, n.name));
-      if (isSelected) {
-        nameLine.appendChild(el("span", "badge live", t("nodes.active")));
-      }
-      const typeBadge = n.subscription_id ? t("t.subPrefix").trim() : t("t.customPrefix").trim();
-      nameLine.appendChild(el("span", "badge", typeBadge));
-      info.appendChild(nameLine);
+    const head = el("div", "nt-head");
+    head.appendChild(el("span", "nt-name", n.name));
+    head.appendChild(el("span", "badge", (n.type || "trojan").toUpperCase()));
+    tile.appendChild(head);
+    tile.appendChild(el("div", "nt-addr", n.server + ":" + n.port));
+    if (n.unsupported) tile.appendChild(el("div", "nt-why", t("nodes.unsupported") + ": " + n.unsupported));
 
-      const details = el("div", "node-detail");
-      details.appendChild(el("span", null, n.server + ":" + n.port));
-      if (n.sni && n.sni !== n.server) details.appendChild(el("span", null, "SNI: " + n.sni));
-      if (n.allow_insecure) details.appendChild(el("span", null, "Insecure"));
-      info.appendChild(details);
-      card.appendChild(info);
+    const foot = el("div", "nt-foot");
+    const lat = latencies[n.id];
+    if (lat !== undefined) foot.appendChild(el("span", "badge ping " + latencyClass(lat), latencyText(lat)));
+    if (picked) foot.appendChild(el("span", "badge live", t("nodes.active")));
+    foot.appendChild(el("span", "grow"));
 
-      // Latency Ping
-      const pingWrap = el("div", null);
-      pingWrap.style.display = "flex";
-      pingWrap.style.alignItems = "center";
-      pingWrap.style.gap = "8px";
-      const lat = latencies[n.id];
-      if (lat !== undefined) {
-        const cls = lat < 0 ? "down" : lat < 200 ? "live" : lat < 500 ? "amber" : "down";
-        const txt = lat < 0 ? t("nodes.timeout") : lat + " ms";
-        pingWrap.appendChild(el("span", "badge ping " + cls, txt));
-      }
-      const pingBtn = el("button", "act quiet", t("nodes.ping"));
-      pingBtn.addEventListener("click", async () => {
-        pingBtn.disabled = true;
-        pingBtn.textContent = "…";
+    const pingBtn = el("button", "act quiet", t("nodes.ping"));
+    pingBtn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      pingBtn.disabled = true;
+      pingBtn.textContent = "…";
+      await pingNodes(n.id);
+      pingBtn.disabled = false;
+      pingBtn.textContent = t("nodes.ping");
+    });
+    foot.appendChild(pingBtn);
+
+    if (!n.subscription_id) {
+      const editBtn = el("button", "act quiet", t("nodes.edit"));
+      editBtn.addEventListener("click", (ev) => { ev.stopPropagation(); openNodeModal(n); });
+      const delBtn = el("button", "act quiet", t("nodes.delete"));
+      delBtn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        if (!confirm(t("nodes.delete") + ": " + n.name + "?")) return;
         try {
-          const res = await api("/api/nodes/ping", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: n.id }),
-          });
-          const data = await res.json();
-          if (data.latencies) {
-            Object.assign(latencies, data.latencies);
-            renderNodes(state);
-            renderHome(state);
-          }
+          const res = await api("/api/nodes/" + encodeURIComponent(n.id), { method: "DELETE" });
+          render(await res.json());
         } catch (e) {
-          $("nodes-note").className = "note bad";
-          $("nodes-note").textContent = e.message;
-        } finally {
-          pingBtn.disabled = false;
-          pingBtn.textContent = t("nodes.ping");
+          nodesNote("bad", e.message);
         }
       });
-      pingWrap.appendChild(pingBtn);
-      card.appendChild(pingWrap);
-
-      // Actions
-      const acts = el("div", null);
-      if (isSelected) {
-        const deselectBtn = el("button", "act quiet", t("nodes.deselect"));
-        deselectBtn.addEventListener("click", async () => {
-          deselectBtn.disabled = true;
-          try {
-            const res = await api("/api/nodes/select", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ id: "" }),
-            });
-            render(await res.json());
-          } catch (e) {
-            $("nodes-note").className = "note bad";
-            $("nodes-note").textContent = e.message;
-          } finally {
-            deselectBtn.disabled = false;
-          }
-        });
-        acts.appendChild(deselectBtn);
-      } else {
-        const selectBtn = el("button", "act primary", t("nodes.select"));
-        selectBtn.addEventListener("click", async () => {
-          selectBtn.disabled = true;
-          try {
-            const res = await api("/api/nodes/select", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ id: n.id }),
-            });
-            render(await res.json());
-          } catch (e) {
-            $("nodes-note").className = "note bad";
-            $("nodes-note").textContent = e.message;
-          } finally {
-            selectBtn.disabled = false;
-          }
-        });
-        acts.appendChild(selectBtn);
-      }
-
-      if (!n.subscription_id) {
-        const editBtn = el("button", "act quiet", t("nodes.edit"));
-        editBtn.addEventListener("click", () => openEditNodeModal(n));
-        acts.append(" ", editBtn);
-
-        const delBtn = el("button", "act quiet", t("nodes.delete"));
-        delBtn.addEventListener("click", async () => {
-          if (!confirm(t("nodes.delete") + ": " + n.name + "?")) return;
-          delBtn.disabled = true;
-          try {
-            const res = await api("/api/nodes/" + encodeURIComponent(n.id), { method: "DELETE" });
-            render(await res.json());
-          } catch (e) {
-            $("nodes-note").className = "note bad";
-            $("nodes-note").textContent = e.message;
-          } finally {
-            delBtn.disabled = false;
-          }
-        });
-        acts.append(" ", delBtn);
-      }
-
-      card.appendChild(acts);
-      nodesBox.appendChild(card);
-    });
-  }
+      foot.append(editBtn, delBtn);
+    }
+    tile.appendChild(foot);
+    if (!n.unsupported) tile.addEventListener("click", () => selectProxy(n.id));
+    nodesBox.appendChild(tile);
+  });
 }
+["nodes-filter", "nodes-source", "nodes-sort"].forEach((id) =>
+  $(id).addEventListener(id === "nodes-filter" ? "input" : "change", () => renderNodes(state)));
 
-$("ping-all-btn").addEventListener("click", async () => {
-  const btn = $("ping-all-btn");
-  btn.disabled = true;
-  $("nodes-note").className = "note";
-  $("nodes-note").textContent = t("nodes.testing");
+async function pingNodes(id) {
   try {
     const res = await api("/api/nodes/ping", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify(id ? { id } : {}),
     });
     const data = await res.json();
     if (data.latencies) {
@@ -2933,13 +3481,19 @@ $("ping-all-btn").addEventListener("click", async () => {
       renderNodes(state);
       renderHome(state);
     }
-    $("nodes-note").textContent = "";
+    return true;
   } catch (e) {
-    $("nodes-note").className = "note bad";
-    $("nodes-note").textContent = e.message;
-  } finally {
-    btn.disabled = false;
+    nodesNote("bad", e.message);
+    return false;
   }
+}
+
+$("ping-all-btn").addEventListener("click", async () => {
+  const btn = $("ping-all-btn");
+  btn.disabled = true;
+  nodesNote("", t("nodes.testing"));
+  if (await pingNodes("")) nodesNote("", "");
+  btn.disabled = false;
 });
 
 $("update-all-subs-btn").addEventListener("click", async () => {
@@ -2947,112 +3501,124 @@ $("update-all-subs-btn").addEventListener("click", async () => {
   if (!subs.length) return;
   const btn = $("update-all-subs-btn");
   btn.disabled = true;
-  $("nodes-note").className = "note";
-  $("nodes-note").textContent = t("nodes.updating");
+  nodesNote("", t("nodes.updating"));
   try {
+    let latest = state;
     for (const sub of subs) {
       const res = await api("/api/subscriptions/" + encodeURIComponent(sub.id) + "/update", { method: "POST" });
-      state = await res.json();
+      latest = await res.json();
     }
-    $("nodes-note").className = "note good";
-    $("nodes-note").textContent = t("nodes.updated");
-    render(state);
+    nodesNote("good", t("nodes.updated"));
+    render(latest);
   } catch (e) {
-    $("nodes-note").className = "note bad";
-    $("nodes-note").textContent = e.message;
+    nodesNote("bad", e.message);
   } finally {
     btn.disabled = false;
   }
 });
 
-function openAddNodeModal() {
-  editingNodeId = null;
-  $("node-modal-title").textContent = t("nodes.modalAddNode");
-  $("node-url-input").value = "";
-  $("node-name-input").value = "";
-  $("node-server-input").value = "";
-  $("node-port-input").value = "443";
-  $("node-pass-input").value = "";
-  $("node-sni-input").value = "";
-  $("node-insecure-input").checked = false;
-  $("node-modal-err").textContent = "";
-  $("node-modal-veil").hidden = false;
-  $("node-url-input").focus();
+/* The node form shows only the fields the chosen protocol has. Each field
+   names the protocols (and the transport, and "tls" for optional TLS) it
+   belongs to. */
+const TLS_OPTIONAL = ["vmess", "vless", "http"];
+const NODE_FIELDS = {
+  name: "node-name-input", server: "node-server-input", uuid: "node-uuid-input",
+  username: "node-user-input", password: "node-pass-input", sni: "node-sni-input",
+  path: "node-path-input", host: "node-host-input", service_name: "node-service-input",
+  plugin: "node-plugin-input", plugin_opts: "node-plugin-opts-input",
+  obfs_password: "node-obfs-pass-input", reality_public_key: "node-pbk-input", reality_short_id: "node-sid-input",
+};
+const NODE_SELECTS = {
+  flow: "node-flow-input", transport: "node-transport-input", obfs: "node-obfs-input",
+  congestion_control: "node-cc-input", udp_relay_mode: "node-udp-relay-input", fingerprint: "node-fp-input",
+};
+const NODE_NUMBERS = { port: "node-port-input", alter_id: "node-alterid-input", up_mbps: "node-up-input", down_mbps: "node-down-input" };
+
+function syncNodeForm() {
+  const type = $("node-type-input").value;
+  const tokens = new Set([type]);
+  const transport = $("node-transport-input").value;
+  if (["trojan", "vmess", "vless"].includes(type) && transport) tokens.add(transport === "httpupgrade" ? "httpupgrade" : transport);
+  if (TLS_OPTIONAL.includes(type) && $("node-tls-input").checked) tokens.add("tls");
+  document.querySelectorAll("#node-form [data-types]").forEach((f) => {
+    const types = f.dataset.types.split(" ").filter(Boolean);
+    f.hidden = types.length > 0 && !types.some((x) => tokens.has(x));
+  });
+}
+["node-type-input", "node-transport-input", "node-tls-input"].forEach((id) =>
+  $(id).addEventListener("change", syncNodeForm));
+
+function fillNodeForm(n) {
+  $("node-type-input").value = n.type || "vless";
+  Object.entries(NODE_FIELDS).forEach(([k, id]) => { $(id).value = n[k] || ""; });
+  Object.entries(NODE_SELECTS).forEach(([k, id]) => { $(id).value = n[k] || ""; });
+  Object.entries(NODE_NUMBERS).forEach(([k, id]) => { $(id).value = n[k] || ""; });
+  if (!n.port) $("node-port-input").value = "443";
+  $("node-method-input").value = (n.type === "shadowsocks" && n.method) || "2022-blake3-aes-128-gcm";
+  $("node-security-input").value = (n.type === "vmess" && n.method) || "";
+  $("node-tls-input").checked = !!n.tls;
+  $("node-insecure-input").checked = !!n.allow_insecure;
+  $("node-alpn-input").value = (n.alpn || []).join(",");
+  syncNodeForm();
 }
 
-function openEditNodeModal(node) {
-  editingNodeId = node.id;
-  $("node-modal-title").textContent = t("nodes.modalEditNode");
-  $("node-url-input").value = "";
-  $("node-name-input").value = node.name || "";
-  $("node-server-input").value = node.server || "";
-  $("node-port-input").value = String(node.port || 443);
-  $("node-pass-input").value = node.password || "";
-  $("node-sni-input").value = node.sni || "";
-  $("node-insecure-input").checked = !!node.allow_insecure;
-  $("node-modal-err").textContent = "";
-  $("node-modal-veil").hidden = false;
-  $("node-name-input").focus();
+function readNodeForm() {
+  const n = { type: $("node-type-input").value };
+  Object.entries(NODE_FIELDS).forEach(([k, id]) => { const v = $(id).value.trim(); if (v && !$(id).closest("[data-types]").hidden) n[k] = v; });
+  Object.entries(NODE_SELECTS).forEach(([k, id]) => { const v = $(id).value; if (v && !$(id).closest("[data-types]")?.hidden) n[k] = v; });
+  Object.entries(NODE_NUMBERS).forEach(([k, id]) => { const v = parseInt($(id).value, 10); if (v) n[k] = v; });
+  n.name = $("node-name-input").value.trim();
+  n.server = $("node-server-input").value.trim();
+  if (n.type === "shadowsocks") n.method = $("node-method-input").value;
+  if (n.type === "vmess" && $("node-security-input").value) n.method = $("node-security-input").value;
+  if (TLS_OPTIONAL.includes(n.type) || n.type === "socks") n.tls = $("node-tls-input").checked;
+  n.allow_insecure = $("node-insecure-input").checked;
+  const alpn = $("node-alpn-input").value.split(",").map((x) => x.trim()).filter(Boolean);
+  if (alpn.length) n.alpn = alpn;
+  if (n.reality_public_key) n.tls = true;
+  return n;
 }
 
-$("add-node-btn").addEventListener("click", openAddNodeModal);
+function openNodeModal(node) {
+  editingNodeId = node ? node.id : null;
+  $("node-modal-title").textContent = node ? t("nodes.modalEditNode") : t("nodes.modalAddNode");
+  $("node-link-section").hidden = !!node;
+  $("node-url-input").value = "";
+  fillNodeForm(node || { type: "vless", port: 443 });
+  $("node-modal-err").textContent = "";
+  $("node-modal-veil").hidden = false;
+  (node ? $("node-name-input") : $("node-url-input")).focus();
+}
+
+$("add-node-btn").addEventListener("click", () => openNodeModal(null));
 $("node-modal-cancel").addEventListener("click", () => { $("node-modal-veil").hidden = true; });
-
-$("node-url-input").addEventListener("input", () => {
-  const val = $("node-url-input").value.trim();
-  if (val.startsWith("trojan://")) {
-    try {
-      const u = new URL(val);
-      if (u.username) $("node-pass-input").value = decodeURIComponent(u.username);
-      if (u.hostname) $("node-server-input").value = u.hostname;
-      if (u.port) $("node-port-input").value = u.port;
-      if (u.hash) $("node-name-input").value = decodeURIComponent(u.hash.replace(/^#/, ""));
-      const sni = u.searchParams.get("sni") || u.searchParams.get("peer");
-      if (sni) $("node-sni-input").value = sni;
-      const allowInsecure = u.searchParams.get("allowInsecure");
-      if (allowInsecure === "1" || allowInsecure === "true") $("node-insecure-input").checked = true;
-    } catch (_) {}
-  }
-});
 
 $("node-modal-save").addEventListener("click", async () => {
   const btn = $("node-modal-save");
   const errBox = $("node-modal-err");
   errBox.textContent = "";
   btn.disabled = true;
-
-  const urlVal = $("node-url-input").value.trim();
-  const nameVal = $("node-name-input").value.trim();
-  const serverVal = $("node-server-input").value.trim();
-  const portVal = parseInt($("node-port-input").value.trim() || "443", 10);
-  const passVal = $("node-pass-input").value.trim();
-  const sniVal = $("node-sni-input").value.trim();
-  const insecureVal = $("node-insecure-input").checked;
-
+  const links = $("node-url-input").value.trim();
   try {
     let res;
     if (editingNodeId) {
       res = await api("/api/nodes/" + encodeURIComponent(editingNodeId), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: nameVal, server: serverVal, port: portVal,
-          password: passVal, sni: sniVal, allow_insecure: insecureVal,
-        }),
+        body: JSON.stringify(readNodeForm()),
       });
     } else {
-      const payload = urlVal ? { url: urlVal, name: nameVal } : {
-        name: nameVal, server: serverVal, port: portVal,
-        password: passVal, sni: sniVal, allow_insecure: insecureVal,
-      };
       res = await api("/api/nodes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(links ? { url: links } : { node: readNodeForm() }),
       });
     }
+    const before = (state.all_nodes || []).length;
     $("node-modal-veil").hidden = true;
-    render(await res.json());
+    const next = await res.json();
+    render(next);
+    if (!editingNodeId) nodesNote("good", t("nodes.added", next.all_nodes.length - before));
   } catch (e) {
     errBox.textContent = e.message;
   } finally {
@@ -3060,38 +3626,293 @@ $("node-modal-save").addEventListener("click", async () => {
   }
 });
 
-$("add-sub-btn").addEventListener("click", () => {
-  $("sub-name-input").value = "";
-  $("sub-url-input").value = "";
+function openSubModal(sub) {
+  editingSubId = sub ? sub.id : null;
+  $("sub-modal-title").textContent = sub ? t("nodes.modalEditSub") : t("nodes.modalAddSub");
+  $("sub-url-input").value = sub ? sub.url : "";
+  $("sub-name-input").value = sub ? sub.name : "";
+  $("sub-auto-input").checked = sub ? !!sub.auto_update : true;
+  $("sub-hours-input").value = sub && sub.update_hours ? sub.update_hours : "";
   $("sub-modal-err").textContent = "";
   $("sub-modal-veil").hidden = false;
-  $("sub-name-input").focus();
-});
+  $("sub-url-input").focus();
+}
+$("add-sub-btn").addEventListener("click", () => openSubModal(null));
 $("sub-modal-cancel").addEventListener("click", () => { $("sub-modal-veil").hidden = true; });
 
 $("sub-modal-save").addEventListener("click", async () => {
   const btn = $("sub-modal-save");
   const errBox = $("sub-modal-err");
   errBox.textContent = "";
-  const nameVal = $("sub-name-input").value.trim();
-  const urlVal = $("sub-url-input").value.trim();
-  if (!nameVal || !urlVal) {
-    errBox.textContent = "Please enter name and URL";
+  const body = {
+    name: $("sub-name-input").value.trim(),
+    url: $("sub-url-input").value.trim(),
+    auto_update: $("sub-auto-input").checked,
+    update_hours: parseInt($("sub-hours-input").value, 10) || 0,
+  };
+  if (!body.url) {
+    errBox.textContent = t("nodes.subURL");
     return;
   }
   btn.disabled = true;
+  if (!editingSubId) nodesNote("", t("nodes.updating"));
   try {
-    const res = await api("/api/subscriptions", {
-      method: "POST",
+    const res = await api(editingSubId ? "/api/subscriptions/" + encodeURIComponent(editingSubId) : "/api/subscriptions", {
+      method: editingSubId ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: nameVal, url: urlVal }),
+      body: JSON.stringify(body),
     });
     $("sub-modal-veil").hidden = true;
+    nodesNote("", "");
     render(await res.json());
   } catch (e) {
     errBox.textContent = e.message;
+    nodesNote("", "");
   } finally {
     btn.disabled = false;
+  }
+});
+
+/* --- Proxy (ordinary client) Rules ------------------------------------- */
+const PROXY_KINDS = ["domain_suffix", "domain", "domain_keyword", "geosite", "ip_cidr", "geoip", "process_name", "port"];
+
+// The common set: the local network and China direct, everything abroad
+// through the proxy. What matches none of them goes direct by default.
+const PRESET_RULES = [
+  { ip_cidr: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "100.64.0.0/10", "fc00::/7", "fe80::/10"], outbound: "direct" },
+  { geosite: ["cn"], outbound: "direct" },
+  { geosite: ["geolocation-!cn"], outbound: "proxy" },
+  { geoip: ["cn"], outbound: "direct" },
+];
+
+function cleanProxyRule(r) {
+  const out = { outbound: r.outbound || "proxy", disabled: !!r.disabled };
+  PROXY_KINDS.forEach((k) => { if (r[k] && r[k].length) out[k] = r[k]; });
+  return out;
+}
+
+function markProxyDirty() {
+  if (pdraft === null) pdraft = JSON.parse(JSON.stringify(state.proxy_rules || []));
+  $("prules-note").className = "note";
+  $("prules-note").textContent = t("rules.dirty");
+}
+
+function proxyTargets() {
+  const targets = [["proxy", t("t.proxy")], ["auto", t("t.auto")], ["direct", t("t.direct")], ["block", t("t.block")]];
+  (state.all_nodes || []).forEach((n) => targets.push(["node-" + n.id, t("t.nodePrefix") + n.name]));
+  return targets;
+}
+
+function renderProxyRules(rules) {
+  const box = $("prules");
+  box.textContent = "";
+
+  const banner = $("prules-mode-banner");
+  banner.hidden = state.mode === "rule";
+  banner.textContent = state.mode === "global" ? t("prules.modeGlobal") : t("prules.modeDirect");
+  const missing = Object.keys(state.rule_set_errors || {});
+  $("prules-sets-banner").hidden = !missing.length;
+  $("prules-sets-banner").textContent = t("prules.setsMissing", missing.join(", "));
+
+  if (!rules.length) {
+    box.appendChild(el("div", "empty-state", t("prules.empty")));
+    return;
+  }
+  const targets = proxyTargets();
+  rules.forEach((rule, ri) => {
+    const card = el("div", "prule" + (rule.disabled ? " disabled" : ""));
+    card.appendChild(el("span", "prule-idx", String(ri + 1)));
+
+    const body = el("div", null);
+    let kinds = PROXY_KINDS.filter((k) => rule[k] && rule[k].length);
+    if (!kinds.length) kinds = [Object.keys(rule).find((k) => PROXY_KINDS.includes(k)) || "domain_suffix"];
+    kinds.forEach((kind) => {
+      const line = el("div", "matcher-row");
+      const sel = el("select");
+      PROXY_KINDS.forEach((k) => {
+        const o = el("option", null, t("m." + k));
+        o.value = k;
+        if (k === kind) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.addEventListener("change", () => {
+        markProxyDirty();
+        const values = pdraft[ri][kind] || [];
+        delete pdraft[ri][kind];
+        pdraft[ri][sel.value] = sel.value === "port" ? values.map(Number).filter((n) => !isNaN(n)) : values;
+        renderProxyRules(pdraft);
+      });
+      const input = el("input");
+      input.type = "text";
+      input.placeholder = t("ph." + (["ip_cidr", "port", "geosite", "geoip", "process_name"].includes(kind) ? kind : "domain"));
+      input.value = (rule[kind] || []).join(", ");
+      input.addEventListener("input", () => {
+        markProxyDirty();
+        const parts = input.value.split(",").map((v) => v.trim()).filter(Boolean);
+        pdraft[ri][kind] = kind === "port" ? parts.map(Number).filter((n) => !isNaN(n)) : parts;
+      });
+      const drop = el("button", "act quiet", "✕");
+      drop.title = t("rules.dropMatcher");
+      drop.disabled = kinds.length === 1;
+      drop.addEventListener("click", () => {
+        markProxyDirty();
+        delete pdraft[ri][kind];
+        renderProxyRules(pdraft);
+      });
+      line.append(sel, input, drop);
+      body.appendChild(line);
+    });
+    const more = el("button", "act quiet", t("rules.matcher"));
+    more.style.fontSize = "11px";
+    more.addEventListener("click", () => {
+      markProxyDirty();
+      const unused = PROXY_KINDS.find((k) => !(k in pdraft[ri]));
+      if (unused) { pdraft[ri][unused] = []; renderProxyRules(pdraft); }
+    });
+    body.appendChild(more);
+    card.appendChild(body);
+
+    const side = el("div", "prule-side");
+    const target = el("select");
+    const opts = targets.slice();
+    if (rule.outbound && !opts.some((o) => o[0] === rule.outbound)) opts.push([rule.outbound, rule.outbound]);
+    opts.forEach(([v, label]) => {
+      const o = el("option", null, label);
+      o.value = v;
+      if (v === (rule.outbound || "proxy")) o.selected = true;
+      target.appendChild(o);
+    });
+    target.addEventListener("change", () => { markProxyDirty(); pdraft[ri].outbound = target.value; });
+    side.appendChild(target);
+
+    const acts = el("div", "prule-acts");
+    const mk = (label, fn, disabled) => {
+      const b = el("button", "act quiet", label);
+      b.disabled = !!disabled;
+      b.addEventListener("click", () => { markProxyDirty(); fn(); renderProxyRules(pdraft); });
+      acts.appendChild(b);
+    };
+    mk("↑", () => { [pdraft[ri - 1], pdraft[ri]] = [pdraft[ri], pdraft[ri - 1]]; }, ri === 0);
+    mk("↓", () => { [pdraft[ri + 1], pdraft[ri]] = [pdraft[ri], pdraft[ri + 1]]; }, ri === rules.length - 1);
+    mk(rule.disabled ? t("rules.enable") : t("rules.disable"), () => { pdraft[ri].disabled = !pdraft[ri].disabled; });
+    mk(t("rules.delete"), () => { pdraft.splice(ri, 1); });
+    side.appendChild(acts);
+    card.appendChild(side);
+    box.appendChild(card);
+  });
+}
+
+$("prules-add").addEventListener("click", () => {
+  markProxyDirty();
+  pdraft.push({ domain_suffix: [], outbound: "proxy" });
+  renderProxyRules(pdraft);
+});
+$("prules-preset").addEventListener("click", () => {
+  const current = pdraft || state.proxy_rules || [];
+  if (current.length && !confirm(t("prules.presetConfirm"))) return;
+  markProxyDirty();
+  pdraft = JSON.parse(JSON.stringify(PRESET_RULES));
+  renderProxyRules(pdraft);
+});
+$("prules-revert").addEventListener("click", () => {
+  pdraft = null;
+  renderedProxyRules = null;
+  $("prules-note").textContent = "";
+  renderProxyRules(state.proxy_rules);
+});
+$("prules-apply").addEventListener("click", async () => {
+  const rules = (pdraft || state.proxy_rules).map(cleanProxyRule);
+  const note = $("prules-note");
+  note.className = "note";
+  note.textContent = t("rules.applying");
+  $("prules-apply").disabled = true;
+  try {
+    const res = await api("/api/proxy-rules", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rules),
+    });
+    pdraft = null;
+    renderedProxyRules = null;
+    note.className = "note good";
+    note.textContent = t("rules.saved");
+    render(await res.json());
+  } catch (e) {
+    note.className = "note bad";
+    note.textContent = e.message;
+  } finally {
+    $("prules-apply").disabled = false;
+  }
+});
+
+/* --- Enterprise Gateway Pane ------------------------------------------- */
+function renderGateway(s) {
+  const gw = gatewayOf(s);
+  $("gw-badge").textContent = t("gw." + gw.phase);
+  $("gw-badge").className = "badge " + gatewayBadgeClass(gw.phase);
+  $("gw-sub").textContent = gatewaySub(s);
+  $("gw-switch").checked = !!gw.enabled;
+  $("gw-switch").closest("label").hidden = !gw.configured;
+
+  const facts = $("gw-facts");
+  facts.textContent = "";
+  const fact = (label, val) => {
+    if (!val && val !== 0) return;
+    const span = el("span", null, label + ": ");
+    span.appendChild(el("b", null, String(val)));
+    facts.appendChild(span);
+  };
+  if (gw.configured) {
+    fact(t("gw.server"), s.session.server_name ? s.session.server + " (" + s.session.server_name + ")" : s.session.server);
+    const wanted = s.tunnels.filter((x) => x.wanted);
+    if (gw.phase === "connected") fact(t("gw.tunnelsUp"), wanted.filter((x) => x.up).length + " / " + s.tunnels.length);
+    fact(t("gw.user"), s.client.username);
+  }
+  facts.hidden = !facts.children.length;
+  $("gw-settings-card").hidden = !gw.configured;
+  // Importing is the first thing to do without a bundle, and tucked away
+  // once there is one.
+  if (!gw.configured) $("gw-import").open = true;
+  $("setup-creds").hidden = !!gw.configured;
+}
+
+function fillGatewaySettings() {
+  const c = state.client || {};
+  $("set-username").value = c.username || "";
+  $("set-password").value = c.password || "";
+  $("set-onfail").value = c.on_failure || "direct";
+  $("set-autoroutes").checked = !!c.auto_routes;
+  $("set-autodomains").checked = !!c.auto_domains;
+  const opts = $("set-onfail").options;
+  opts[0].textContent = t("t.direct");
+  opts[1].textContent = t("t.block");
+}
+
+$("gw-settings-save").addEventListener("click", async () => {
+  const note = $("gw-settings-note");
+  note.className = "note";
+  note.textContent = "…";
+  $("gw-settings-save").disabled = true;
+  try {
+    const res = await api("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: $("set-username").value.trim(),
+        password: $("set-password").value.trim(),
+        on_failure: $("set-onfail").value,
+        auto_routes: $("set-autoroutes").checked,
+        auto_domains: $("set-autodomains").checked,
+      }),
+    });
+    note.className = "note good";
+    note.textContent = t("gw.saved");
+    render(await res.json());
+  } catch (e) {
+    note.className = "note bad";
+    note.textContent = e.message;
+  } finally {
+    $("gw-settings-save").disabled = false;
   }
 });
 
@@ -3107,11 +3928,6 @@ function markDirty() {
 function renderRules(rules) {
   const box = $("rules");
   box.textContent = "";
-
-  const globalBanner = $("rules-global-banner");
-  if (globalBanner) {
-    globalBanner.hidden = (state.mode !== "global");
-  }
 
   $("c-rules").textContent = rules.length || "";
   if (!rules.length) {
@@ -3232,20 +4048,16 @@ function renderRules(rules) {
         if (unused) { draft[ri][unused] = []; renderRules(draft); }
       });
 
+      // Gateway rules send to the gateway's tunnels, or direct, or nowhere.
+      // Proxy nodes are the routing rules' business, matched after these.
       const target = el("select");
-      const allNodes = state.all_nodes || [];
       const targets = ["direct", "block"];
-      if (allNodes.length > 0) targets.push("proxy");
       targets.push(...state.tunnels.map((t) => t.name));
-      targets.push(...allNodes.map((n) => "node-" + n.id));
       if (rule.tunnel && !targets.includes(rule.tunnel)) targets.push(rule.tunnel);
 
       targets.forEach((name) => {
         const label = name === "direct" ? t("t.direct")
                     : name === "block" ? t("t.block")
-                    : name === "proxy" ? t("t.proxy")
-                    : name.startsWith("node-") && allNodes.find((n) => n.id === name.slice(5))
-                    ? (allNodes.find((n) => n.id === name.slice(5)).subscription_id ? t("t.subPrefix") : t("t.customPrefix")) + allNodes.find((n) => n.id === name.slice(5)).name
                     : state.tunnels && state.tunnels.some((t) => t.name === name)
                     ? t("t.tunnelPrefix") + name
                     : name;
@@ -3385,13 +4197,9 @@ function fillSettings() {
   document.querySelectorAll('input[name=ingress]').forEach((r) => {
     r.checked = r.value === (c.tun ? "tun" : "proxy");
   });
-  $("set-username").value = c.username || "";
-  $("set-password").value = c.password || "";
   $("set-proxy-listen").value = c.proxy_listen || "";
-  $("set-onfail").value = c.on_failure || "direct";
   $("set-dns").value = c.dns_default || "";
-  $("set-autoroutes").checked = !!c.auto_routes;
-  $("set-autodomains").checked = !!c.auto_domains;
+  $("set-dns-remote").value = c.dns_remote || "";
   $("set-tun-stack-default").textContent = t("settings.tunStackDefault", c.tun_stack_default || "system");
   // A build without gvisor cannot run gvisor or mixed; offering them would
   // only lead to a save that is refused.
@@ -3403,11 +4211,6 @@ function fillSettings() {
   $("set-tun-strict").checked = !!c.tun_strict_route;
   fillInterfaces(c.tun_outbound_interface || "");
   syncTunAdvanced();
-
-  const opts = $("set-onfail").options;
-  opts[0].textContent = t("t.direct");
-  opts[1].textContent = t("t.block");
-
   loadService();
 }
 
@@ -3449,11 +4252,7 @@ $("settings-save").addEventListener("click", async () => {
     },
     proxy: { enabled: !tun, listen: $("set-proxy-listen").value.trim() || "127.0.0.1:1080" },
     dns_default: $("set-dns").value.trim() || "local",
-    on_failure: $("set-onfail").value,
-    auto_routes: $("set-autoroutes").checked,
-    auto_domains: $("set-autodomains").checked,
-    username: $("set-username").value.trim(),
-    password: $("set-password").value.trim(),
+    dns_remote: $("set-dns-remote").value.trim(),
   };
   note.className = "note";
   note.textContent = "…";
@@ -3514,8 +4313,9 @@ $("bundle-save").addEventListener("click", async () => {
     $("bundle-text").value = "";
     $("bundle-user").value = "";
     $("bundle-pass").value = "";
-    render(st);
-    showPane("home");
+    $("gw-import").open = false;
+    render((u || p) ? await (await api("/api/state")).json() : st);
+    showPane("gateway");
   } catch (e) {
     note.className = "note bad";
     note.textContent = e.message;

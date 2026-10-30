@@ -12,6 +12,7 @@ import (
 var settingsKeys = []string{
 	"bundle", "tun", "proxy", "dns", "auth", "on_failure",
 	"auto_routes", "auto_domains", "rules", "disabled_auto_rules", "ui", "log_level",
+	"gateway_disabled", "mode", "proxy_rules",
 	"subscriptions", "custom_nodes", "selected_node",
 }
 

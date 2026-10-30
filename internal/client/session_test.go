@@ -2,11 +2,15 @@ package client
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+
+	"github.com/vpn-gateway/vpn-gateway/internal/server/clientcfg"
 )
 
 const bundleJSON = `{
@@ -22,13 +26,17 @@ func newSession(t *testing.T) (*Session, string) {
 	return NewSession(path, slog.New(slog.DiscardHandler)), path
 }
 
-func TestSessionStartsInSetupWithNothingConfigured(t *testing.T) {
+func TestSessionStartsIdleWithNothingConfigured(t *testing.T) {
 	// This is what someone opening the application for the first time sees.
 	// Refusing to start would leave them with nothing and nowhere to say so.
+	// With no bundle it is an ordinary proxy client, ready to connect.
 	s, _ := newSession(t)
 	st := s.Status()
-	if st.Phase != PhaseSetup {
-		t.Errorf("phase = %q, want setup", st.Phase)
+	if st.Phase != PhaseIdle {
+		t.Errorf("phase = %q, want idle", st.Phase)
+	}
+	if st.Gateway.Phase != GatewayUnconfigured || st.Gateway.Enabled {
+		t.Errorf("gateway = %+v, want unconfigured and not enabled", st.Gateway)
 	}
 	// And it still has usable defaults, so the interface has something to show.
 	cfg := s.Settings()
@@ -37,7 +45,7 @@ func TestSessionStartsInSetupWithNothingConfigured(t *testing.T) {
 	}
 }
 
-func TestImportingABundleLeavesSetup(t *testing.T) {
+func TestImportingABundleConfiguresTheGateway(t *testing.T) {
 	s, path := newSession(t)
 	if err := s.ImportBundle([]byte(bundleJSON)); err != nil {
 		t.Fatal(err)
@@ -46,6 +54,9 @@ func TestImportingABundleLeavesSetup(t *testing.T) {
 	st := s.Status()
 	if st.Phase != PhaseIdle {
 		t.Errorf("phase = %q, want idle", st.Phase)
+	}
+	if st.Gateway.Phase != GatewayIdle || !st.Gateway.Enabled {
+		t.Errorf("gateway = %+v, want idle and enabled: a new bundle is meant to be used", st.Gateway)
 	}
 	if st.Server != "vpn.example:443" || st.TunnelCount != 1 {
 		t.Errorf("status = %+v", st)
@@ -133,14 +144,34 @@ func TestSessionReloadsWhatWasSaved(t *testing.T) {
 	}
 }
 
-func TestConnectingNeedsABundle(t *testing.T) {
+// Without a bundle there is no gateway, and the engine is built without one:
+// an ordinary proxy client.
+func TestConnectingWithoutABundleBuildsAPlainEngine(t *testing.T) {
 	s, _ := newSession(t)
-	err := s.Connect(t.Context())
-	if err == nil {
-		t.Fatal("connecting was allowed with nothing to connect to")
+	var gotBundle atomic.Bool
+	s.newEngine = func(_ context.Context, _ *Config, bundle *clientcfg.Bundle, log *slog.Logger) (*Client, error) {
+		gotBundle.Store(bundle != nil)
+		return &Client{log: log, selected: map[string]string{}}, nil
 	}
-	if !strings.Contains(err.Error(), "bundle") {
-		t.Errorf("the error does not say what is missing: %v", err)
+	t.Cleanup(func() { s.Disconnect() })
+	if err := s.Connect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if gotBundle.Load() {
+		t.Error("the engine was handed a gateway that was never configured")
+	}
+	if st := s.Status(); st.Phase != PhaseConnected {
+		t.Errorf("phase = %q, want connected", st.Phase)
+	}
+}
+
+// Switching on a gateway that was never configured is refused, rather than
+// connecting to nothing.
+func TestTheGatewayCannotBeSwitchedOnWithoutABundle(t *testing.T) {
+	s, _ := newSession(t)
+	err := s.SetGatewayEnabled(t.Context(), true)
+	if err == nil || !strings.Contains(err.Error(), "bundle") {
+		t.Errorf("err = %v, want one saying a bundle is missing", err)
 	}
 }
 
@@ -245,16 +276,24 @@ func TestDisconnectingWhenIdleIsHarmless(t *testing.T) {
 	}
 }
 
-func TestConnectingNeedsCredentials(t *testing.T) {
+func TestTheGatewayNeedsCredentials(t *testing.T) {
 	s, _ := newSession(t)
 	if err := s.ImportBundle([]byte(bundleJSON)); err != nil {
 		t.Fatal(err)
 	}
-	err := s.Connect(t.Context())
-	if err == nil {
-		t.Fatal("connecting should fail without username and password")
+	bundle, err := LoadBundle(s.Settings().Bundle)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "authentication required") && !strings.Contains(err.Error(), "username and password") {
+	_, err = New(t.Context(), s.Settings(), bundle, slog.New(slog.DiscardHandler))
+	if err == nil {
+		t.Fatal("the gateway should not come up without username and password")
+	}
+	var gwErr *GatewayError
+	if !errors.As(err, &gwErr) {
+		t.Errorf("error = %T, want a *GatewayError so the engine starts without it", err)
+	}
+	if !strings.Contains(err.Error(), "authentication required") {
 		t.Errorf("error = %v, want authentication required", err)
 	}
 }

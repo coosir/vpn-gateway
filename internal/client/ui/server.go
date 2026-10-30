@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -28,7 +29,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -58,6 +58,13 @@ type Controller interface {
 	Connect(ctx context.Context) error
 	Disconnect() error
 	Apply(ctx context.Context, cfg *client.Config) error
+	// Remember saves a change the running engine already reflects, without
+	// rebuilding it.
+	Remember(cfg *client.Config) error
+	// SetGatewayEnabled is the enterprise gateway's own switch.
+	SetGatewayEnabled(ctx context.Context, on bool) error
+	// UpdateSubscription fetches one subscription again and applies it.
+	UpdateSubscription(ctx context.Context, id string) error
 }
 
 // Server serves the interface.
@@ -138,6 +145,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/events", s.auth(s.streamEvents))
 	mux.HandleFunc("GET /api/rules", s.auth(s.getRules))
 	mux.HandleFunc("PUT /api/rules", s.auth(s.putRules))
+	mux.HandleFunc("GET /api/proxy-rules", s.auth(s.getProxyRules))
+	mux.HandleFunc("PUT /api/proxy-rules", s.auth(s.putProxyRules))
+	mux.HandleFunc("POST /api/gateway", s.auth(s.postGateway))
 	mux.HandleFunc("PUT /api/settings", s.auth(s.putSettings))
 	mux.HandleFunc("GET /api/service", s.auth(s.getService))
 	mux.HandleFunc("POST /api/service/install", s.auth(s.postServiceInstall))
@@ -163,6 +173,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/nodes/ping", s.auth(s.postPingNodes))
 	mux.HandleFunc("POST /api/mode", s.auth(s.postMode))
 	mux.HandleFunc("POST /api/subscriptions", s.auth(s.postSubscription))
+	mux.HandleFunc("PUT /api/subscriptions/{id}", s.auth(s.putSubscription))
 	mux.HandleFunc("POST /api/subscriptions/{id}/update", s.auth(s.postUpdateSubscription))
 	mux.HandleFunc("DELETE /api/subscriptions/{id}", s.auth(s.deleteSubscription))
 
@@ -187,19 +198,36 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 
 // State is everything the interface needs to draw itself.
 type State struct {
-	Session       client.SessionStatus  `json:"session"`
-	Tunnels       []TunnelView          `json:"tunnels"`
-	Prompts       []PromptView          `json:"prompts"`
-	Client        ClientView            `json:"client"`
-	At            time.Time             `json:"at"`
-	Rules         []client.Rule         `json:"rules"`
+	Session client.SessionStatus `json:"session"`
+	Tunnels []TunnelView         `json:"tunnels"`
+	Prompts []PromptView         `json:"prompts"`
+	Client  ClientView           `json:"client"`
+	At      time.Time            `json:"at"`
+	// Rules are the enterprise gateway's: the explicit ones, then those
+	// derived from what its tunnels report.
+	Rules []client.Rule `json:"rules"`
+	// ProxyRules are the ordinary client's.
+	ProxyRules    []client.Rule         `json:"proxy_rules"`
 	Subscriptions []client.Subscription `json:"subscriptions"`
 	CustomNodes   []client.CustomNode   `json:"custom_nodes"`
-	AllNodes      []client.CustomNode   `json:"all_nodes"`
+	AllNodes      []NodeView            `json:"all_nodes"`
 	SelectedNode  string                `json:"selected_node"`
-	Mode          string                `json:"mode"`
-	Version       string                `json:"version"`
-	IsAdmin       bool                  `json:"is_admin"`
+	// ProxyNow is what the running proxy group points at, and AutoNow the
+	// node the auto group has settled on. Both are empty while stopped.
+	ProxyNow string `json:"proxy_now,omitempty"`
+	AutoNow  string `json:"auto_now,omitempty"`
+	// RuleSetErrors names the rule sets that could not be downloaded, and why.
+	RuleSetErrors map[string]string `json:"rule_set_errors,omitempty"`
+	Mode          string            `json:"mode"`
+	Version       string            `json:"version"`
+	IsAdmin       bool              `json:"is_admin"`
+}
+
+// NodeView is a node as the interface lists it: the node, and whether this
+// build can use it.
+type NodeView struct {
+	client.CustomNode
+	Unsupported string `json:"unsupported,omitempty"`
 }
 
 // TunnelView is one tunnel as the interface shows it.
@@ -259,6 +287,7 @@ type ClientView struct {
 	AutoRoutes           bool   `json:"auto_routes"`
 	AutoDomains          bool   `json:"auto_domains"`
 	DNSDefault           string `json:"dns_default"`
+	DNSRemote            string `json:"dns_remote"`
 	Username             string `json:"username,omitempty"`
 	Password             string `json:"password,omitempty"`
 }
@@ -269,9 +298,13 @@ func (s *Server) state() State {
 	var tunnels []client.TunnelState
 	views := []TunnelView{}
 	var isAdmin bool
+	var proxyNow, autoNow string
+	var ruleSetErrors map[string]string
 	if c := s.ctl.Client(); c != nil {
 		isAdmin = c.IsAdmin()
 		tunnels = c.Tunnels()
+		proxyNow, autoNow = c.ProxyNow()
+		ruleSetErrors = c.RuleSetErrors()
 		for _, t := range tunnels {
 			views = append(views, TunnelView{
 				Name: t.Name, Up: t.Up, Wanted: t.Wanted,
@@ -298,9 +331,13 @@ func (s *Server) state() State {
 	if customNodes == nil {
 		customNodes = []client.CustomNode{}
 	}
-	allNodes := cfg.AllNodes()
-	if allNodes == nil {
-		allNodes = []client.CustomNode{}
+	allNodes := []NodeView{}
+	for _, n := range cfg.AllNodes() {
+		allNodes = append(allNodes, NodeView{CustomNode: n, Unsupported: n.Unsupported()})
+	}
+	proxyRules := cfg.ProxyRules
+	if proxyRules == nil {
+		proxyRules = []client.Rule{}
 	}
 
 	return State{
@@ -308,10 +345,14 @@ func (s *Server) state() State {
 		Tunnels:       views,
 		Prompts:       s.prompts.pending(),
 		Rules:         allRules,
+		ProxyRules:    proxyRules,
 		Subscriptions: subs,
 		CustomNodes:   customNodes,
 		AllNodes:      allNodes,
 		SelectedNode:  cfg.SelectedNode,
+		ProxyNow:      proxyNow,
+		AutoNow:       autoNow,
+		RuleSetErrors: ruleSetErrors,
 		Mode:          cfg.EffectiveMode(),
 		Version:       version.Full(),
 		IsAdmin:       isAdmin,
@@ -329,6 +370,7 @@ func (s *Server) state() State {
 			AutoRoutes:           cfg.AutoRoutes,
 			AutoDomains:          cfg.AutoDomains,
 			DNSDefault:           cfg.DNS.Default,
+			DNSRemote:            cfg.DNS.Remote,
 			Username:             cfg.Auth.Username,
 			Password:             cfg.Auth.Password,
 		},
@@ -360,9 +402,13 @@ const stateWatchInterval = time.Second
 func (s *Server) fingerprint() string {
 	var b strings.Builder
 	st := s.ctl.Status()
-	fmt.Fprintf(&b, "%s|%d|%s|%d|%d|", st.Phase, st.Since.UnixNano(), st.LastError, st.TunnelCount, st.Rev)
+	fmt.Fprintf(&b, "%s|%d|%s|%d|%d|%s|%s|", st.Phase, st.Since.UnixNano(), st.LastError, st.TunnelCount, st.Rev,
+		st.Gateway.Phase, st.Gateway.LastError)
 
 	if c := s.ctl.Client(); c != nil {
+		// The auto group moves on its own, and the page shows where it is.
+		now, auto := c.ProxyNow()
+		fmt.Fprintf(&b, "%s,%s,%d;", now, auto, len(c.RuleSetErrors()))
 		// Already in name order, so this is stable between calls.
 		for _, t := range c.Tunnels() {
 			fmt.Fprintf(&b, "%s,%t,%t,%d,%s;",
@@ -500,22 +546,65 @@ func (s *Server) putRules(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		} else {
+			r.Outbound = ""
 			userRules = append(userRules, r)
 		}
 	}
 
-	next := *s.ctl.Settings()
+	next := s.ctl.Settings().Clone()
 	next.Rules = userRules
 	next.DisabledAutoRules = disabledAutoKeys
 	// Apply validates, reconfigures a running engine, and only then saves.
 	// Saving first would leave a file the client rejected, so the next start
 	// would fail with rules that were never in effect.
-	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+	if err := s.ctl.Apply(r.Context(), next); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	s.log.Info("rules updated from the interface", "user_rules", len(userRules), "disabled_auto", len(disabledAutoKeys))
 	writeJSON(w, http.StatusOK, s.state().Rules)
+}
+
+func (s *Server) getProxyRules(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.state().ProxyRules)
+}
+
+// putProxyRules replaces the ordinary client's rules. Like the gateway's,
+// they are validated and applied before anything is saved.
+func (s *Server) putProxyRules(w http.ResponseWriter, r *http.Request) {
+	var rules []client.Rule
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&rules); err != nil {
+		writeErr(w, http.StatusBadRequest, "malformed rules: "+err.Error())
+		return
+	}
+	for i := range rules {
+		rules[i].Tunnel, rules[i].Auto = "", false
+	}
+	next := s.ctl.Settings().Clone()
+	next.ProxyRules = rules
+	if err := s.ctl.Apply(r.Context(), next); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.log.Info("proxy rules updated from the interface", "rules", len(rules))
+	writeJSON(w, http.StatusOK, s.state())
+}
+
+// postGateway is the enterprise gateway's switch.
+func (s *Server) postGateway(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
+		return
+	}
+	// The engine outlives the request, and so does a gateway it brings up.
+	if err := s.ctl.SetGatewayEnabled(context.WithoutCancel(r.Context()), body.Enabled); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.state())
 }
 
 // Settings are the parts of the configuration the interface can change.
@@ -524,6 +613,7 @@ type Settings struct {
 	TUN         *tunPatch           `json:"tun,omitempty"`
 	Proxy       *client.ProxyConfig `json:"proxy,omitempty"`
 	DNSDefault  *string             `json:"dns_default,omitempty"`
+	DNSRemote   *string             `json:"dns_remote,omitempty"`
 	OnFailure   *string             `json:"on_failure,omitempty"`
 	AutoRoutes  *bool               `json:"auto_routes,omitempty"`
 	AutoDomains *bool               `json:"auto_domains,omitempty"`
@@ -615,7 +705,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	next := *s.ctl.Settings()
+	next := s.ctl.Settings().Clone()
 	if in.TUN != nil {
 		in.TUN.apply(&next.TUN)
 	}
@@ -624,6 +714,9 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.DNSDefault != nil {
 		next.DNS.Default = *in.DNSDefault
+	}
+	if in.DNSRemote != nil {
+		next.DNS.Remote = strings.TrimSpace(*in.DNSRemote)
 	}
 	if in.OnFailure != nil {
 		next.OnFailure = *in.OnFailure
@@ -641,7 +734,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		next.Auth.Password = *in.Password
 	}
 
-	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+	if err := s.ctl.Apply(r.Context(), next); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -702,12 +795,12 @@ func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
 			tail = n
 		}
 	}
-	c := s.ctl.Client()
-	if c == nil {
-		writeErr(w, http.StatusConflict, "nothing is connected")
+	api := s.gatewayAPI()
+	if api == nil {
+		writeErr(w, http.StatusConflict, "the enterprise gateway is not connected")
 		return
 	}
-	body, err := c.API().Logs(r.Context(), name, tail)
+	body, err := api.Logs(r.Context(), name, tail)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -720,16 +813,16 @@ func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
 // asked: every attempt authenticates against a corporate gateway, and dialling
 // on a schedule of our own can lock an account while nobody is watching.
 func (s *Server) postTunnelStart(w http.ResponseWriter, r *http.Request) {
-	c := s.ctl.Client()
-	if c == nil {
-		writeErr(w, http.StatusConflict, "nothing is connected")
+	api := s.gatewayAPI()
+	if api == nil {
+		writeErr(w, http.StatusConflict, "the enterprise gateway is not connected")
 		return
 	}
-	if !c.IsAdmin() {
+	if !api.IsAdmin {
 		writeErr(w, http.StatusForbidden, "administrator privileges required to start tunnels")
 		return
 	}
-	if err := c.API().StartTunnel(r.Context(), r.PathValue("name")); err != nil {
+	if err := api.StartTunnel(r.Context(), r.PathValue("name")); err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -737,16 +830,16 @@ func (s *Server) postTunnelStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) postTunnelStop(w http.ResponseWriter, r *http.Request) {
-	c := s.ctl.Client()
-	if c == nil {
-		writeErr(w, http.StatusConflict, "nothing is connected")
+	api := s.gatewayAPI()
+	if api == nil {
+		writeErr(w, http.StatusConflict, "the enterprise gateway is not connected")
 		return
 	}
-	if !c.IsAdmin() {
+	if !api.IsAdmin {
 		writeErr(w, http.StatusForbidden, "administrator privileges required to stop tunnels")
 		return
 	}
-	if err := c.API().StopTunnel(r.Context(), r.PathValue("name")); err != nil {
+	if err := api.StopTunnel(r.Context(), r.PathValue("name")); err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -754,20 +847,28 @@ func (s *Server) postTunnelStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) postReconnect(w http.ResponseWriter, r *http.Request) {
-	c := s.ctl.Client()
-	if c == nil {
-		writeErr(w, http.StatusConflict, "nothing is connected")
+	api := s.gatewayAPI()
+	if api == nil {
+		writeErr(w, http.StatusConflict, "the enterprise gateway is not connected")
 		return
 	}
-	if !c.IsAdmin() {
+	if !api.IsAdmin {
 		writeErr(w, http.StatusForbidden, "administrator privileges required to reconnect tunnels")
 		return
 	}
-	if err := c.API().Reconnect(r.Context(), r.PathValue("name")); err != nil {
+	if err := api.Reconnect(r.Context(), r.PathValue("name")); err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// gatewayAPI is the attached gateway's control API, or nil.
+func (s *Server) gatewayAPI() *client.API {
+	if c := s.ctl.Client(); c != nil {
+		return c.API()
+	}
+	return nil
 }
 
 func (s *Server) postPromptAnswer(w http.ResponseWriter, r *http.Request) {
@@ -806,104 +907,107 @@ func (s *Server) getNodes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// createNodeReq adds nodes from share links -- one, or many pasted at once --
+// or one node filled in field by field.
 type createNodeReq struct {
-	URL           string `json:"url,omitempty"`
-	Name          string `json:"name,omitempty"`
-	Server        string `json:"server,omitempty"`
-	Port          int    `json:"port,omitempty"`
-	Password      string `json:"password,omitempty"`
-	SNI           string `json:"sni,omitempty"`
-	AllowInsecure bool   `json:"allow_insecure,omitempty"`
+	URL  string             `json:"url,omitempty"`
+	Node *client.CustomNode `json:"node,omitempty"`
 }
 
 func (s *Server) postNode(w http.ResponseWriter, r *http.Request) {
 	var in createNodeReq
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&in); err != nil {
 		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
 		return
 	}
 
-	var node *client.CustomNode
-	if in.URL != "" {
-		n, err := client.ParseTrojanURL(in.URL)
+	var added []client.CustomNode
+	switch {
+	case strings.TrimSpace(in.URL) != "":
+		var bad []string
+		for _, line := range strings.Split(in.URL, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			n, err := client.ParseNodeURL(line)
+			if err != nil {
+				bad = append(bad, err.Error())
+				continue
+			}
+			added = append(added, *n)
+		}
+		if len(added) == 0 {
+			msg := "no usable share link"
+			if len(bad) > 0 {
+				msg = bad[0]
+			}
+			writeErr(w, http.StatusBadRequest, msg)
+			return
+		}
+	case in.Node != nil:
+		n, err := cleanNode(*in.Node)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid trojan URL: "+err.Error())
+			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if in.Name != "" {
-			n.Name = in.Name
-		}
-		node = n
-	} else {
-		if in.Server == "" || in.Password == "" {
-			writeErr(w, http.StatusBadRequest, "server and password are required")
-			return
-		}
-		port := in.Port
-		if port <= 0 || port > 65535 {
-			port = 443
-		}
-		name := in.Name
-		if name == "" {
-			name = fmt.Sprintf("%s:%d", in.Server, port)
-		}
-		sni := in.SNI
-		if sni == "" {
-			sni = in.Server
-		}
-		node = &client.CustomNode{
-			ID:            client.GenerateNodeID(),
-			Name:          name,
-			Type:          "trojan",
-			Server:        in.Server,
-			Port:          port,
-			Password:      in.Password,
-			SNI:           sni,
-			AllowInsecure: in.AllowInsecure,
-		}
+		n.ID = client.GenerateNodeID()
+		added = append(added, n)
+	default:
+		writeErr(w, http.StatusBadRequest, "send a share link or a node")
+		return
 	}
 
-	next := *s.ctl.Settings()
-	next.CustomNodes = append(next.CustomNodes, *node)
-	if next.SelectedNode == "" {
-		next.SelectedNode = node.OutboundTag()
-	}
-	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+	next := s.ctl.Settings().Clone()
+	next.CustomNodes = append(next.CustomNodes, added...)
+	if err := s.ctl.Apply(r.Context(), next); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.log.Info("custom node added", "id", node.ID, "name", node.Name)
+	s.log.Info("nodes added", "count", len(added))
 	writeJSON(w, http.StatusOK, s.state())
+}
+
+// cleanNode checks a node filled in by hand.
+func cleanNode(n client.CustomNode) (client.CustomNode, error) {
+	n.Server = strings.TrimSpace(n.Server)
+	n.Name = strings.TrimSpace(n.Name)
+	n.SubscriptionID = ""
+	n.Type = n.EffectiveType()
+	if n.Server == "" {
+		return n, errors.New("the server address is required")
+	}
+	if n.Port < 1 || n.Port > 65535 {
+		return n, errors.New("the port must be 1-65535")
+	}
+	if n.Name == "" {
+		n.Name = net.JoinHostPort(n.Server, strconv.Itoa(n.Port))
+	}
+	if why := n.Unsupported(); why != "" {
+		return n, errors.New(why)
+	}
+	return n, nil
 }
 
 func (s *Server) putNode(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	var in createNodeReq
+	var in client.CustomNode
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
 		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
 		return
 	}
+	n, err := cleanNode(in)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	n.ID = id
 
-	next := *s.ctl.Settings()
+	next := s.ctl.Settings().Clone()
 	found := false
-	for i, n := range next.CustomNodes {
-		if n.ID == id {
-			if in.Name != "" {
-				next.CustomNodes[i].Name = in.Name
-			}
-			if in.Server != "" {
-				next.CustomNodes[i].Server = in.Server
-			}
-			if in.Port > 0 && in.Port <= 65535 {
-				next.CustomNodes[i].Port = in.Port
-			}
-			if in.Password != "" {
-				next.CustomNodes[i].Password = in.Password
-			}
-			if in.SNI != "" {
-				next.CustomNodes[i].SNI = in.SNI
-			}
-			next.CustomNodes[i].AllowInsecure = in.AllowInsecure
+	for i := range next.CustomNodes {
+		if next.CustomNodes[i].ID == id {
+			next.CustomNodes[i] = n
 			found = true
 			break
 		}
@@ -913,7 +1017,7 @@ func (s *Server) putNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+	if err := s.ctl.Apply(r.Context(), next); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -922,7 +1026,7 @@ func (s *Server) putNode(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	next := *s.ctl.Settings()
+	next := s.ctl.Settings().Clone()
 	var remaining []client.CustomNode
 	for _, n := range next.CustomNodes {
 		if n.ID != id {
@@ -930,17 +1034,22 @@ func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	next.CustomNodes = remaining
-	if next.SelectedNode == id || next.SelectedNode == "node-"+id {
+	if next.SelectedNode == "node-"+id {
 		next.SelectedNode = ""
 	}
 
-	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+	if err := s.ctl.Apply(r.Context(), next); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, s.state())
 }
 
+// postSelectNode points the proxy group at a node, at auto, or at direct.
+//
+// A running group is switched in place: connections through other routes are
+// not disturbed, and nothing is rebuilt. The choice is then saved so it
+// survives a restart.
 func (s *Server) postSelectNode(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ID   string `json:"id"`
@@ -951,24 +1060,40 @@ func (s *Server) postSelectNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	next := *s.ctl.Settings()
+	target := body.ID
+	switch target {
+	case "", client.TargetAuto:
+		target = client.TargetAuto
+	case client.TargetDirect, "none", "clear":
+		target = client.TargetDirect
+	default:
+		if !client.IsNodeTarget(target) {
+			target = "node-" + target
+		}
+		if _, ok := s.ctl.Settings().FindNode(target); !ok {
+			writeErr(w, http.StatusNotFound, "node not found")
+			return
+		}
+	}
+
+	next := s.ctl.Settings().Clone()
+	next.SelectedNode = target
+	if target == client.TargetAuto {
+		next.SelectedNode = ""
+	}
+	modeChanged := body.Mode != "" && body.Mode != next.Mode
 	if body.Mode != "" {
 		next.Mode = body.Mode
 	}
 
-	targetTag := body.ID
-	if targetTag == "" || targetTag == "none" || targetTag == "direct" || targetTag == "clear" {
-		targetTag = ""
-	} else if !strings.HasPrefix(targetTag, "node-") {
-		targetTag = "node-" + targetTag
+	c := s.ctl.Client()
+	var err error
+	if c != nil && !modeChanged && c.SelectProxyNode(target) {
+		err = s.ctl.Remember(next)
+	} else {
+		err = s.ctl.Apply(r.Context(), next)
 	}
-	next.SelectedNode = targetTag
-
-	if c := s.ctl.Client(); c != nil {
-		c.SelectProxyNode(targetTag)
-	}
-
-	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -984,21 +1109,23 @@ func (s *Server) postMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	next := *s.ctl.Settings()
+	next := s.ctl.Settings().Clone()
 	switch body.Mode {
-	case client.ModeGlobal, client.ModeRule:
+	case client.ModeGlobal, client.ModeRule, client.ModeDirect:
 		next.Mode = body.Mode
 	default:
-		next.Mode = client.ModeDirect
+		writeErr(w, http.StatusBadRequest, "mode must be rule, global or direct")
+		return
 	}
 
-	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+	if err := s.ctl.Apply(r.Context(), next); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, s.state())
 }
 
+// postPingNodes measures each node with a real request through it.
 func (s *Server) postPingNodes(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ID string `json:"id,omitempty"`
@@ -1006,132 +1133,135 @@ func (s *Server) postPingNodes(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body)
 
 	cfg := s.ctl.Settings()
-	allNodes := cfg.AllNodes()
-	var toPing []client.CustomNode
+	toPing := cfg.AllNodes()
 	if body.ID != "" {
-		if n, ok := cfg.FindNode(body.ID); ok {
-			toPing = append(toPing, n)
-		} else {
+		n, ok := cfg.FindNode(body.ID)
+		if !ok {
 			writeErr(w, http.StatusNotFound, "node not found")
 			return
 		}
-	} else {
-		toPing = allNodes
+		toPing = []client.CustomNode{n}
 	}
 
-	latencies := map[string]int{}
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	for _, n := range toPing {
-		wg.Add(1)
-		go func(node client.CustomNode) {
-			defer wg.Done()
-			pingCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-			defer cancel()
-			dur, err := client.PingNode(pingCtx, node)
-			mu.Lock()
-			defer mu.Unlock()
-			if err != nil {
-				latencies[node.ID] = -1
-			} else {
-				latencies[node.ID] = int(dur.Milliseconds())
-			}
-		}(n)
+	latencies, err := client.TestLatency(r.Context(), s.ctl.Client(), toPing)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	wg.Wait()
-
 	writeJSON(w, http.StatusOK, map[string]any{"latencies": latencies})
 }
 
+type subscriptionReq struct {
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	AutoUpdate  bool   `json:"auto_update"`
+	UpdateHours int    `json:"update_hours,omitempty"`
+}
+
 func (s *Server) postSubscription(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Name       string `json:"name"`
-		URL        string `json:"url"`
-		AutoUpdate bool   `json:"auto_update,omitempty"`
-	}
+	var body subscriptionReq
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
 		return
 	}
-	if body.Name == "" || body.URL == "" {
-		writeErr(w, http.StatusBadRequest, "name and url are required")
+	body.Name, body.URL = strings.TrimSpace(body.Name), strings.TrimSpace(body.URL)
+	if body.URL == "" {
+		writeErr(w, http.StatusBadRequest, "the subscription URL is required")
 		return
 	}
+	if body.Name == "" {
+		if u, err := url.Parse(body.URL); err == nil && u.Host != "" {
+			body.Name = u.Host
+		} else {
+			body.Name = body.URL
+		}
+	}
 
-	nodes, err := client.FetchSubscription(r.Context(), body.URL)
+	fetched, err := client.FetchSubscription(r.Context(), body.URL)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "fetch subscription failed: "+err.Error())
 		return
 	}
 
 	subID := client.GenerateNodeID()
-	for i := range nodes {
-		nodes[i].SubscriptionID = subID
+	for i := range fetched.Nodes {
+		fetched.Nodes[i].SubscriptionID = subID
 	}
 
 	sub := client.Subscription{
-		ID:         subID,
-		Name:       body.Name,
-		URL:        body.URL,
-		AutoUpdate: body.AutoUpdate,
-		UpdatedAt:  time.Now().Format(time.RFC3339),
-		Nodes:      nodes,
+		ID:          subID,
+		Name:        body.Name,
+		URL:         body.URL,
+		AutoUpdate:  body.AutoUpdate,
+		UpdateHours: body.UpdateHours,
+		UpdatedAt:   time.Now().Format(time.RFC3339),
+		Usage:       fetched.Usage,
+		Nodes:       fetched.Nodes,
 	}
 
-	next := *s.ctl.Settings()
+	next := s.ctl.Settings().Clone()
 	next.Subscriptions = append(next.Subscriptions, sub)
-	if next.SelectedNode == "" && len(nodes) > 0 {
-		next.SelectedNode = nodes[0].OutboundTag()
-	}
-
-	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+	if err := s.ctl.Apply(r.Context(), next); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.log.Info("subscription added", "id", sub.ID, "name", sub.Name, "nodes", len(nodes))
+	s.log.Info("subscription added", "id", sub.ID, "name", sub.Name, "nodes", len(fetched.Nodes))
+	writeJSON(w, http.StatusOK, s.state())
+}
+
+// putSubscription changes a subscription's name, address or schedule. Its
+// nodes are left as they are until it is next updated.
+func (s *Server) putSubscription(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body subscriptionReq
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "malformed request: "+err.Error())
+		return
+	}
+	next := s.ctl.Settings().Clone()
+	found := false
+	for i := range next.Subscriptions {
+		if next.Subscriptions[i].ID != id {
+			continue
+		}
+		if name := strings.TrimSpace(body.Name); name != "" {
+			next.Subscriptions[i].Name = name
+		}
+		if u := strings.TrimSpace(body.URL); u != "" {
+			next.Subscriptions[i].URL = u
+		}
+		next.Subscriptions[i].AutoUpdate = body.AutoUpdate
+		next.Subscriptions[i].UpdateHours = body.UpdateHours
+		found = true
+	}
+	if !found {
+		writeErr(w, http.StatusNotFound, "subscription not found")
+		return
+	}
+	if err := s.ctl.Remember(next); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, s.state())
 }
 
 func (s *Server) postUpdateSubscription(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	next := *s.ctl.Settings()
-
-	idx := -1
-	for i, sub := range next.Subscriptions {
-		if sub.ID == id {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
+	if _, ok := s.ctl.Settings().FindSubscription(id); !ok {
 		writeErr(w, http.StatusNotFound, "subscription not found")
 		return
 	}
-
-	nodes, err := client.FetchSubscription(r.Context(), next.Subscriptions[idx].URL)
-	if err != nil {
+	if err := s.ctl.UpdateSubscription(r.Context(), id); err != nil {
 		writeErr(w, http.StatusBadRequest, "fetch subscription failed: "+err.Error())
 		return
 	}
-	for i := range nodes {
-		nodes[i].SubscriptionID = id
-	}
-
-	next.Subscriptions[idx].Nodes = nodes
-	next.Subscriptions[idx].UpdatedAt = time.Now().Format(time.RFC3339)
-
-	if err := s.ctl.Apply(r.Context(), &next); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	s.log.Info("subscription updated", "id", id, "nodes", len(nodes))
+	s.log.Info("subscription updated", "id", id)
 	writeJSON(w, http.StatusOK, s.state())
 }
 
 func (s *Server) deleteSubscription(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	next := *s.ctl.Settings()
+	next := s.ctl.Settings().Clone()
 
 	var remaining []client.Subscription
 	for _, sub := range next.Subscriptions {
@@ -1141,7 +1271,7 @@ func (s *Server) deleteSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	next.Subscriptions = remaining
 
-	if err := s.ctl.Apply(r.Context(), &next); err != nil {
+	if err := s.ctl.Apply(r.Context(), next); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}

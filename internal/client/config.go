@@ -7,15 +7,17 @@
 package client
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strings"
 
 	tun "github.com/sagernet/sing-tun"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -28,6 +30,8 @@ const (
 	TargetBlock = "block"
 	// TargetProxy sends traffic out through the active proxy node group.
 	TargetProxy = "proxy"
+	// TargetAuto sends traffic out through whichever node answered fastest.
+	TargetAuto = "auto"
 
 	ModeRule   = "rule"
 	ModeGlobal = "global"
@@ -36,11 +40,23 @@ const (
 
 // Config is the client configuration, normally
 // /etc/vpn-gateway/client.yaml.
+//
+// It describes two things that share one routing engine. The first is an
+// ordinary proxy client: nodes, subscriptions and the rules that pick between
+// them. The second is the enterprise gateway: a vpn-gateway server whose
+// tunnels reach intranets. The gateway's rules are matched first, the proxy
+// rules after them, and whatever neither claims goes direct.
 type Config struct {
 	// Bundle is the path to the JSON emitted by `vgctl client-config`. It
 	// carries the server address, the certificate to pin and one password
-	// per tunnel.
+	// per tunnel. Without one the client is an ordinary proxy client.
 	Bundle string `yaml:"bundle"`
+
+	// GatewayDisabled switches the enterprise gateway off while keeping
+	// everything it needs, so it can be switched back on in one step. It is
+	// the negative so that a file written before there was a switch, which
+	// has a bundle and no opinion, keeps the gateway it was written for.
+	GatewayDisabled bool `yaml:"gateway_disabled,omitempty" json:"gateway_disabled,omitempty"`
 
 	TUN   TUNConfig   `yaml:"tun"`
 	Proxy ProxyConfig `yaml:"proxy"`
@@ -54,8 +70,10 @@ type Config struct {
 	// whatever the connection error happens to be.
 	OnFailure string `yaml:"on_failure,omitempty"`
 
-	// Rules are matched in order, before any rule derived from what a tunnel
-	// reports, so an explicit choice always wins over an inferred one.
+	// Rules belong to the enterprise gateway. They are matched in order,
+	// before any rule derived from what a tunnel reports, so an explicit
+	// choice always wins over an inferred one -- and all of them before any
+	// proxy rule, so intranet traffic never leaves through a proxy node.
 	Rules []Rule `yaml:"rules,omitempty"`
 
 	// DisabledAutoRules records keys of auto-derived rules disabled by the user.
@@ -68,8 +86,14 @@ type Config struct {
 	// AutoDomains does the same for the search domains a tunnel reports.
 	AutoDomains bool `yaml:"auto_domains,omitempty"`
 
-	// Mode controls general traffic routing: "rule" (default), "global" (all non-tunnel traffic via selected proxy), or "direct".
+	// Mode controls everything the gateway does not claim: "rule" (the
+	// default) follows ProxyRules, "global" sends all of it through the
+	// proxy group, and "direct" sends all of it out directly.
 	Mode string `yaml:"mode,omitempty" json:"mode,omitempty"`
+
+	// ProxyRules are the ordinary client's rules, consulted in rule mode after
+	// every gateway rule. Each names an Outbound rather than a tunnel.
+	ProxyRules []Rule `yaml:"proxy_rules,omitempty" json:"proxy_rules,omitempty"`
 
 	// Subscriptions holds remote node subscriptions.
 	Subscriptions []Subscription `yaml:"subscriptions,omitempty" json:"subscriptions,omitempty"`
@@ -77,19 +101,50 @@ type Config struct {
 	// CustomNodes holds manually added proxy nodes.
 	CustomNodes []CustomNode `yaml:"custom_nodes,omitempty" json:"custom_nodes,omitempty"`
 
-	// SelectedNode is the tag/ID of the selected proxy node, or empty for no proxy / direct.
+	// SelectedNode is what the proxy group points at: a node's outbound tag
+	// ("node-…"), "auto" for the fastest node, or "direct". Empty is auto.
 	SelectedNode string `yaml:"selected_node,omitempty" json:"selected_node,omitempty"`
 
 	// LogLevel is sing-box's log level.
 	LogLevel string `yaml:"log_level,omitempty"`
+
+	// RuleSetDir is where downloaded geosite and geoip rule sets are kept. It
+	// is not configured: the session puts them beside the configuration file,
+	// which it can always write to.
+	RuleSetDir string `yaml:"-" json:"-"`
 }
 
-// EffectiveMode returns the normalized mode ("rule", "global", "direct"). Default is "direct".
+// EffectiveMode returns the normalized mode ("rule", "global", "direct").
+//
+// Rule is the default. With no proxy rules and no nodes it sends everything
+// direct, which is what a client used only for the gateway always did.
 func (c *Config) EffectiveMode() string {
-	if c.Mode == ModeGlobal || c.Mode == ModeRule {
+	if c.Mode == ModeGlobal || c.Mode == ModeDirect {
 		return c.Mode
 	}
-	return ModeDirect
+	return ModeRule
+}
+
+// GatewayConfigured reports whether a bundle has been named.
+func (c *Config) GatewayConfigured() bool { return c.Bundle != "" }
+
+// GatewayWanted reports whether the enterprise gateway should be part of the
+// engine when it runs.
+func (c *Config) GatewayWanted() bool { return c.GatewayConfigured() && !c.GatewayDisabled }
+
+// Clone returns a copy that shares nothing with c, so a handler can change it
+// without touching the configuration a running engine is reading.
+func (c *Config) Clone() *Config {
+	raw, err := json.Marshal(c)
+	if err != nil {
+		panic("client: configuration does not encode: " + err.Error())
+	}
+	var out Config
+	if err := json.Unmarshal(raw, &out); err != nil {
+		panic("client: configuration does not decode: " + err.Error())
+	}
+	out.RuleSetDir = c.RuleSetDir
+	return &out
 }
 
 // AuthConfig holds user credentials for server authentication.
@@ -152,6 +207,11 @@ type DNSConfig struct {
 	// A public resolver keeps names outside every tunnel off the local
 	// network, which is worth having where it is reachable.
 	Default string `yaml:"default,omitempty" json:"default,omitempty"`
+	// Remote resolves names that leave through a proxy node, and is itself
+	// reached through the proxy group. Resolving those names locally would
+	// tell the local network what is being visited and, where answers are
+	// tampered with, hand back an address the node cannot use.
+	Remote string `yaml:"remote,omitempty" json:"remote,omitempty"`
 	// Strategy is "prefer_ipv4", "prefer_ipv6", "ipv4_only" or "ipv6_only".
 	Strategy string `yaml:"strategy,omitempty" json:"strategy,omitempty"`
 }
@@ -188,8 +248,9 @@ type UIConfig struct {
 	LinkOwner string `yaml:"link_owner,omitempty" json:"link_owner,omitempty"`
 }
 
-// Rule routes matching traffic to a tunnel. Every matcher within one rule is
-// combined with OR, matching sing-box's own semantics.
+// Rule routes matching traffic. A gateway rule names a Tunnel; a proxy rule
+// names an Outbound. Name and address matchers within one rule are combined
+// with OR, matching sing-box's own semantics; port and process narrow them.
 // The JSON names must match the YAML ones: the interface reads and writes
 // rules over JSON and saves them back to the YAML file, so a mismatch would
 // silently replace a person's rules with empty ones the first time they
@@ -200,9 +261,21 @@ type Rule struct {
 	DomainKeyword []string `yaml:"domain_keyword,omitempty" json:"domain_keyword,omitempty"`
 	IPCIDR        []string `yaml:"ip_cidr,omitempty" json:"ip_cidr,omitempty"`
 	Port          []int    `yaml:"port,omitempty" json:"port,omitempty"`
+	// GeoSite and GeoIP name rule sets from SagerNet's sing-geosite and
+	// sing-geoip, such as "cn" or "geolocation-!cn". They are downloaded
+	// once and kept beside the configuration.
+	GeoSite []string `yaml:"geosite,omitempty" json:"geosite,omitempty"`
+	GeoIP   []string `yaml:"geoip,omitempty" json:"geoip,omitempty"`
+	// ProcessName matches the program that opened the connection, e.g.
+	// "chrome.exe". It needs the TUN interface; a proxy port cannot tell.
+	ProcessName []string `yaml:"process_name,omitempty" json:"process_name,omitempty"`
 
-	// Tunnel is a tunnel name, or "direct" or "block".
-	Tunnel string `yaml:"tunnel" json:"tunnel"`
+	// Tunnel is a gateway rule's target: a tunnel name, or "direct" or
+	// "block".
+	Tunnel string `yaml:"tunnel,omitempty" json:"tunnel,omitempty"`
+	// Outbound is a proxy rule's target: "proxy" (the selected node), "auto",
+	// "direct", "block", or one node's tag ("node-…").
+	Outbound string `yaml:"outbound,omitempty" json:"outbound,omitempty"`
 
 	// Disabled is whether this rule is currently inactive.
 	Disabled bool `yaml:"disabled,omitempty" json:"disabled,omitempty"`
@@ -264,14 +337,54 @@ func (c *Config) IsAutoRuleDisabled(tunnel, kind, value string) bool {
 
 // hasMatcher reports whether the rule matches anything at all.
 func (r Rule) hasMatcher() bool {
-	return len(r.Domain)+len(r.DomainSuffix)+len(r.DomainKeyword)+len(r.IPCIDR)+len(r.Port) > 0
+	return len(r.Domain)+len(r.DomainSuffix)+len(r.DomainKeyword)+len(r.IPCIDR)+len(r.Port)+
+		len(r.GeoSite)+len(r.GeoIP)+len(r.ProcessName) > 0
 }
 
 // hasDomainMatcher reports whether the rule selects by name. Only such rules
 // get a matching DNS rule, because only they are consulted before an address
 // is known.
 func (r Rule) hasDomainMatcher() bool {
-	return len(r.Domain)+len(r.DomainSuffix)+len(r.DomainKeyword) > 0
+	return len(r.Domain)+len(r.DomainSuffix)+len(r.DomainKeyword)+len(r.GeoSite) > 0
+}
+
+// ruleSetName is what a geosite or geoip name may be. It becomes part of a
+// file name and a download address, so nothing that could leave either.
+var ruleSetName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9!@._-]*$`)
+
+// IsNodeTarget reports whether a proxy rule's outbound names one node.
+func IsNodeTarget(target string) bool { return strings.HasPrefix(target, nodePrefix) }
+
+// validProxyTarget reports whether a proxy rule's outbound is one this client
+// knows how to route to. A node that has since disappeared still counts: a
+// subscription that dropped it should not make every rule unsaveable.
+func validProxyTarget(target string) bool {
+	switch target {
+	case TargetProxy, TargetAuto, TargetDirect, TargetBlock:
+		return true
+	}
+	return IsNodeTarget(target) && len(target) > len(nodePrefix)
+}
+
+// migrate moves what earlier clients kept in the wrong place. Rules pointing
+// at the proxy group or at a node were briefly written among the gateway's
+// rules; they are proxy rules, and are matched as such.
+func (c *Config) migrate() {
+	var kept []Rule
+	for _, r := range c.Rules {
+		if r.Tunnel == TargetProxy || IsNodeTarget(r.Tunnel) || strings.HasPrefix(r.Tunnel, "node:") {
+			r.Outbound = strings.Replace(r.Tunnel, "node:", nodePrefix, 1)
+			r.Tunnel = ""
+			r.Auto = false
+			c.ProxyRules = append(c.ProxyRules, r)
+			continue
+		}
+		kept = append(kept, r)
+	}
+	c.Rules = kept
+	if c.SelectedNode != "" && c.SelectedNode != TargetAuto && c.SelectedNode != TargetDirect && !IsNodeTarget(c.SelectedNode) {
+		c.SelectedNode = nodePrefix + c.SelectedNode
+	}
 }
 
 // EffectiveStack is the stack the TUN interface is built with.
@@ -333,6 +446,7 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	c.forgetSavedDefaults(runtime.GOOS)
+	c.migrate()
 	c.applyDefaults()
 	if err := c.Validate(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -354,6 +468,9 @@ func (c *Config) applyDefaults() {
 		// worse than one that is merely less private: it looks like the whole
 		// client is broken. Set dns.default to a DoH URL to change it.
 		c.DNS.Default = "local"
+	}
+	if c.DNS.Remote == "" {
+		c.DNS.Remote = "https://1.1.1.1/dns-query"
 	}
 	if c.DNS.Strategy == "" {
 		c.DNS.Strategy = "prefer_ipv4"
@@ -413,9 +530,6 @@ func DefaultStateDir() string {
 func (c *Config) Validate() error {
 	var errs []error
 
-	if c.Bundle == "" {
-		errs = append(errs, errors.New("bundle: the path to the server bundle is required"))
-	}
 	if !c.TUN.Enabled && !c.Proxy.Enabled {
 		errs = append(errs, errors.New("enable tun or proxy, otherwise there is no way for traffic to enter"))
 	}
@@ -452,21 +566,64 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	switch c.Mode {
+	case "", ModeRule, ModeGlobal, ModeDirect:
+	default:
+		errs = append(errs, fmt.Errorf("mode: want rule, global or direct, got %q", c.Mode))
+	}
+	if c.DNS.Remote != "" && c.DNS.Remote != "local" {
+		if _, err := parseDNSURL(c.DNS.Remote, tagDNSRemote, ""); err != nil {
+			errs = append(errs, fmt.Errorf("dns.remote: %w", err))
+		}
+	}
+
 	for i, r := range c.Rules {
 		where := fmt.Sprintf("rules[%d]", i)
 		if r.Tunnel == "" {
 			errs = append(errs, fmt.Errorf("%s: tunnel is required", where))
 		}
-		if !r.hasMatcher() {
-			// A rule with no matcher would silently capture everything or
-			// nothing depending on how it is compiled; neither is intended.
-			errs = append(errs, fmt.Errorf("%s: needs at least one of domain, domain_suffix, domain_keyword, ip_cidr or port", where))
+		errs = append(errs, r.validateMatchers(where)...)
+	}
+	for i, r := range c.ProxyRules {
+		where := fmt.Sprintf("proxy_rules[%d]", i)
+		if r.Outbound == "" {
+			errs = append(errs, fmt.Errorf("%s: outbound is required", where))
+		} else if !validProxyTarget(r.Outbound) {
+			errs = append(errs, fmt.Errorf("%s: outbound %q is not proxy, auto, direct, block or a node", where, r.Outbound))
 		}
-		for _, p := range r.Port {
-			if p < 1 || p > 65535 {
-				errs = append(errs, fmt.Errorf("%s: port %d is out of range", where, p))
-			}
+		errs = append(errs, r.validateMatchers(where)...)
+	}
+	ids := map[string]bool{}
+	for _, n := range c.AllNodes() {
+		if ids[n.ID] {
+			errs = append(errs, fmt.Errorf("nodes: id %q is used twice", n.ID))
 		}
+		ids[n.ID] = true
 	}
 	return errors.Join(errs...)
+}
+
+func (r Rule) validateMatchers(where string) []error {
+	var errs []error
+	if !r.hasMatcher() {
+		// A rule with no matcher would silently capture everything or
+		// nothing depending on how it is compiled; neither is intended.
+		errs = append(errs, fmt.Errorf("%s: needs at least one of domain, domain_suffix, domain_keyword, ip_cidr, port, geosite, geoip or process_name", where))
+	}
+	for _, p := range r.Port {
+		if p < 1 || p > 65535 {
+			errs = append(errs, fmt.Errorf("%s: port %d is out of range", where, p))
+		}
+	}
+	for _, cidr := range r.IPCIDR {
+		if _, _, err := net.ParseCIDR(cidr); err != nil && net.ParseIP(cidr) == nil {
+			errs = append(errs, fmt.Errorf("%s: %q is not an address or a CIDR range", where, cidr))
+		}
+	}
+	for _, name := range append(append([]string(nil), r.GeoSite...), r.GeoIP...) {
+		if !ruleSetName.MatchString(name) {
+			errs = append(errs, fmt.Errorf("%s: %q is not a rule set name", where, name))
+		}
+	}
+	return errs
 }

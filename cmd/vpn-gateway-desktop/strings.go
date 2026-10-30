@@ -9,7 +9,7 @@ import "fmt"
 var trayStrings = map[string]map[string]string{
 	"zh": {
 		"title":       "vpn-gateway",
-		"description": "多 VPN 分流网关",
+		"description": "sing-box 代理客户端与企业网关",
 
 		"open":       "打开控制台",
 		"connect":    "连接",
@@ -17,7 +17,7 @@ var trayStrings = map[string]map[string]string{
 		"quit":       "退出",
 
 		"status.setup":       "尚未配置",
-		"status.idle":        "未连接（%d 条隧道）",
+		"status.idle":        "未连接",
 		"status.connecting":  "连接中…",
 		"status.failed":      "连接失败",
 		"status.connected":   "已连接",
@@ -41,7 +41,7 @@ var trayStrings = map[string]map[string]string{
 	},
 	"en": {
 		"title":       "vpn-gateway",
-		"description": "Several VPNs at once, split by rule",
+		"description": "A sing-box client with an enterprise gateway",
 
 		"open":       "Open console",
 		"connect":    "Connect",
@@ -49,7 +49,7 @@ var trayStrings = map[string]map[string]string{
 		"quit":       "Quit",
 
 		"status.setup":       "Not set up yet",
-		"status.idle":        "Not connected (%d tunnels)",
+		"status.idle":        "Not connected",
 		"status.connecting":  "Connecting…",
 		"status.failed":      "Could not connect",
 		"status.connected":   "Connected",

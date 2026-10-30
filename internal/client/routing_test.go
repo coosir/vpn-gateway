@@ -52,8 +52,9 @@ func TestGeneratedConfigIsAcceptedBySingBox(t *testing.T) {
 	if len(parsed.Inbounds) != 2 {
 		t.Errorf("got %d inbounds, want tun and proxy", len(parsed.Inbounds))
 	}
-	// direct, block, and a trojan plus a selector per tunnel.
-	if want := 2 + 2*len(testTunnels()); len(parsed.Outbounds) != want {
+	// direct, block, a trojan plus a selector per tunnel, and the proxy
+	// group, which exists even with no nodes in it.
+	if want := 3 + 2*len(testTunnels()); len(parsed.Outbounds) != want {
 		t.Errorf("got %d outbounds, want %d", len(parsed.Outbounds), want)
 	}
 }
@@ -85,7 +86,7 @@ func (f *fullStack) setRecovered(name string) {
 
 func (f *fullStack) resync() {
 	f.t.Helper()
-	refreshed, err := f.client.fetch(context.Background())
+	refreshed, err := fetchTunnels(context.Background(), f.client.API(), nil, f.client.log)
 	if err != nil {
 		f.t.Fatal(err)
 	}

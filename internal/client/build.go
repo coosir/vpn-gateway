@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -29,6 +30,9 @@ const (
 	dnsPrefix = "dns-"
 
 	tagDNSDefault = "dns-default"
+	tagDNSRemote  = "dns-remote"
+	// tagAuto is the group that follows the fastest node.
+	tagAuto = "auto"
 )
 
 // TunnelState is what the client knows about one tunnel: its credentials from
@@ -70,16 +74,26 @@ func (t TunnelState) DNSTag() string {
 // The configuration is generated as JSON rather than assembled from sing-box's
 // option structs: JSON is the interface upstream documents, and a generated
 // file can be dumped verbatim when a routing decision needs explaining.
+//
+// A nil bundle leaves the enterprise gateway out entirely: no tunnels, none
+// of its rules. What remains is an ordinary proxy client.
 func BuildConfig(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState) ([]byte, error) {
+	gateway := bundle != nil
+	if !gateway {
+		tunnels = nil
+	}
 	byName := make(map[string]TunnelState, len(tunnels))
 	for _, t := range tunnels {
 		byName[t.Name] = t
 	}
-	if err := validateRuleTargets(cfg.Rules, byName, cfg); err != nil {
-		return nil, err
+	if gateway {
+		if err := validateRuleTargets(cfg.Rules, byName); err != nil {
+			return nil, err
+		}
 	}
 
-	outbounds, err := buildOutbounds(cfg, bundle, tunnels)
+	nodes := usableNodes(cfg)
+	outbounds, err := buildOutbounds(cfg, bundle, tunnels, nodes)
 	if err != nil {
 		return nil, err
 	}
@@ -87,17 +101,43 @@ func BuildConfig(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState) (
 	if err != nil {
 		return nil, err
 	}
-	dnsServers, err := buildDNSServers(cfg, tunnels)
+	remote := hasRemoteDNS(cfg, nodes)
+	dnsServers, err := buildDNSServers(cfg, tunnels, remote)
 	if err != nil {
 		return nil, err
 	}
 
-	routeRules := buildRouteRules(cfg, tunnels, byName)
-	dnsRules := buildDNSRules(cfg, tunnels, byName)
+	sets := &ruleSets{cfg: cfg, used: map[string]bool{}}
+	routeRules := buildRouteRules(cfg, gateway, tunnels, byName, nodes, sets)
+	dnsRules := buildDNSRules(cfg, tunnels, byName, sets, remote)
 
-	finalOutbound := tagDirect
+	finalOutbound, finalDNS := tagDirect, tagDNSDefault
 	if cfg.EffectiveMode() == ModeGlobal {
 		finalOutbound = tagProxy
+		if remote {
+			finalDNS = tagDNSRemote
+		}
+	}
+
+	route := map[string]any{
+		"rules": routeRules,
+		// Outbounds need to resolve their own server names, and must do
+		// so outside the tunnels they are dialing.
+		"default_domain_resolver": map[string]any{"server": tagDNSDefault},
+		"final":                   finalOutbound,
+		// Without this the connection to the vpn-gateway server would be
+		// captured by our own TUN routes and loop back into itself.
+		"auto_detect_interface": true,
+	}
+	if defs := sets.definitions(); len(defs) > 0 {
+		route["rule_set"] = defs
+	}
+	if name := cfg.TUN.OutboundInterface; name != "" {
+		// A named adapter instead of whichever holds the default route,
+		// which another program's virtual adapter may have taken. sing-box
+		// ignores default_interface while auto-detection is on.
+		route["auto_detect_interface"] = false
+		route["default_interface"] = name
 	}
 
 	out := map[string]any{
@@ -105,64 +145,75 @@ func BuildConfig(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState) (
 		"dns": map[string]any{
 			"servers":  dnsServers,
 			"rules":    dnsRules,
-			"final":    tagDNSDefault,
+			"final":    finalDNS,
 			"strategy": cfg.DNS.Strategy,
 		},
 		"inbounds":  inbounds,
 		"outbounds": outbounds,
-		"route": map[string]any{
-			"rules": routeRules,
-			// Outbounds need to resolve their own server names, and must do
-			// so outside the tunnels they are dialing.
-			"default_domain_resolver": map[string]any{"server": tagDNSDefault},
-			"final":                   finalOutbound,
-			// Without this the connection to the vpn-gateway server would be
-			// captured by our own TUN routes and loop back into itself.
-			"auto_detect_interface": true,
-		},
-	}
-	if name := cfg.TUN.OutboundInterface; name != "" {
-		// A named adapter instead of whichever holds the default route,
-		// which another program's virtual adapter may have taken. sing-box
-		// ignores default_interface while auto-detection is on.
-		route := out["route"].(map[string]any)
-		route["auto_detect_interface"] = false
-		route["default_interface"] = name
+		"route":     route,
 	}
 	return json.MarshalIndent(out, "", "  ")
 }
 
-func validateRuleTargets(rules []Rule, byName map[string]TunnelState, cfg *Config) error {
+// usableNodes is every node this build can dial. A node it cannot -- a
+// protocol left out of the build, an entry with no address -- is skipped
+// rather than allowed to stop the engine from starting.
+func usableNodes(cfg *Config) []CustomNode {
+	var out []CustomNode
+	for _, n := range cfg.AllNodes() {
+		if n.Unsupported() == "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// hasRemoteDNS reports whether names leaving through a proxy should be
+// resolved through it. With no node to go through there is nothing to gain,
+// and a public resolver dialed directly is exactly what is unreachable where
+// a proxy is needed.
+func hasRemoteDNS(cfg *Config, nodes []CustomNode) bool {
+	return len(nodes) > 0 && cfg.DNS.Remote != "" && cfg.DNS.Remote != "local"
+}
+
+// selectedOutbound is what the proxy group points at to begin with.
+func selectedOutbound(cfg *Config, nodes []CustomNode) string {
+	if len(nodes) == 0 {
+		return tagDirect
+	}
+	switch sel := cfg.SelectedNode; {
+	case sel == TargetDirect:
+		return tagDirect
+	case IsNodeTarget(sel):
+		for _, n := range nodes {
+			if n.OutboundTag() == sel {
+				return sel
+			}
+		}
+	}
+	// Nothing chosen, or a node a subscription update has since dropped.
+	return tagAuto
+}
+
+func validateRuleTargets(rules []Rule, byName map[string]TunnelState) error {
 	var unknown []string
 	for _, r := range rules {
 		if r.Disabled {
 			continue
 		}
 		switch r.Tunnel {
-		case TargetDirect, TargetBlock, TargetProxy:
+		case TargetDirect, TargetBlock:
 			continue
 		}
 		if _, ok := byName[r.Tunnel]; ok {
 			continue
-		}
-		if cfg != nil {
-			if _, ok := cfg.FindNode(r.Tunnel); ok {
-				continue
-			}
-			target := r.Tunnel
-			if strings.HasPrefix(target, "node-") || strings.HasPrefix(target, "node:") {
-				nodeID := strings.TrimPrefix(strings.TrimPrefix(target, "node:"), "node-")
-				if _, ok := cfg.FindNode(nodeID); ok {
-					continue
-				}
-			}
 		}
 		unknown = append(unknown, r.Tunnel)
 	}
 	if len(unknown) > 0 {
 		// Silently dropping the rule would send intranet traffic to the
 		// internet, so a typo has to be loud.
-		return fmt.Errorf("rules reference unknown tunnels or nodes: %s", strings.Join(dedupe(unknown), ", "))
+		return fmt.Errorf("gateway rules reference unknown tunnels: %s", strings.Join(dedupe(unknown), ", "))
 	}
 	return nil
 }
@@ -208,7 +259,7 @@ func buildInbounds(cfg *Config) ([]map[string]any, error) {
 	return inbounds, nil
 }
 
-func buildOutbounds(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState) ([]map[string]any, error) {
+func buildOutbounds(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState, nodes []CustomNode) ([]map[string]any, error) {
 	outbounds := []map[string]any{
 		{"type": "direct", "tag": tagDirect},
 		{"type": "block", "tag": tagBlock},
@@ -258,70 +309,42 @@ func buildOutbounds(cfg *Config, bundle *clientcfg.Bundle, tunnels []TunnelState
 		}
 	}
 
-	// Add custom and subscription nodes
-	allNodes := cfg.AllNodes()
-	var proxyTags []string
-	for _, n := range allNodes {
-		tag := n.OutboundTag()
-		proxyTags = append(proxyTags, tag)
-
-		sni := n.SNI
-		if sni == "" {
-			sni = n.Server
+	// The proxy group always exists, so a rule can name it whether or not
+	// there is anything in it yet. Empty, it goes direct.
+	members := []string{}
+	if len(nodes) > 0 {
+		tags := make([]string, 0, len(nodes))
+		for _, n := range nodes {
+			ob, err := n.Outbound()
+			if err != nil {
+				return nil, fmt.Errorf("node %s: %w", n.Name, err)
+			}
+			outbounds = append(outbounds, ob)
+			tags = append(tags, n.OutboundTag())
 		}
-		tls := map[string]any{"enabled": true, "server_name": sni}
-		if n.AllowInsecure {
-			tls["insecure"] = true
-		}
-
+		// auto follows whichever node answers fastest, and is where the
+		// group points until somebody picks one.
 		outbounds = append(outbounds, map[string]any{
-			"type":        "trojan",
-			"tag":         tag,
-			"server":      n.Server,
-			"server_port": n.Port,
-			"password":    n.Password,
-			"tls":         tls,
+			"type":      "urltest",
+			"tag":       tagAuto,
+			"outbounds": tags,
+			"url":       latencyURL,
+			"interval":  "10m",
+			"tolerance": 50,
 		})
+		members = append(append(members, tagAuto), tags...)
 	}
-
-	needsProxySelector := len(proxyTags) > 0 || cfg.EffectiveMode() == ModeGlobal
-	if !needsProxySelector {
-		for _, r := range cfg.Rules {
-			if r.Tunnel == TargetProxy {
-				needsProxySelector = true
-				break
-			}
-		}
-	}
-
-	if needsProxySelector {
-		if len(proxyTags) > 0 {
-			proxyOutbounds := append([]string(nil), proxyTags...)
-			proxyOutbounds = append(proxyOutbounds, tagDirect)
-			defaultOutbound := tagDirect
-			if cfg.SelectedNode != "" {
-				for _, pt := range proxyTags {
-					if pt == cfg.SelectedNode || pt == "node-"+cfg.SelectedNode || "node-"+pt == cfg.SelectedNode {
-						defaultOutbound = pt
-						break
-					}
-				}
-			}
-			outbounds = append(outbounds, map[string]any{
-				"type":      "selector",
-				"tag":       tagProxy,
-				"outbounds": proxyOutbounds,
-				"default":   defaultOutbound,
-			})
-		} else {
-			outbounds = append(outbounds, map[string]any{
-				"type":      "selector",
-				"tag":       tagProxy,
-				"outbounds": []string{tagDirect},
-				"default":   tagDirect,
-			})
-		}
-	}
+	members = append(members, tagDirect)
+	outbounds = append(outbounds, map[string]any{
+		"type":      "selector",
+		"tag":       tagProxy,
+		"outbounds": members,
+		"default":   selectedOutbound(cfg, nodes),
+		// Connections already open through the old choice are closed, so
+		// switching node takes effect for everything, not only what starts
+		// afterwards.
+		"interrupt_exist_connections": true,
+	})
 
 	return outbounds, nil
 }
@@ -356,7 +379,11 @@ func AutoRules(cfg *Config, tunnels []TunnelState) []Rule {
 	return auto
 }
 
-func buildRouteRules(cfg *Config, tunnels []TunnelState, byName map[string]TunnelState) []map[string]any {
+// buildRouteRules lays the rules out in the order they win: the enterprise
+// gateway's explicit rules, then the ones derived from what its tunnels
+// report, then -- in rule mode -- the proxy rules. Whatever is left goes to
+// route.final.
+func buildRouteRules(cfg *Config, gateway bool, tunnels []TunnelState, byName map[string]TunnelState, nodes []CustomNode, sets *ruleSets) []map[string]any {
 	rules := []map[string]any{
 		// Sniffing must come first: without a name extracted from the TLS
 		// handshake or HTTP request, traffic arriving on TUN is only an
@@ -371,10 +398,10 @@ func buildRouteRules(cfg *Config, tunnels []TunnelState, byName map[string]Tunne
 	// Explicit rules come before derived ones so a specific choice always
 	// beats an inferred one.
 	for _, r := range cfg.Rules {
-		if r.Disabled {
+		if !gateway || r.Disabled {
 			continue
 		}
-		if rule := compileRule(r, r.Tunnel, byName, cfg); rule != nil {
+		if rule := compileRule(r, gatewayTarget(r.Tunnel, byName), sets); rule != nil {
 			rules = append(rules, rule)
 		}
 	}
@@ -409,12 +436,63 @@ func buildRouteRules(cfg *Config, tunnels []TunnelState, byName map[string]Tunne
 			}
 		}
 	}
+
+	if cfg.EffectiveMode() == ModeRule {
+		for _, r := range cfg.ProxyRules {
+			if r.Disabled {
+				continue
+			}
+			if rule := compileRule(r, proxyTarget(r.Outbound, nodes), sets); rule != nil {
+				rules = append(rules, rule)
+			}
+		}
+	}
 	return rules
 }
 
-// compileRule turns one configured rule into a sing-box rule, or nil when it
-// matches nothing.
-func compileRule(r Rule, target string, byName map[string]TunnelState, cfg *Config) map[string]any {
+// gatewayTarget is the outbound a gateway rule sends to.
+func gatewayTarget(target string, byName map[string]TunnelState) string {
+	switch target {
+	case TargetDirect:
+		return tagDirect
+	case TargetBlock:
+		return tagBlock
+	}
+	if t, ok := byName[target]; ok {
+		return t.RouteTag()
+	}
+	return target
+}
+
+// proxyTarget is the outbound a proxy rule sends to. A node a subscription
+// update has dropped falls back to the proxy group: the rule meant "through
+// a proxy", and refusing to start over it would be worse.
+func proxyTarget(target string, nodes []CustomNode) string {
+	switch target {
+	case TargetDirect:
+		return tagDirect
+	case TargetBlock:
+		return tagBlock
+	case TargetAuto:
+		if len(nodes) > 0 {
+			return tagAuto
+		}
+		return tagProxy
+	case TargetProxy:
+		return tagProxy
+	}
+	for _, n := range nodes {
+		if n.OutboundTag() == target {
+			return target
+		}
+	}
+	return tagProxy
+}
+
+// compileRule turns one configured rule into a sing-box rule sending to
+// outbound, or nil when it matches nothing. A rule that matched only by rule
+// sets none of which could be downloaded matches nothing.
+func compileRule(r Rule, outbound string, sets *ruleSets) map[string]any {
 	if !r.hasMatcher() {
 		return nil
 	}
@@ -434,35 +512,57 @@ func compileRule(r Rule, target string, byName map[string]TunnelState, cfg *Conf
 	if len(r.Port) > 0 {
 		rule["port"] = r.Port
 	}
+	if len(r.ProcessName) > 0 {
+		rule["process_name"] = r.ProcessName
+	}
+	geo := len(r.GeoSite)+len(r.GeoIP) > 0
+	if tags := sets.use(r.ruleTags()); len(tags) > 0 {
+		rule["rule_set"] = tags
+	} else if geo && len(r.Domain)+len(r.DomainSuffix)+len(r.DomainKeyword)+len(r.IPCIDR) == 0 {
+		return nil
+	}
 
-	switch target {
-	case TargetBlock:
+	if outbound == tagBlock {
 		rule["action"] = "reject"
-	case TargetDirect:
-		rule["outbound"] = tagDirect
-	case TargetProxy:
-		rule["outbound"] = tagProxy
-	default:
-		if t, ok := byName[target]; ok {
-			rule["outbound"] = t.RouteTag()
-		} else if cfg != nil {
-			if n, ok := cfg.FindNode(target); ok {
-				rule["outbound"] = n.OutboundTag()
-			} else if strings.HasPrefix(target, "node-") || strings.HasPrefix(target, "node:") {
-				nodeID := strings.TrimPrefix(strings.TrimPrefix(target, "node:"), "node-")
-				if n, ok := cfg.FindNode(nodeID); ok {
-					rule["outbound"] = n.OutboundTag()
-				} else {
-					rule["outbound"] = "node-" + nodeID
-				}
-			} else {
-				rule["outbound"] = target
-			}
-		} else {
-			rule["outbound"] = target
-		}
+	} else {
+		rule["outbound"] = outbound
 	}
 	return rule
+}
+
+// ruleSets keeps track of which downloaded rule sets the rules use, so only
+// those are declared.
+type ruleSets struct {
+	cfg  *Config
+	used map[string]bool
+}
+
+// use returns the tags out of want that have been downloaded, and records
+// them as used.
+func (s *ruleSets) use(want []string) []string {
+	var ready []string
+	for _, tag := range want {
+		if s.cfg.ruleSetReady(tag) {
+			s.used[tag] = true
+			ready = append(ready, tag)
+		}
+	}
+	return ready
+}
+
+func (s *ruleSets) definitions() []map[string]any {
+	tags := make([]string, 0, len(s.used))
+	for tag := range s.used {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+	defs := make([]map[string]any, 0, len(tags))
+	for _, tag := range tags {
+		defs = append(defs, map[string]any{
+			"type": "local", "tag": tag, "format": "binary", "path": s.cfg.ruleSetPath(tag),
+		})
+	}
+	return defs
 }
 
 // buildDNSRules mirrors the routing rules.
@@ -470,8 +570,10 @@ func compileRule(r Rule, target string, byName map[string]TunnelState, cfg *Conf
 // This is the part that is easy to get wrong: an intranet name resolves only
 // through the VPN's own resolver, which is reachable only through that
 // tunnel. Routing the traffic without also routing the lookup leaves internal
-// names failing to resolve while everything looks correctly configured.
-func buildDNSRules(cfg *Config, tunnels []TunnelState, byName map[string]TunnelState) []map[string]any {
+// names failing to resolve while everything looks correctly configured. The
+// same holds for a name sent through a proxy node, which is looked up
+// through the node so the answer is one the node can use.
+func buildDNSRules(cfg *Config, tunnels []TunnelState, byName map[string]TunnelState, sets *ruleSets, remote bool) []map[string]any {
 	// Never nil: a nil slice marshals to null, and an empty list is both
 	// clearer to read and safer to feed back in.
 	rules := []map[string]any{}
@@ -481,24 +583,16 @@ func buildDNSRules(cfg *Config, tunnels []TunnelState, byName map[string]TunnelS
 			continue
 		}
 		switch r.Tunnel {
-		case TargetDirect, TargetBlock, TargetProxy:
+		case TargetDirect, TargetBlock:
 			continue
 		}
 		t, ok := byName[r.Tunnel]
 		if !ok || t.DNSTag() == "" {
 			continue
 		}
-		rule := map[string]any{"server": t.DNSTag()}
-		if len(r.Domain) > 0 {
-			rule["domain"] = r.Domain
+		if rule := dnsRule(r, t.DNSTag(), sets); rule != nil {
+			rules = append(rules, rule)
 		}
-		if len(r.DomainSuffix) > 0 {
-			rule["domain_suffix"] = r.DomainSuffix
-		}
-		if len(r.DomainKeyword) > 0 {
-			rule["domain_keyword"] = r.DomainKeyword
-		}
-		rules = append(rules, rule)
 	}
 
 	if cfg.AutoDomains {
@@ -520,11 +614,58 @@ func buildDNSRules(cfg *Config, tunnels []TunnelState, byName map[string]TunnelS
 			}
 		}
 	}
+
+	if remote && cfg.EffectiveMode() == ModeRule {
+		// Direct rules are mirrored too, in their place: a name a direct rule
+		// claims ahead of a proxy rule must not be resolved remotely because
+		// the proxy rule also matches it.
+		for _, r := range cfg.ProxyRules {
+			if r.Disabled || !r.hasDomainMatcher() || len(r.ProcessName) > 0 {
+				continue
+			}
+			server := tagDNSRemote
+			switch r.Outbound {
+			case TargetBlock:
+				continue
+			case TargetDirect:
+				server = tagDNSDefault
+			}
+			if rule := dnsRule(r, server, sets); rule != nil {
+				rules = append(rules, rule)
+			}
+		}
+	}
 	return rules
 }
 
-func buildDNSServers(cfg *Config, tunnels []TunnelState) ([]map[string]any, error) {
-	servers := make([]map[string]any, 0, len(tunnels)+1)
+// dnsRule is the name half of a rule, sending lookups to server. Addresses,
+// ports and processes say nothing about a lookup, so they are left out.
+func dnsRule(r Rule, server string, sets *ruleSets) map[string]any {
+	rule := map[string]any{"server": server}
+	if len(r.Domain) > 0 {
+		rule["domain"] = r.Domain
+	}
+	if len(r.DomainSuffix) > 0 {
+		rule["domain_suffix"] = r.DomainSuffix
+	}
+	if len(r.DomainKeyword) > 0 {
+		rule["domain_keyword"] = r.DomainKeyword
+	}
+	var geosite []string
+	for _, name := range r.GeoSite {
+		geosite = append(geosite, geositeTag(name))
+	}
+	if tags := sets.use(geosite); len(tags) > 0 {
+		rule["rule_set"] = tags
+	}
+	if len(rule) == 1 {
+		return nil
+	}
+	return rule
+}
+
+func buildDNSServers(cfg *Config, tunnels []TunnelState, remote bool) ([]map[string]any, error) {
+	servers := make([]map[string]any, 0, len(tunnels)+2)
 
 	for _, t := range tunnels {
 		if t.DNSTag() == "" {
@@ -553,7 +694,17 @@ func buildDNSServers(cfg *Config, tunnels []TunnelState) ([]map[string]any, erro
 	if err != nil {
 		return nil, err
 	}
-	return append(servers, def), nil
+	servers = append(servers, def)
+
+	if remote {
+		// Through the proxy group, so it follows whichever node is chosen.
+		r, err := parseDNSURL(cfg.DNS.Remote, tagDNSRemote, tagProxy)
+		if err != nil {
+			return nil, fmt.Errorf("dns.remote: %w", err)
+		}
+		servers = append(servers, r)
+	}
+	return servers, nil
 }
 
 // DNSNS returns the resolver address to use for this tunnel.

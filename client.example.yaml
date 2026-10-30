@@ -3,9 +3,22 @@
 # Validate with:  vpn-gateway -config client.yaml check
 # Inspect with:   vpn-gateway -config client.yaml config
 
+# This client is two things sharing one routing engine: an ordinary sing-box
+# proxy client (nodes, subscriptions, proxy_rules) and the enterprise gateway
+# (bundle, auth, rules). Traffic is matched against the gateway's rules first,
+# then proxy_rules, and whatever is left goes direct (or through the proxy in
+# global mode).
+
+# --- enterprise gateway --------------------------------------------------
+
 # The bundle produced on the server by `vgctl client-config`. It carries the
-# server address, the certificate to pin, and one password per tunnel.
+# server address, the certificate to pin, and one password per tunnel. Leave
+# it out to use the client as an ordinary proxy client only.
 bundle: /etc/vpn-gateway/client.json
+
+# Switches the gateway off and keeps everything above, so switching it back
+# on is one step.
+# gateway_disabled: true
 
 # User credentials if authentication is configured on the server.
 auth:
@@ -69,6 +82,8 @@ dns:
   # resolver that times out looks like the whole client is broken.
   default: local
   # default: https://1.1.1.1/dns-query
+  # Names sent through a proxy node are resolved with this, through the node.
+  remote: https://1.1.1.1/dns-query
   strategy: prefer_ipv4
 
 # What happens to traffic for a tunnel that is not up.
@@ -110,5 +125,48 @@ rules:
   # - domain_suffix: [staging.corp]
   #   tunnel: office
   #   disabled: true
+
+# --- proxy client --------------------------------------------------------
+
+# rule follows proxy_rules, global sends everything the gateway does not claim
+# through the proxy, direct sends it all out directly.
+mode: rule
+
+# Nodes are usually added from the interface: paste share links (vless://,
+# vmess://, ss://, trojan://, hy2://, tuic://, anytls://, socks://) or a
+# subscription URL. They can be written here too.
+# custom_nodes:
+#   - id: hk1
+#     name: Hong Kong
+#     type: vless
+#     server: hk.example.com
+#     port: 443
+#     uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+#     flow: xtls-rprx-vision
+#     reality_public_key: jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0
+#     reality_short_id: "01"
+#
+# subscriptions:
+#   - id: airport
+#     name: My provider
+#     url: https://example.com/api/v1/client/subscribe?token=...
+#     auto_update: true
+#     update_hours: 24
+
+# What the proxy group points at: empty or auto for the fastest node, direct,
+# or node-<id>.
+# selected_node: node-hk1
+
+# Matched in order, after every gateway rule. outbound is proxy, auto, direct,
+# block, or node-<id>. geosite and geoip name SagerNet's rule sets.
+proxy_rules:
+  - ip_cidr: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+    outbound: direct
+  - geosite: [cn]
+    outbound: direct
+  - geosite: [geolocation-!cn]
+    outbound: proxy
+  - geoip: [cn]
+    outbound: direct
 
 log_level: warn
