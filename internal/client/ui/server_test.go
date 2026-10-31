@@ -53,6 +53,39 @@ func (f *fakeController) Settings() *client.Config {
 // engine, and every handler has to cope with nothing being connected.
 func (f *fakeController) Client() *client.Client { return nil }
 
+func (f *fakeController) SetRequestLogging(enabled bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cfg.RequestLog = enabled
+	f.rev++
+	return nil
+}
+
+func TestRequestLogAPIRequiresTokenAndTogglesWithoutEngine(t *testing.T) {
+	srv := New(&fakeController{cfg: &client.Config{}}, "", "secret", slog.Default())
+	request := func(method, path, token, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		response := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(response, req)
+		return response
+	}
+	if got := request(http.MethodGet, "/api/request-log", "", "").Code; got != http.StatusUnauthorized {
+		t.Fatalf("unauthorized request log returned %d", got)
+	}
+	if got := request(http.MethodPut, "/api/request-log", "secret", `{"enabled":true}`).Code; got != http.StatusOK {
+		t.Fatalf("enable request log returned %d", got)
+	}
+	if response := request(http.MethodGet, "/api/request-log", "secret", ""); !strings.Contains(response.Body.String(), `"enabled":true`) || !strings.Contains(response.Body.String(), `"entries":[]`) {
+		t.Fatalf("request log response: %s", response.Body.String())
+	}
+	if got := request(http.MethodDelete, "/api/request-log", "secret", "").Code; got != http.StatusOK {
+		t.Fatalf("clear request log returned %d", got)
+	}
+}
+
 func (f *fakeController) ImportBundle(raw []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

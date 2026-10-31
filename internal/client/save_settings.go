@@ -14,6 +14,7 @@ var settingsKeys = []string{
 	"auto_routes", "auto_domains", "rules", "disabled_auto_rules", "ui", "log_level",
 	"gateway_disabled", "mode", "proxy_rules",
 	"subscriptions", "custom_nodes", "selected_node",
+	"request_log",
 }
 
 // SaveSettings writes a configuration back, replacing only the keys the

@@ -107,6 +107,8 @@ type Config struct {
 
 	// LogLevel is sing-box's log level.
 	LogLevel string `yaml:"log_level,omitempty"`
+	// RequestLog enables the in-memory, bounded request viewer.
+	RequestLog bool `yaml:"request_log,omitempty" json:"request_log,omitempty"`
 
 	// RuleSetDir is where downloaded geosite and geoip rule sets are kept. It
 	// is not configured: the session puts them beside the configuration file,

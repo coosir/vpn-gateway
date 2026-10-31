@@ -437,6 +437,9 @@ func (s *Session) Connect(ctx context.Context) error {
 	}
 
 	s.mu.Lock()
+	// A request-log switch can arrive while newEngine is still starting.
+	// Apply the latest setting before publishing the new client.
+	c.SetRequestLogging(s.cfg.RequestLog)
 	s.setClient(c, cancel)
 	s.setPhase(PhaseConnected, nil)
 	switch {
@@ -729,6 +732,33 @@ func (s *Session) Remember(next *Config) error {
 	s.rev++
 	s.mu.Unlock()
 	return s.save()
+}
+
+// SetRequestLogging changes collection without interrupting active connections.
+func (s *Session) SetRequestLogging(enabled bool) error {
+	previous := s.Settings()
+	next := previous.Clone()
+	next.RequestLog = enabled
+	// A failed write must not leave a live recorder collecting after someone
+	// asked to turn it off.
+	if !enabled {
+		if c := s.Client(); c != nil {
+			c.SetRequestLogging(false)
+		}
+	}
+	if err := s.Remember(next); err != nil {
+		if enabled {
+			s.mu.Lock()
+			s.cfg = previous
+			s.rev++
+			s.mu.Unlock()
+		}
+		return err
+	}
+	if c := s.Client(); c != nil {
+		c.SetRequestLogging(enabled)
+	}
+	return nil
 }
 
 // updateSubscriptions fetches auto-updating subscriptions when they are due,

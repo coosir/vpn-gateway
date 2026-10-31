@@ -999,6 +999,17 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--primary)
   .prule { grid-template-columns: 1fr; }
   .prule .prule-idx { display: none; }
 }
+.request-list { display:grid; gap:8px; margin-top:14px; }
+.request-row { display:grid; grid-template-columns:88px minmax(180px,1fr) 100px 150px 86px; gap:12px; align-items:center; padding:12px 14px; border:1px solid var(--hair); background:var(--card-bg); border-radius:var(--radius); font-size:12px; }
+.request-row b { font-size:13px; overflow-wrap:anywhere; }
+.request-row .request-detail { grid-column:1/-1; border-top:1px solid var(--hair); padding-top:9px; color:var(--dim); line-height:1.8; overflow-wrap:anywhere; }
+.request-row { cursor:pointer; }
+.request-row:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+.request-row .request-detail[hidden] { display:none; }
+.request-row .request-detail strong { color:var(--ink); }
+.request-status[data-status="blocked"], .request-status[data-status="failed"] { color:var(--down); }
+.request-empty { padding:35px 12px; text-align:center; color:var(--dim); border:1px dashed var(--hair-firm); border-radius:var(--radius); }
+@media(max-width:800px) { .request-row { grid-template-columns:70px minmax(130px,1fr) 90px; } .request-row .request-route, .request-row .request-status { display:none; } }
 </style>
 </head>
 <body>
@@ -1049,6 +1060,10 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--primary)
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 4l2.29 2.29-2.88 2.88 1.42 1.42 2.88-2.88L20 10V4h-6zm-4 0H4v6l2.29-2.29 4.71 4.7V20h2v-8.41l-5.29-5.3L10 4z"/></svg>
         <span data-i18n="nav.proxyRules"></span>
         <span class="count" id="c-proxy-rules"></span>
+      </button>
+      <button data-pane="requests">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h18v2H3zm0 5h12v2H3zm0 5h18v2H3zm0 5h12v2H3z"/></svg>
+        <span data-i18n="nav.requests"></span>
       </button>
 
       <div class="rail-group-title"><span data-i18n="nav.gatewayGroup"></span><span class="gw-dot" id="rail-gw-dot"></span></div>
@@ -1446,6 +1461,21 @@ details.more > summary { cursor: pointer; font-size: 12px; color: var(--primary)
           <button class="act quiet" id="revert-rules" data-i18n="rules.revert"></button>
           <span class="note" id="rules-note"></span>
         </div>
+      </section>
+
+      <section class="pane" id="pane-requests" hidden>
+        <div class="pane-header">
+          <h2 data-i18n="requests.title"></h2>
+          <p class="sub" data-i18n="requests.sub"></p>
+        </div>
+        <div class="toolbar" style="margin:0 0 14px; flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:7px"><input type="checkbox" id="requests-enabled"> <span data-i18n="requests.enable"></span></label>
+          <input id="requests-filter" type="search" data-i18n-ph="requests.filter" style="max-width:220px">
+          <button class="act" id="requests-refresh" data-i18n="requests.refresh"></button>
+          <button class="act quiet" id="requests-clear" data-i18n="requests.clear"></button>
+          <span class="note" id="requests-note"></span>
+        </div>
+        <div id="request-list" class="request-list"></div>
       </section>
 
       <!-- ================= 5. 运行日志 (LOGS) ================= -->
@@ -1874,6 +1904,12 @@ const STRINGS = {
     "nav.overviewGroup": "概览", "nav.systemGroup": "系统",
     "nav.home": "首页", "nav.tunnels": "隧道管理", "nav.nodes": "节点与订阅",
     "nav.rules": "网关规则", "nav.logs": "隧道日志", "nav.settings": "客户端设置",
+    "nav.requests": "请求查看器",
+    "requests.title": "最近请求", "requests.sub": "查看请求目标、命中规则和实际出口。仅在开启后记录，最多保留 500 条。",
+    "requests.enable": "记录请求", "requests.filter": "搜索目标、规则或出口", "requests.refresh": "刷新", "requests.clear": "清空",
+    "requests.empty": "暂无请求记录。开启记录后，新请求会显示在这里。", "requests.off": "记录已关闭。", "requests.error": "操作失败：%s",
+    "requests.final": "默认规则", "requests.blocked": "已拦截", "requests.failed": "失败", "requests.routed": "已路由",
+    "requests.process": "进程", "requests.inbound": "入口", "requests.rule": "匹配规则", "requests.outbound": "出口", "requests.domain": "域名",
     "nav.config": "运行配置",
 
     "bar.tunnels": "隧道", "bar.ingress": "入口", "bar.onfail": "故障处理",
@@ -2144,6 +2180,12 @@ const STRINGS = {
     "nav.overviewGroup": "Overview", "nav.systemGroup": "System",
     "nav.home": "Home", "nav.tunnels": "Tunnels", "nav.nodes": "Nodes & Subs",
     "nav.rules": "Gateway Rules", "nav.logs": "Tunnel Logs", "nav.settings": "Settings",
+    "nav.requests": "Request Viewer",
+    "requests.title": "Recent Requests", "requests.sub": "Inspect destinations, matching rules and selected outbounds. Keeps up to 500 requests while enabled.",
+    "requests.enable": "Record requests", "requests.filter": "Search destination, rule or outbound", "requests.refresh": "Refresh", "requests.clear": "Clear",
+    "requests.empty": "No requests recorded. Enable recording to see new requests here.", "requests.off": "Recording is off.", "requests.error": "Operation failed: %s",
+    "requests.final": "Default rule", "requests.blocked": "Blocked", "requests.failed": "Failed", "requests.routed": "Routed",
+    "requests.process": "Process", "requests.inbound": "Inbound", "requests.rule": "Matched rule", "requests.outbound": "Outbound", "requests.domain": "Domain",
     "nav.config": "Engine Config",
 
     "bar.tunnels": "Tunnels", "bar.ingress": "Ingress", "bar.onfail": "On Failure",
@@ -2504,6 +2546,7 @@ function showPane(name) {
   if (name === "gateway") { renderGateway(state); fillGatewaySettings(); }
   if (name === "config") loadGeneratedConfig();
   if (name === "logs" && $("log-tunnel").value) loadLogs();
+  if (name === "requests") loadRequests();
   if (name === "settings") fillSettings();
 }
 
@@ -4147,6 +4190,102 @@ function renderLogTunnels(tunnels) {
   });
   if (keep) sel.value = keep;
 }
+
+let requestEntries = [];
+let requestRendered = false;
+const expandedRequests = new Set();
+async function loadRequests() {
+  try {
+    const data = await (await api("/api/request-log")).json();
+    $("requests-enabled").checked = !!data.enabled;
+    const nextEntries = data.entries || [];
+    if (!requestRendered || JSON.stringify(nextEntries) !== JSON.stringify(requestEntries)) {
+      requestEntries = nextEntries;
+      requestRendered = true;
+      renderRequests();
+    }
+    $("requests-note").textContent = data.enabled ? "" : t("requests.off");
+    $("requests-note").className = "note";
+  } catch (e) {
+    $("requests-note").textContent = t("requests.error", e.message);
+    $("requests-note").className = "note bad";
+  }
+}
+function renderRequests() {
+  const list = $("request-list");
+  list.replaceChildren();
+  const currentKeys = new Set(requestEntries.map((entry) => entry.time + "|" + entry.destination));
+  for (const key of expandedRequests) if (!currentKeys.has(key)) expandedRequests.delete(key);
+  const query = $("requests-filter").value.trim().toLowerCase();
+  const visible = requestEntries.filter((entry) =>
+    [entry.destination, entry.domain, entry.rule, entry.outbound, entry.process, entry.inbound].some((value) =>
+      (value || "").toLowerCase().includes(query)));
+  if (!visible.length) {
+    list.appendChild(el("div", "request-empty", t("requests.empty")));
+    return;
+  }
+  for (const entry of visible) {
+    const row = el("div", "request-row");
+    const key = entry.time + "|" + entry.destination;
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.setAttribute("aria-expanded", String(expandedRequests.has(key)));
+    const when = new Date(entry.time);
+    row.appendChild(el("span", "", when.toLocaleTimeString()));
+    row.appendChild(el("b", "", entry.destination));
+    row.appendChild(el("span", "", entry.network));
+    row.appendChild(el("span", "request-route", entry.outbound || "—"));
+    const status = el("span", "request-status", t("requests." + entry.status));
+    status.dataset.status = entry.status;
+    row.appendChild(status);
+    const detail = el("div", "request-detail");
+    detail.hidden = !expandedRequests.has(key);
+    const fields = [
+      ["requests.domain", entry.domain || "—"],
+      ["requests.rule", entry.rule === "final" ? t("requests.final") : entry.rule],
+      ["requests.outbound", entry.outbound || "—"],
+      ["requests.inbound", entry.inbound || "—"],
+      ["requests.process", entry.process || "—"],
+    ];
+    for (const [label, value] of fields) {
+      const line = el("div");
+      line.appendChild(el("strong", "", t(label) + "："));
+      line.appendChild(document.createTextNode(value));
+      detail.appendChild(line);
+    }
+    row.appendChild(detail);
+    const toggle = () => {
+      if (expandedRequests.has(key)) expandedRequests.delete(key);
+      else expandedRequests.add(key);
+      detail.hidden = !expandedRequests.has(key);
+      row.setAttribute("aria-expanded", String(!detail.hidden));
+    };
+    row.addEventListener("click", toggle);
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); }
+    });
+    list.appendChild(row);
+  }
+}
+$("requests-filter").addEventListener("input", renderRequests);
+$("requests-refresh").addEventListener("click", loadRequests);
+$("requests-enabled").addEventListener("change", async (event) => {
+  const enabled = event.target.checked;
+  event.target.disabled = true;
+  try {
+    await api("/api/request-log", { method: "PUT", body: JSON.stringify({ enabled }) });
+    await loadRequests();
+  } catch (e) {
+    event.target.checked = !enabled;
+    $("requests-note").textContent = t("requests.error", e.message);
+    $("requests-note").className = "note bad";
+  } finally { event.target.disabled = false; }
+});
+$("requests-clear").addEventListener("click", async () => {
+  try { await api("/api/request-log", { method: "DELETE" }); await loadRequests(); }
+  catch (e) { $("requests-note").textContent = t("requests.error", e.message); $("requests-note").className = "note bad"; }
+});
+setInterval(() => { if (currentPane() === "requests" && !$("requests-enabled").disabled) loadRequests(); }, 2000);
 
 async function loadLogs() {
   const name = $("log-tunnel").value;

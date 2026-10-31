@@ -80,6 +80,7 @@ type Client struct {
 	// ruleSetErrors says why each rule set the rules name could not be
 	// downloaded. Rules using one are left out until it can be.
 	ruleSetErrors map[string]string
+	requests      *RequestLog
 }
 
 // ErrNoCredentials means the gateway has no username or password to sign in
@@ -127,6 +128,7 @@ func New(ctx context.Context, cfg *Config, bundle *clientcfg.Bundle, log *slog.L
 		cfg:      cfg,
 		log:      log,
 		selected: map[string]string{},
+		requests: NewRequestLog(cfg.RequestLog),
 	}
 	if bundle != nil {
 		api, tunnels, err := c.login(ctx, cfg, bundle)
@@ -316,7 +318,7 @@ func (c *Client) start() error {
 		if err := singjson.UnmarshalContext(boxCtx, raw, &parsed); err != nil {
 			return fmt.Errorf("the generated configuration was rejected: %w", err)
 		}
-		instance, err := box.New(box.Options{Context: boxCtx, Options: parsed})
+		instance, err := box.New(box.Options{Context: boxCtx, Options: parsed, PlatformLogWriter: c.requests})
 		if err != nil {
 			return fmt.Errorf("build the routing engine: %w", err)
 		}
@@ -529,7 +531,7 @@ func (c *Client) reload(ctx context.Context, cfg *Config) error {
 			if err := singjson.UnmarshalContext(boxCtx, rawCfg, &parsed); err != nil {
 				return nil, fmt.Errorf("the new configuration was rejected: %w", err)
 			}
-			inst, err := box.New(box.Options{Context: boxCtx, Options: parsed})
+			inst, err := box.New(box.Options{Context: boxCtx, Options: parsed, PlatformLogWriter: c.requests})
 			if err != nil {
 				return nil, fmt.Errorf("the new configuration could not be built: %w", err)
 			}
@@ -570,6 +572,7 @@ func (c *Client) reload(ctx context.Context, cfg *Config) error {
 		c.selected[t.RouteTag()] = c.wantedOutbound(t)
 	}
 	c.mu.Unlock()
+	c.requests.Enable(cfg.RequestLog)
 
 	c.log.Info("configuration reloaded", "rules", len(cfg.Rules), "proxy_rules", len(cfg.ProxyRules), "tunnels", len(tunnels))
 	return nil
@@ -580,6 +583,26 @@ func (c *Client) Settings() *Config {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.cfg
+}
+
+// Requests is the running engine's bounded request viewer.
+func (c *Client) Requests() *RequestLog { return c.requests }
+
+// SetRequestLogging updates the running setting without rebuilding the engine.
+// Keeping cfg in step matters when a later rule or tunnel reload uses it.
+func (c *Client) SetRequestLogging(enabled bool) {
+	c.reloadMu.Lock()
+	defer c.reloadMu.Unlock()
+	c.mu.Lock()
+	if c.cfg != nil {
+		next := *c.cfg
+		next.RequestLog = enabled
+		c.cfg = &next
+	}
+	c.mu.Unlock()
+	if c.requests != nil {
+		c.requests.Enable(enabled)
+	}
 }
 
 // AttachGateway logs in to the gateway's server and adds its tunnels and

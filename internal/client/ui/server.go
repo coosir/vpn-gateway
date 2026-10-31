@@ -61,6 +61,7 @@ type Controller interface {
 	// Remember saves a change the running engine already reflects, without
 	// rebuilding it.
 	Remember(cfg *client.Config) error
+	SetRequestLogging(enabled bool) error
 	// SetGatewayEnabled is the enterprise gateway's own switch.
 	SetGatewayEnabled(ctx context.Context, on bool) error
 	// UpdateSubscription fetches one subscription again and applies it.
@@ -142,6 +143,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /", files)
 
 	mux.HandleFunc("GET /api/state", s.auth(s.getState))
+	mux.HandleFunc("GET /api/request-log", s.auth(s.getRequestLog))
+	mux.HandleFunc("PUT /api/request-log", s.auth(s.putRequestLog))
+	mux.HandleFunc("DELETE /api/request-log", s.auth(s.clearRequestLog))
 	mux.HandleFunc("GET /api/events", s.auth(s.streamEvents))
 	mux.HandleFunc("GET /api/rules", s.auth(s.getRules))
 	mux.HandleFunc("PUT /api/rules", s.auth(s.putRules))
@@ -221,6 +225,7 @@ type State struct {
 	Mode          string            `json:"mode"`
 	Version       string            `json:"version"`
 	IsAdmin       bool              `json:"is_admin"`
+	RequestLog    bool              `json:"request_log"`
 }
 
 // NodeView is a node as the interface lists it: the node, and whether this
@@ -356,6 +361,7 @@ func (s *Server) state() State {
 		Mode:          cfg.EffectiveMode(),
 		Version:       version.Full(),
 		IsAdmin:       isAdmin,
+		RequestLog:    cfg.RequestLog,
 		Client: ClientView{
 			TUN:                  cfg.TUN.Enabled,
 			TUNStack:             cfg.TUN.Stack,
